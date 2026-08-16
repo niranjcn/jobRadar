@@ -31,7 +31,7 @@ jobs:
   backend-integration:
     name: Backend (API tests, needs Supabase)
     runs-on: ubuntu-latest
-    if: ${{ vars.RUN_API_TESTS == 'true' && secrets.SUPABASE_KEY != '' }}
+    if: ${{ vars.RUN_API_TESTS == 'true' }}
     defaults:
       run:
         working-directory: backend
@@ -44,11 +44,15 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
       - name: API tests
+        if: ${{ secrets.SUPABASE_URL != '' && secrets.SUPABASE_KEY != '' && secrets.DATABASE_URL != '' }}
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python -m pytest tests/test_api.py -q
+      - name: Skip notice
+        if: ${{ secrets.SUPABASE_URL == '' || secrets.SUPABASE_KEY == '' || secrets.DATABASE_URL == '' }}
+        run: echo "Skipping API tests - set SUPABASE_URL, SUPABASE_KEY, and DATABASE_URL repo secrets"
 
   frontend:
     name: Frontend (vitest)
