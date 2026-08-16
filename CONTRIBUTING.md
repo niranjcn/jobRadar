@@ -97,7 +97,13 @@ A PR should state:
 - **How** it was tested
 - Any **migration/config** requirements
 
-Keep PRs reviewable — if a change is large, split it into smaller ones.
+Keep PRs reviewable — one logical change per PR; if a change is large, split it
+into smaller ones.
+
+`main` is branch-protected: direct pushes are disallowed, so every change lands
+via a PR. CI (`.github/workflows/ci.yml`) runs lint, formatting, and tests on
+every PR and must pass before merge. `.github/CODEOWNERS` auto-requests
+reviewers based on changed files.
 
 ## Security
 
