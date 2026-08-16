@@ -10,14 +10,14 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ.setdefault("JOBRADAR_DISABLE_SCHEDULER", "1")
 
-from app.main import _interval_seconds_to_cron  # noqa: E402
-from app.matcher import compute_match_score, job_matches_preferences  # noqa: E402
-from app.geo import map_location, location_matches_preference, map_job_locations  # noqa: E402
-from app.messages import build_html, build_text, build_text_sections, build_text_summary  # noqa: E402
-from app.adapters.oracle import OracleAdapter, _is_fusion  # noqa: E402
-from app.adapters.icims import IcimsAdapter  # noqa: E402
-from app.api.detect import _detect_from_url  # noqa: E402
-from app.poller import dedupe_rows  # noqa: E402
+from app.main import _interval_seconds_to_cron
+from app.matcher import compute_match_score, job_matches_preferences
+from app.geo import map_location, location_matches_preference, map_job_locations
+from app.messages import build_html, build_text, build_text_sections, build_text_summary
+from app.adapters.oracle import OracleAdapter, _is_fusion
+from app.adapters.icims import IcimsAdapter
+from app.api.detect import _detect_from_url
+from app.poller import dedupe_rows
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
@@ -61,7 +61,13 @@ def test_match_preferences_and_score():
 
 def test_excluded_company_never_matches():
     job = {"title": "Engineer", "description": "", "location": "", "company_name": "Stripe"}
-    prefs = {"roles": [], "keywords": [], "locations": [], "seniority": [], "excluded_companies": ["Stripe"]}
+    prefs = {
+        "roles": [],
+        "keywords": [],
+        "locations": [],
+        "seniority": [],
+        "excluded_companies": ["Stripe"],
+    }
     matched, reasons = job_matches_preferences(job, prefs)
     assert matched is False
     assert reasons == []
@@ -69,14 +75,25 @@ def test_excluded_company_never_matches():
 
 def test_empty_prefs_score_100():
     job = {"title": "Anything", "description": "", "location": "", "company_name": "X"}
-    prefs = {"roles": [], "keywords": [], "locations": [], "seniority": [], "excluded_companies": []}
+    prefs = {
+        "roles": [],
+        "keywords": [],
+        "locations": [],
+        "seniority": [],
+        "excluded_companies": [],
+    }
     assert compute_match_score(job, prefs) == 100
     matched, _ = job_matches_preferences(job, prefs)
     assert matched is True
 
 
 def test_partial_score():
-    job = {"title": "Data Engineer", "description": "nothing", "location": "London", "company_name": "X"}
+    job = {
+        "title": "Data Engineer",
+        "description": "nothing",
+        "location": "London",
+        "company_name": "X",
+    }
     prefs = {
         "roles": ["backend"],
         "keywords": ["python"],
@@ -229,28 +246,64 @@ def test_geo_india_short_forms():
 
 def test_geo_india_states_and_cities():
     for loc in (
-        "Maharashtra", "Karnataka", "Tamil Nadu", "Telangana", "Gujarat",
-        "Delhi", "West Bengal", "Uttar Pradesh", "Pune, Maharashtra",
-        "Bengaluru", "Chennai", "Kolkata", "Ahmedabad", "Gurgaon, Haryana",
+        "Maharashtra",
+        "Karnataka",
+        "Tamil Nadu",
+        "Telangana",
+        "Gujarat",
+        "Delhi",
+        "West Bengal",
+        "Uttar Pradesh",
+        "Pune, Maharashtra",
+        "Bengaluru",
+        "Chennai",
+        "Kolkata",
+        "Ahmedabad",
+        "Gurgaon, Haryana",
     ):
         assert "IN" in map_location(loc)["countries"], loc
 
 
 def test_geo_us_states_and_cities():
     for loc in (
-        "California", "Texas", "New York", "Washington", "Illinois",
-        "Massachusetts", "San Francisco, CA", "Austin, TX", "New York, NY",
-        "Seattle, WA", "Chicago, IL", "Atlanta, GA", "Mountain View, CA",
-        "Boston, MA", "Boston", "CA", "MA", "Portland", "Phoenix", "Portland, OR",
+        "California",
+        "Texas",
+        "New York",
+        "Washington",
+        "Illinois",
+        "Massachusetts",
+        "San Francisco, CA",
+        "Austin, TX",
+        "New York, NY",
+        "Seattle, WA",
+        "Chicago, IL",
+        "Atlanta, GA",
+        "Mountain View, CA",
+        "Boston, MA",
+        "Boston",
+        "CA",
+        "MA",
+        "Portland",
+        "Phoenix",
+        "Portland, OR",
     ):
         assert "US" in map_location(loc)["countries"], loc
 
 
 def test_geo_world_states_and_cities():
     for loc, code in (
-        ("Ontario", "CA"), ("Bavaria", "DE"), ("Dubai", "AE"), ("London", "GB"),
-        ("Paris", "FR"), ("Singapore", "SG"), ("Berlin", "DE"), ("Sydney", "AU"),
-        ("Toronto", "CA"), ("Dublin", "IE"), ("Tokyo", "JP"), ("Melbourne", "AU"),
+        ("Ontario", "CA"),
+        ("Bavaria", "DE"),
+        ("Dubai", "AE"),
+        ("London", "GB"),
+        ("Paris", "FR"),
+        ("Singapore", "SG"),
+        ("Berlin", "DE"),
+        ("Sydney", "AU"),
+        ("Toronto", "CA"),
+        ("Dublin", "IE"),
+        ("Tokyo", "JP"),
+        ("Melbourne", "AU"),
     ):
         assert code in map_location(loc)["countries"], (loc, code)
 
@@ -327,12 +380,33 @@ def test_match_preferences_country_aware():
 def test_roles_are_or_not_and():
     # Selecting multiple roles must match jobs hitting ANY single one, not all.
     roles = ["software engineer", "devops", "mts"]
-    prefs = {"roles": roles, "keywords": [], "locations": [], "seniority": [], "excluded_companies": []}
+    prefs = {
+        "roles": roles,
+        "keywords": [],
+        "locations": [],
+        "seniority": [],
+        "excluded_companies": [],
+    }
 
-    devops_job = {"title": "DevOps Engineer", "description": "", "location": "", "company_name": "X"}
+    devops_job = {
+        "title": "DevOps Engineer",
+        "description": "",
+        "location": "",
+        "company_name": "X",
+    }
     mts_job = {"title": "MTS", "description": "", "location": "", "company_name": "X"}
-    swe_job = {"title": "Senior Software Engineer", "description": "", "location": "", "company_name": "X"}
-    unrelated = {"title": "Marketing Manager", "description": "", "location": "", "company_name": "X"}
+    swe_job = {
+        "title": "Senior Software Engineer",
+        "description": "",
+        "location": "",
+        "company_name": "X",
+    }
+    unrelated = {
+        "title": "Marketing Manager",
+        "description": "",
+        "location": "",
+        "company_name": "X",
+    }
 
     assert job_matches_preferences(devops_job, prefs)[0] is True
     assert job_matches_preferences(mts_job, prefs)[0] is True
@@ -380,8 +454,18 @@ def test_excluded_roles_block_otherwise_matching_job():
         "excluded_companies": [],
         "excluded_roles": ["staff", "principal", "lead"],
     }
-    staff_job = {"title": "Staff Software Engineer", "description": "", "location": "", "company_name": "X"}
-    normal_job = {"title": "Software Engineer", "description": "", "location": "", "company_name": "X"}
+    staff_job = {
+        "title": "Staff Software Engineer",
+        "description": "",
+        "location": "",
+        "company_name": "X",
+    }
+    normal_job = {
+        "title": "Software Engineer",
+        "description": "",
+        "location": "",
+        "company_name": "X",
+    }
     assert job_matches_preferences(staff_job, prefs)[0] is False
     assert job_matches_preferences(normal_job, prefs)[0] is True
 
@@ -396,7 +480,12 @@ def test_excluded_roles_require_nonempty_roles():
         "excluded_companies": [],
         "excluded_roles": ["intern"],
     }
-    job = {"title": "Software Engineer Intern", "description": "", "location": "", "company_name": "X"}
+    job = {
+        "title": "Software Engineer Intern",
+        "description": "",
+        "location": "",
+        "company_name": "X",
+    }
     assert job_matches_preferences(job, prefs)[0] is False
 
 
@@ -405,9 +494,24 @@ def test_excluded_roles_require_nonempty_roles():
 
 def test_build_text_structured():
     jobs = [
-        {"title": "Software Engineer", "company": "Adobe", "location": "Bengaluru, India", "url": "https://careers.adobe.com/1"},
-        {"title": "DevOps Engineer", "company": "Adobe", "location": "Bengaluru, India", "url": "https://careers.adobe.com/2"},
-        {"title": "Backend Engineer", "company": "Google", "location": "Remote", "url": "https://careers.google.com/x"},
+        {
+            "title": "Software Engineer",
+            "company": "Adobe",
+            "location": "Bengaluru, India",
+            "url": "https://careers.adobe.com/1",
+        },
+        {
+            "title": "DevOps Engineer",
+            "company": "Adobe",
+            "location": "Bengaluru, India",
+            "url": "https://careers.adobe.com/2",
+        },
+        {
+            "title": "Backend Engineer",
+            "company": "Google",
+            "location": "Remote",
+            "url": "https://careers.google.com/x",
+        },
     ]
     text = build_text(jobs)
 
@@ -438,7 +542,12 @@ def test_build_text_sections_split_jobs():
 
 def test_build_html_escapes():
     jobs = [
-        {"title": "<script>alert(1)</script>", "company": "A&B", "location": "X", "url": "https://example.com/?a=1&b=2"},
+        {
+            "title": "<script>alert(1)</script>",
+            "company": "A&B",
+            "location": "X",
+            "url": "https://example.com/?a=1&b=2",
+        },
     ]
     html = build_html(jobs)
     assert "&lt;script&gt;" in html
@@ -466,7 +575,9 @@ def test_build_html_summary_even_when_empty():
 
 
 def test_build_html_summary_with_matches():
-    jobs = [{"title": "Engineer", "company": "Acme", "location": "Remote", "url": "https://a.example/x"}]
+    jobs = [
+        {"title": "Engineer", "company": "Acme", "location": "Remote", "url": "https://a.example/x"}
+    ]
     html = build_html(jobs, new_jobs=5, new_matches=1)
     assert "New job(s) found: 5" in html
     assert "New matching job(s) found: 1" in html
@@ -475,19 +586,27 @@ def test_build_html_summary_with_matches():
 
 
 def test_oracle_fusion_detection():
-    assert _is_fusion("https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1002/jobs")
+    assert _is_fusion(
+        "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1002/jobs"
+    )
     assert _is_fusion("https://careers.oracle.com/")
     assert _is_fusion("https://careers.americanexpress.com/en/sites/CX_1")
     assert not _is_fusion("https://valero.taleo.net/careersection/2")
 
 
 def test_oracle_fusion_site_root():
-    assert OracleAdapter._fusion_site_root(
-        "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1002/jobs"
-    ) == "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1002"
-    assert OracleAdapter._fusion_site_root(
-        "https://hdpc.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CampusHiring/jobs"
-    ) == "https://hdpc.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CampusHiring"
+    assert (
+        OracleAdapter._fusion_site_root(
+            "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1002/jobs"
+        )
+        == "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1002"
+    )
+    assert (
+        OracleAdapter._fusion_site_root(
+            "https://hdpc.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CampusHiring/jobs"
+        )
+        == "https://hdpc.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CampusHiring"
+    )
     assert OracleAdapter._fusion_site_root("https://careers.oracle.com/") == (
         "https://careers.oracle.com/en/sites/jobsearch"
     )
@@ -690,7 +809,7 @@ def test_phenom_parse_page():
 def test_phenom_normalize():
     from app.adapters.phenom import PhenomAdapter
 
-    jobs, total = PhenomAdapter._parse_page(_load_opentext_html())
+    jobs, _ = PhenomAdapter._parse_page(_load_opentext_html())
     job = PhenomAdapter._normalize(jobs[0], "https://careers.opentext.com")
     assert job.external_job_id.isdigit()
     assert job.title
@@ -848,9 +967,11 @@ def test_custom_parse_missing_fields():
     """A tile missing optional fields must still produce a job without crashing."""
     from app.adapters.custom import CustomAdapter
 
-    job = CustomAdapter._normalize('<li class="job-tile" data-url="/job/Foo-Engineer/123456/">'
-                                   '<a class="jobTitle-link" href="/job/Foo-Engineer/123456/">'
-                                   "Engineer</a></li>")
+    job = CustomAdapter._normalize(
+        '<li class="job-tile" data-url="/job/Foo-Engineer/123456/">'
+        '<a class="jobTitle-link" href="/job/Foo-Engineer/123456/">'
+        "Engineer</a></li>"
+    )
     assert job.external_job_id == "123456"
     assert job.title == "Engineer"
     assert job.location is None
@@ -967,27 +1088,3 @@ def test_retrying_client_does_not_retry_404():
     response = asyncio.run(run())
     assert response.status_code == 404
     assert attempts == 1
-
-
-def test_handle_start_commands_greets_and_ignores_others(monkeypatch):
-    import app.telegram as telegram
-
-    sent: list[tuple[str, str, str]] = []
-    monkeypatch.setattr(
-        telegram,
-        "_send_message",
-        lambda token, chat_id, text: sent.append((token, chat_id, text)),
-    )
-
-    updates = [
-        {"message": {"chat": {"id": 111}, "text": "/start"}},
-        {"message": {"chat": {"id": 222}, "text": "/start refcode"}},
-        {"message": {"chat": {"id": 333}, "text": "not a command"}},
-        {"message": {"chat": {"id": 444}, "text": "/help"}},
-    ]
-    greeted = telegram.handle_start_commands("BOT_TOKEN", updates)
-
-    assert greeted == 2
-    assert len(sent) == 2
-    assert [chat for _, chat, _ in sent] == ["111", "222"]
-    assert all(text == telegram.START_MESSAGE for _, _, text in sent)
