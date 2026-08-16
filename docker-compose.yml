@@ -1,0 +1,49 @@
+services:
+  poll:
+    build: ./backend
+    container_name: jobradar-poll
+    command: python run_poll.py
+    volumes:
+      # Bind-mount the source so the poll always runs the latest code —
+      # no rebuild needed on code changes.
+      - ./backend:/app
+    env_file:
+      - path: ./backend/.env
+        required: false
+    restart: "no"
+
+  web:
+    build: ./backend
+    container_name: jobradar-web
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/app
+    ports:
+      - "${PORT:-8000}:8000"
+    volumes:
+      # Live code reload: edit backend/ and uvicorn restarts automatically.
+      - ./backend:/app
+    env_file:
+      - path: ./backend/.env
+        required: false
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      target: deps
+    container_name: jobradar-frontend
+    command: npm run dev
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    volumes:
+      # Live code reload: edit frontend/ and next dev hot-reloads automatically.
+      # node_modules/.next are anonymous volumes so the host mount doesn't
+      # shadow the image install. After changing package.json, run:
+      #   docker compose up --build -V
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    restart: unless-stopped
+    depends_on:
+      - web

@@ -1,0 +1,198 @@
+import asyncio
+import os
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.interval import IntervalTrigger
+from apscheduler.triggers.cron import CronTrigger
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.config import load_settings
+from app.db import get_supabase, query
+from app.migrate import run_migrations
+from app.poller import clear_orphaned_runs, poll_all_sources
+from app.schedule_store import effective_intervals, load_interval_overrides
+from app.api.routes import router
+from app.telegram import telegram_command_loop
+
+
+def _supabase():
+    return get_supabase(load_settings())
+
+
+def _interval_seconds_to_cron(seconds: int) -> str:
+    if seconds >= 3600 and seconds % 3600 == 0:
+        return f"0 */{seconds // 3600} * * *"
+    if seconds % 60 == 0:
+        return f"*/{seconds // 60} * * * *"
+    return "* * * * *"
+
+
+async def _run_safe(ats_type: str | None = None) -> None:
+    try:
+        settings = load_settings()
+        # Auto-clear stale running rows (a killed/crashed process leaves a
+        # 'running' row behind that would otherwise block future polls).
+        # The threshold is 45m: the longest healthy batch run is ~40m.
+        stale_ids = query(
+            settings,
+            """
+            select id from poll_runs
+            where status = 'running'
+              and started_at < now() - interval '45 minutes'
+            """,
+        )
+        for row in stale_ids:
+            print(f"scheduler: marking stale run {row['id']} failed (no completion in 45m)")
+            _supabase().table("poll_runs").update(
+                {
+                    "status": "failed",
+                    "finished_at": datetime.now(timezone.utc).isoformat(),
+                    "error": "stale: run did not complete (marked failed)",
+                }
+            ).eq("id", row["id"]).execute()
+
+        if ats_type is None:
+            # Integrity sweep: skip only if a full sweep is already running.
+            running = query(
+                settings,
+                "select id from poll_runs where status = 'running' and ats_type is null limit 1",
+            )
+        else:
+            # Per-ATS lock: only skip if the SAME ats_type has a live run, so a
+            # long/hung poll of one ATS never blocks every other ATS from polling.
+            running = query(
+                settings,
+                "select id from poll_runs where status = 'running' and ats_type = %s limit 1",
+                (ats_type,),
+            )
+        if running:
+            print(f"scheduler: skipping {ats_type or 'all'} poll, run {running[0]['id']} already in progress")
+            return
+        await poll_all_sources(ats_type=ats_type)
+    except Exception as exc:
+        print(f"poll run failed ({ats_type or 'all'}): {exc}")
+
+
+_scheduler: AsyncIOScheduler | None = None
+
+
+def _build_scheduler() -> AsyncIOScheduler:
+    global _scheduler
+    settings = load_settings()
+    supabase = get_supabase(settings)
+    intervals = effective_intervals(settings.ats_intervals, load_interval_overrides(supabase))
+    _scheduler = AsyncIOScheduler(timezone="Asia/Kolkata")
+    for ats, seconds in intervals.items():
+        _scheduler.add_job(
+            _run_safe,
+            CronTrigger.from_crontab(_interval_seconds_to_cron(seconds)),
+            args=[ats],
+            id=f"poll-{ats}",
+            name=f"poll {ats}",
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=3600,
+        )
+
+    _scheduler.add_job(
+        _run_safe,
+        IntervalTrigger(seconds=43200),
+        args=[None],
+        id="poll-all-integrity",
+        name="poll all (integrity sweep, 12h)",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+    return _scheduler
+
+
+def scheduler_next_run(ats_type: str) -> str | None:
+    """Return the live APScheduler next-run time for an ATS poll job (UTC ISO).
+
+    This is the ground truth the running scheduler will actually fire, unlike a
+    best-effort estimate. Returns None when the scheduler is disabled or the
+    job is not registered.
+    """
+    scheduler = _scheduler
+    if scheduler is None:
+        return None
+    job = scheduler.get_job(f"poll-{ats_type}")
+    if job is None:
+        return None
+    return job.next_run_time.isoformat() if job.next_run_time else None
+
+
+def reschedule_ats(ats_type: str, interval_seconds: int) -> bool:
+    """Reschedule a running poll job for an ATS (applied immediately, no restart)."""
+    scheduler = _scheduler
+    if scheduler is None:
+        return False
+    job = scheduler.get_job(f"poll-{ats_type}")
+    if job is None:
+        return False
+    job.reschedule(CronTrigger.from_crontab(_interval_seconds_to_cron(interval_seconds)))
+    return True
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    settings = load_settings()
+    run_migrations(settings.database_url)
+
+    # A reload (uvicorn --reload restarts on any code change) kills in-flight
+    # polls but leaves their 'running' rows behind, which would block the
+    # per-ATS scheduler lock. Clear orphaned rows before starting fresh.
+    try:
+        clear_orphaned_runs(get_supabase(settings))
+    except Exception as exc:
+        print(f"scheduler: startup orphan cleanup failed - {exc}")
+
+    scheduler = None
+    if os.environ.get("JOBRADAR_DISABLE_SCHEDULER", "").lower() not in ("1", "true", "yes"):
+        scheduler = _build_scheduler()
+        scheduler.start()
+        app.state.poll_scheduler = scheduler
+    else:
+        print("scheduler disabled via JOBRADAR_DISABLE_SCHEDULER")
+
+    telegram_task = None
+    if settings.telegram_enabled and settings.telegram_bot_token:
+        telegram_task = asyncio.create_task(
+            telegram_command_loop(bot_token=settings.telegram_bot_token)
+        )
+        print("telegram: /start command loop started")
+
+    yield
+    if telegram_task:
+        telegram_task.cancel()
+        try:
+            await telegram_task
+        except asyncio.CancelledError:
+            pass
+    if scheduler:
+        scheduler.shutdown(wait=False)
+
+
+app = FastAPI(title="jobRadar", lifespan=lifespan)
+
+app.include_router(router)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/health")
+def health() -> dict:
+    return {"status": "ok"}

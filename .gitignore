@@ -1,0 +1,30 @@
+# Environment files (contain secrets — never commit real values)
+.env
+.env.local
+.env.production
+.env.test
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Logs / scratch files
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Frontend
+node_modules/
+.next/
+out/
+*.tsbuildinfo

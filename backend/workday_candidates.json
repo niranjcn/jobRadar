@@ -1,0 +1,118 @@
+{
+  "ats_type": "workday",
+  "generated": "2026-08-12",
+  "note": "Workday boards cannot be discovered from company names \u00e2\u20ac\u201d each board encodes tenant + shard + site name, none derivable from the others. Records below were verified live against the CXS POST API (https://{tenant}.{shard}.myworkdayjobs.com/wday/cxs/{tenant}/{site}/jobs) unless noted. 'verified' = API returned 200 with jobPostings; 'needs_discovery' = host is a real Workday tenant (structured ASY/HTTP JSON errors) but the exact site name is unknown and must be copied from a human-browsed careers URL.",
+  "verified": [
+    {
+      "company_name": "Intel",
+      "board_identifier": "https://intel.wd1.myworkdayjobs.com/External",
+      "tenant": "intel",
+      "shard": "wd1",
+      "site": "External",
+      "total_jobs_at_check": 649,
+      "verified_at": "2026-08-12"
+    },
+    {
+      "company_name": "Workday",
+      "board_identifier": "https://workday.wd5.myworkdayjobs.com/Workday",
+      "tenant": "workday",
+      "shard": "wd5",
+      "site": "Workday",
+      "total_jobs_at_check": 330,
+      "verified_at": "2026-08-12"
+    },
+    {
+      "company_name": "Aristocrat",
+      "board_identifier": "https://aristocrat.wd3.myworkdayjobs.com/AristocratExternalCareersSite",
+      "tenant": "aristocrat",
+      "shard": "wd3",
+      "site": "AristocratExternalCareersSite",
+      "total_jobs_at_check": 175,
+      "verified_at": "2026-08-12"
+    },
+    {
+      "company_name": "Rakuten",
+      "board_identifier": "https://rakuten.wd1.myworkdayjobs.com/RakutenVikiSingapore",
+      "tenant": "rakuten",
+      "shard": "wd1",
+      "site": "RakutenVikiSingapore",
+      "total_jobs_at_check": 15,
+      "verified_at": "2026-08-12"
+    },
+    {
+      "company_name": "CoinDesk",
+      "board_identifier": "https://bullish.wd3.myworkdayjobs.com/CoinDesk",
+      "tenant": "bullish",
+      "shard": "wd3",
+      "site": "CoinDesk",
+      "total_jobs_at_check": 21,
+      "verified_at": "2026-08-12"
+    },
+    {
+      "company_name": "Deseret News",
+      "board_identifier": "https://deseretmanagement.wd1.myworkdayjobs.com/DeseretNews",
+      "tenant": "deseretmanagement",
+      "shard": "wd1",
+      "site": "DeseretNews",
+      "total_jobs_at_check": 1,
+      "verified_at": "2026-08-12"
+    },
+    {
+      "company_name": "Salesforce",
+      "board_identifier": "https://salesforce.wd12.myworkdayjobs.com/External_Career_Site",
+      "tenant": "salesforce",
+      "shard": "wd12",
+      "site": "External_Career_Site",
+      "total_jobs_at_check": 1507,
+      "verified_at": "2026-08-12",
+      "note": "Supplied directly by user. Full pagination verified (limit capped at 20). Multi-location posts show 'N Locations' placeholder."
+    },
+    {
+      "company_name": "Dell",
+      "board_identifier": "https://dell.wd1.myworkdayjobs.com/External",
+      "tenant": "dell",
+      "shard": "wd1",
+      "site": "External",
+      "total_jobs_at_check": 0,
+      "verified_at": "2026-08-12",
+      "note": "API responded 200 with 0 jobs \u00e2\u20ac\u201d likely a valid-but-quiet site, or the site name is subtly wrong. Needs a second look."
+    }
+  ],
+  "needs_discovery": [
+    {
+      "company_name": "NVIDIA",
+      "host": "nvidia.wd5.myworkdayjobs.com",
+      "reason": "Real tenant (JSON errors on API, S21/404 on guessed sites). Exact site name unknown \u00e2\u20ac\u201d get it from nvidia's careers page."
+    },
+    {
+      "company_name": "Adobe",
+      "host": "adobe.wd5.myworkdayjobs.com",
+      "reason": "Real tenant. Site name unknown."
+    },
+    {
+      "company_name": "Target",
+      "host": "target.wd5.myworkdayjobs.com",
+      "reason": "Real tenant. Site name unknown."
+    },
+    {
+      "company_name": "Mastercard",
+      "host": "mastercard.wd1.myworkdayjobs.com",
+      "reason": "Real tenant. Site name unknown."
+    },
+    {
+      "company_name": "Starbucks",
+      "host": "starbucks.wd1.myworkdayjobs.com",
+      "reason": "Real tenant but guessed tenant/site paths return 422/500 \u00e2\u20ac\u201d the published board differs; needs a human-browsed URL."
+    },
+    {
+      "company_name": "YNAP",
+      "host": "ynap.wd3.myworkdayjobs.com",
+      "reason": "API 422 on /YNAP_Careers \u00e2\u20ac\u201d request shape may need extra params (locale/facets) or the site name is slightly off."
+    },
+    {
+      "company_name": "Siemens",
+      "host": "siemens.wd5.myworkdayjobs.com",
+      "reason": "Host responds (500 on guessed paths); needs discovery."
+    }
+  ]
+}

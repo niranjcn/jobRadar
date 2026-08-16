@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: jobradar
+    runtime: docker
+    plan: free
+    dockerfilePath: backend/Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: POLL_INTERVAL_SECONDS
+        value: 3600
+      - key: JOB_RETENTION_DAYS
+        value: 30
+      - key: PREF_ROLES
+        value: data,analyst,ml
+      - key: PREF_KEYWORDS
+        sync: false
+      - key: PREF_LOCATIONS
+        sync: false
+      - key: PREF_SENIORITY
+        sync: false
+      - key: PREF_EXCLUDED_COMPANIES
+        sync: false
+      - key: NOTIFY_ENABLED
+        value: "false"
+      - key: RESEND_API_KEY
+        sync: false
+      - key: NOTIFY_TO
+        value: ""
+      - key: TELEGRAM_ENABLED
+        value: "true"
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false

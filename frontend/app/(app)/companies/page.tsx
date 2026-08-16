@@ -1,0 +1,82 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { RadarLoading } from "@/components/radar-loading";
+import { api } from "@/lib/api";
+import { atsLabel, timeAgo } from "@/lib/format";
+import type { Company } from "@/lib/types";
+
+const PAGE_SIZE = 20;
+
+export default function CompaniesPage() {
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(0);
+
+  useEffect(() => {
+    api
+      .companies()
+      .then((res) => setCompanies(res.companies))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const pageCount = useMemo(() => Math.max(1, Math.ceil(companies.length / PAGE_SIZE)), [companies]);
+  const visible = companies.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
+
+  return (
+    <div className="mx-auto max-w-4xl p-8">
+      <h1 className="text-[28px] font-semibold">Companies</h1>
+      <p className="mt-1 text-sm text-text-secondary">
+        {companies.length} companies monitored across your sources
+      </p>
+
+      <div className="mt-8">
+        {loading ? (
+          <RadarLoading />
+        ) : (
+          <>
+            <div className="card overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="border-b border-border text-left text-xs uppercase tracking-wide text-text-muted">
+                  <tr>
+                    <th className="px-4 py-3 font-medium">Company</th>
+                    <th className="px-4 py-3 font-medium">ATS</th>
+                    <th className="px-4 py-3 font-medium">Jobs</th>
+                    <th className="px-4 py-3 font-medium">Last checked</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visible.map((c) => (
+                    <tr key={c.id} className="border-b border-border/50 last:border-0 hover:bg-elevated">
+                      <td className="px-4 py-3 font-medium text-text">{c.company_name}</td>
+                      <td className="px-4 py-3 text-text-secondary">{atsLabel(c.ats_type)}</td>
+                      <td className="px-4 py-3 text-text-secondary">{c.job_count}</td>
+                      <td className="px-4 py-3 text-text-muted">{timeAgo(c.last_checked_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-6 flex items-center justify-between text-sm text-text-muted">
+              <span>
+                Page {page + 1} of {pageCount}
+              </span>
+              <div className="flex gap-2">
+                <button className="btn-ghost" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>
+                  Previous
+                </button>
+                <button
+                  className="btn-ghost"
+                  disabled={page >= pageCount - 1}
+                  onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
