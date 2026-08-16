@@ -877,6 +877,29 @@ feature/*
 fix/*
 ```
 
+Use descriptive branch names:
+
+```text
+feature/add-auth
+feature/telegram-start-command
+fix/login-crash
+fix/ci-workflow
+```
+
+GitHub workflow rules:
+
+1. **Branch protection** — `main` is protected: direct pushes are disallowed,
+   every change lands via a pull request.
+2. **PR reviews** — pull requests require an approved review before merge.
+3. **CI checks** — lint, formatting, and tests run automatically on every PR
+   (`.github/workflows/ci.yml`); the checklist items are verified by CI, not
+   self-reported, and CI must be green to merge.
+4. **CODEOWNERS** — `.github/CODEOWNERS` auto-requests the right reviewers
+   based on which files changed.
+5. **Issue templates** — bug reports and feature requests use
+   `.github/ISSUE_TEMPLATE/`.
+6. **Small PRs** — one logical change per PR; a 2,000-line diff is a red flag.
+
 Pull requests should contain:
 
 - What changed

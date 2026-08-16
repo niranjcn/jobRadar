@@ -1,0 +1,4 @@
+# Auto-request reviewers based on which files change.
+# Default: the project owner reviews everything.
+
+* @niranjcn
