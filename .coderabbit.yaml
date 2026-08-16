@@ -24,6 +24,11 @@ reviews:
     migrations, env vars, or changes sources.json, docker-compose.yml, or
     render.yaml; then list them.
 
+    **Checklist verification** — as Markdown checkboxes, mark only the items
+    you can verify from the diff itself; leave unverifiable ones unchecked
+    with a short reason, e.g. "- [ ] I have performed a self-review of my
+    own code (author)". Do not claim checks passed unless the diff proves it.
+
     Keep it under 150 words. Use Markdown headings.
   poem: false
   review_status: true
