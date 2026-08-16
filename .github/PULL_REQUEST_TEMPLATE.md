@@ -62,3 +62,5 @@ None
 ## Additional Notes
 
 <!-- Anything else reviewers should know — deployment steps, rollback plan, follow-up work, etc. -->
+
+@coderabbitai summary
