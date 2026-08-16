@@ -1,7 +1,7 @@
 # jobRadar
 
 [![CI](https://github.com/niranjcn/jobRadar/actions/workflows/ci.yml/badge.svg)](https://github.com/niranjcn/jobRadar/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-15-black.svg)](https://nextjs.org/)
 
@@ -12,6 +12,36 @@ alerts you via Telegram and email.
 It is built to work across many applicant-tracking systems (ATSs) through
 isolated source adapters, so the core application never cares where a job came
 from. The full product plan and phased build order live in `AGENTS.md`.
+
+## How it works
+
+```text
+Company career pages
+        │
+        ▼
+Source adapters (10 ATS)          ──  each adapter: fetch → parse → validate
+        │
+        ▼
+Normalize into a common Job model ──  source-specific fields kept in metadata
+        │
+        ▼
+Deduplicate                       ──  UNIQUE (source_id, external_job_id)
+        │
+        ▼
+Supabase / PostgreSQL             ──  migrations applied automatically
+        │
+        ▼
+Match against preferences         ──  roles · keywords · locations · seniority ·
+        │                             geo mapping (country / remote)
+        ▼
+┌──────────────────────────────┐
+│ Telegram    ──  every new job│
+│ Email       ──  matched jobs │
+└──────────────────────────────┘
+```
+
+A failing source never blocks the rest — each ATS is polled on its own
+schedule and errors are recorded for source health.
 
 ## Features
 
@@ -162,9 +192,7 @@ blocks the other, and `notifications_sent` dedupes by
 
 - **Telegram** (`TELEGRAM_ENABLED=true`, `TELEGRAM_BOT_TOKEN`,
   `TELEGRAM_CHAT_ID`) — every new posting, or only preference matches
-  (dashboard → Preferences → Telegram scope). Send `/start` to your bot to get
-  a welcome message; the app long-polls for it (a webhook on the bot would
-  stop that loop).
+  (dashboard → Preferences → Telegram scope).
 - **Email** (`NOTIFY_ENABLED=true`, `RESEND_API_KEY`, `NOTIFY_TO`) — Resend
   test mode sends to the address you signed up with; verify a domain in
   Resend to send elsewhere.
@@ -199,12 +227,19 @@ auth, VPN, or Supabase auth) before exposing it to the internet.
 ## Tests
 
 ```sh
-# Backend (pytest, uses saved fixtures — no live sites needed)
+# Backend unit tests — no live sites or database needed
+cd backend && python -m pytest tests/test_unit.py
+
+# Full backend suite (requires backend/.env with Supabase credentials)
 cd backend && python -m pytest
 
 # Frontend (Vitest)
 cd frontend && npm test
 ```
+
+Lint and formatting are enforced by CI using `ruff` (config in
+`backend/pyproject.toml`); run `ruff check . && ruff format .` in `backend/`
+before pushing.
 
 ## Deploying to Render
 
@@ -221,4 +256,4 @@ development is in [AGENTS.md](AGENTS.md).
 
 ## License
 
-[MIT](LICENSE)
+Licensed under the [Apache License 2.0](LICENSE).

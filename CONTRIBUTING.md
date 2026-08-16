@@ -28,8 +28,8 @@ Requirements: Python 3.12+, Docker + Compose, Node 20+ (frontend).
 cp backend/.env.example backend/.env   # fill in Supabase values
 cd backend
 python -m venv .venv && .venv\Scripts\activate   # (Windows) — or source .venv/bin/activate
-pip install -r requirements.txt
-python -m pytest
+pip install -r requirements-dev.txt   # runtime deps + pytest + ruff
+python -m pytest tests/test_unit.py
 
 # Frontend
 cd frontend
@@ -73,7 +73,7 @@ The `web` container runs `uvicorn --reload` and the `frontend` container runs
 ## Running checks before submitting
 
 ```sh
-cd backend && ruff check . && python -m pytest
+cd backend && ruff check . && ruff format --check . && python -m pytest tests/test_unit.py
 cd frontend && npm test
 ```
 
