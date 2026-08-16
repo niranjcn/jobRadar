@@ -1,21 +1,19 @@
-import asyncio
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.routes import router
 from app.config import load_settings
 from app.db import get_supabase, query
 from app.migrate import run_migrations
 from app.poller import clear_orphaned_runs, poll_all_sources
 from app.schedule_store import effective_intervals, load_interval_overrides
-from app.api.routes import router
-from app.telegram import telegram_command_loop
 
 
 def _supabase():
@@ -49,7 +47,7 @@ async def _run_safe(ats_type: str | None = None) -> None:
             _supabase().table("poll_runs").update(
                 {
                     "status": "failed",
-                    "finished_at": datetime.now(timezone.utc).isoformat(),
+                    "finished_at": datetime.now(UTC).isoformat(),
                     "error": "stale: run did not complete (marked failed)",
                 }
             ).eq("id", row["id"]).execute()
@@ -69,7 +67,9 @@ async def _run_safe(ats_type: str | None = None) -> None:
                 (ats_type,),
             )
         if running:
-            print(f"scheduler: skipping {ats_type or 'all'} poll, run {running[0]['id']} already in progress")
+            print(
+                f"scheduler: skipping {ats_type or 'all'} poll, run {running[0]['id']} already in progress"
+            )
             return
         await poll_all_sources(ats_type=ats_type)
     except Exception as exc:
@@ -159,20 +159,7 @@ async def lifespan(app: FastAPI):
     else:
         print("scheduler disabled via JOBRADAR_DISABLE_SCHEDULER")
 
-    telegram_task = None
-    if settings.telegram_enabled and settings.telegram_bot_token:
-        telegram_task = asyncio.create_task(
-            telegram_command_loop(bot_token=settings.telegram_bot_token)
-        )
-        print("telegram: /start command loop started")
-
     yield
-    if telegram_task:
-        telegram_task.cancel()
-        try:
-            await telegram_task
-        except asyncio.CancelledError:
-            pass
     if scheduler:
         scheduler.shutdown(wait=False)
 

@@ -29,19 +29,77 @@ REGION_WORDS = {"amer", "emea", "apac", "latam", "mena"}
 # matches like "portland"/"phoenix" to an obscure parish/island elsewhere (JM/KI),
 # but in job postings these overwhelmingly mean the US city.
 TOP_US_CITIES = {
-    "albany", "albuquerque", "anaheim", "anchorage", "arlington", "atlanta",
-    "austin", "bakersfield", "baltimore", "baton rouge", "birmingham", "boston",
-    "buffalo", "chandler", "charlotte", "chicago", "cincinnati", "cleveland",
-    "colorado springs", "columbus", "corpus christi", "dallas", "denver",
-    "detroit", "el paso", "fort worth", "fresno", "honolulu", "houston",
-    "indianapolis", "jacksonville", "kansas city", "las vegas", "long beach",
-    "los angeles", "louisville", "memphis", "mesa", "miami", "milwaukee",
-    "minneapolis", "nashville", "new orleans", "new york", "newark", "oakland",
-    "oklahoma city", "omaha", "orlando", "philadelphia", "phoenix", "pittsburgh",
-    "portland", "raleigh", "riverside", "sacramento", "salt lake city",
-    "san antonio", "san diego", "san francisco", "san jose", "seattle",
-    "st. louis", "st paul", "stockton", "tampa", "tucson", "tulsa",
-    "virginia beach", "washington", "wichita",
+    "albany",
+    "albuquerque",
+    "anaheim",
+    "anchorage",
+    "arlington",
+    "atlanta",
+    "austin",
+    "bakersfield",
+    "baltimore",
+    "baton rouge",
+    "birmingham",
+    "boston",
+    "buffalo",
+    "chandler",
+    "charlotte",
+    "chicago",
+    "cincinnati",
+    "cleveland",
+    "colorado springs",
+    "columbus",
+    "corpus christi",
+    "dallas",
+    "denver",
+    "detroit",
+    "el paso",
+    "fort worth",
+    "fresno",
+    "honolulu",
+    "houston",
+    "indianapolis",
+    "jacksonville",
+    "kansas city",
+    "las vegas",
+    "long beach",
+    "los angeles",
+    "louisville",
+    "memphis",
+    "mesa",
+    "miami",
+    "milwaukee",
+    "minneapolis",
+    "nashville",
+    "new orleans",
+    "new york",
+    "newark",
+    "oakland",
+    "oklahoma city",
+    "omaha",
+    "orlando",
+    "philadelphia",
+    "phoenix",
+    "pittsburgh",
+    "portland",
+    "raleigh",
+    "riverside",
+    "sacramento",
+    "salt lake city",
+    "san antonio",
+    "san diego",
+    "san francisco",
+    "san jose",
+    "seattle",
+    "st. louis",
+    "st paul",
+    "stockton",
+    "tampa",
+    "tucson",
+    "tulsa",
+    "virginia beach",
+    "washington",
+    "wichita",
 }
 
 # US state/territory abbreviations collide with ISO2 country codes ("CA" is
@@ -49,11 +107,57 @@ TOP_US_CITIES = {
 # use these as US states, so we never treat them as country codes and instead
 # let city/state matching resolve them to the US.
 US_STATE_CODES = {
-    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "DC", "FL", "GA",
-    "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA",
-    "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY",
-    "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX",
-    "UT", "VT", "VA", "WA", "WV", "WI", "WY",
+    "AL",
+    "AK",
+    "AZ",
+    "AR",
+    "CA",
+    "CO",
+    "CT",
+    "DE",
+    "DC",
+    "FL",
+    "GA",
+    "HI",
+    "ID",
+    "IL",
+    "IN",
+    "IA",
+    "KS",
+    "KY",
+    "LA",
+    "ME",
+    "MD",
+    "MA",
+    "MI",
+    "MN",
+    "MS",
+    "MO",
+    "MT",
+    "NE",
+    "NV",
+    "NH",
+    "NJ",
+    "NM",
+    "NY",
+    "NC",
+    "ND",
+    "OH",
+    "OK",
+    "OR",
+    "PA",
+    "RI",
+    "SC",
+    "SD",
+    "TN",
+    "TX",
+    "UT",
+    "VT",
+    "VA",
+    "WA",
+    "WV",
+    "WI",
+    "WY",
 }
 
 REMOTE_WORDS = (
@@ -270,7 +374,9 @@ def _patterns() -> dict[str, re.Pattern]:
     }
 
 
-def _best_matches(normalized: str, pattern: re.Pattern, name_to_code: dict[str, str]) -> dict[str, str]:
+def _best_matches(
+    normalized: str, pattern: re.Pattern, name_to_code: dict[str, str]
+) -> dict[str, str]:
     """Return name->code pairs that match, dropping names that are substrings
     of a longer matching name (e.g. "york" inside "new york", "ireland"
     inside "northern ireland")."""
@@ -300,8 +406,8 @@ def _city_phrase_map() -> dict[str, list[str]]:
     by_first: dict[str, list[str]] = {}
     for name in _city_phrases():
         by_first.setdefault(name.split()[0], []).append(name)
-    for first in by_first:
-        by_first[first].sort(key=len, reverse=True)
+    for names in by_first.values():
+        names.sort(key=len, reverse=True)
     return by_first
 
 
@@ -333,7 +439,12 @@ def map_location(location: str | None, settings: dict[str, Any] | None = None) -
         if alias.lower() in normalized:
             _add(code, f"alias:{alias}")
     if countries:
-        return {"countries": countries, "is_remote": is_remote, "matched": matched, "source": "alias"}
+        return {
+            "countries": countries,
+            "is_remote": is_remote,
+            "matched": matched,
+            "source": "alias",
+        }
 
     # 2. explicit country name mention. A US state code (uppercase "GA") next to
     # a country name disambiguates name collisions like "Georgia" (state vs the
@@ -357,7 +468,12 @@ def map_location(location: str | None, settings: dict[str, Any] | None = None) -
                 continue
             _add(upper, token)
     if countries:
-        return {"countries": countries, "is_remote": is_remote, "matched": matched, "source": "country"}
+        return {
+            "countries": countries,
+            "is_remote": is_remote,
+            "matched": matched,
+            "source": "country",
+        }
 
     # 3. state name. Skip non-US "state" matches that name a major US city: the
     # dr5hn states table contains parishes/islands ("portland" -> JM, "phoenix"
@@ -368,13 +484,18 @@ def map_location(location: str | None, settings: dict[str, Any] | None = None) -
             continue
         _add(code, f"state:{name}")
     if countries:
-        return {"countries": countries, "is_remote": is_remote, "matched": matched, "source": "state"}
+        return {
+            "countries": countries,
+            "is_remote": is_remote,
+            "matched": matched,
+            "source": "state",
+        }
 
     # 4. city name / short forms. Precedence inside this step:
-#      multi-word names  ->  curated overrides/short forms  ->  US state code  ->  raw index
-#    A US state code ("MA" in "Boston, MA") wins over the raw index, which
-#    maps "boston" to the Philippines. But curated overrides win over the
-#    state code, so "Toronto, CA" resolves to Canada, not the US.
+    #      multi-word names  ->  curated overrides/short forms  ->  US state code  ->  raw index
+    #    A US state code ("MA" in "Boston, MA") wins over the raw index, which
+    #    maps "boston" to the Philippines. But curated overrides win over the
+    #    state code, so "Toronto, CA" resolves to Canada, not the US.
     phrase_map = _city_phrase_map()
     for token in tokens:
         if token in REGION_WORDS:
@@ -395,11 +516,21 @@ def map_location(location: str | None, settings: dict[str, Any] | None = None) -
         if token in TOP_US_CITIES:
             _add("US", f"city:{token}")
     if countries:
-        return {"countries": countries, "is_remote": is_remote, "matched": matched, "source": "city"}
+        return {
+            "countries": countries,
+            "is_remote": is_remote,
+            "matched": matched,
+            "source": "city",
+        }
     state_codes = {t.upper() for t in raw_tokens if t.isupper() and t.upper() in US_STATE_CODES}
     if state_codes:
         _add("US", f"state:{sorted(state_codes)}")
-        return {"countries": countries, "is_remote": is_remote, "matched": matched, "source": "state"}
+        return {
+            "countries": countries,
+            "is_remote": is_remote,
+            "matched": matched,
+            "source": "state",
+        }
     for token in tokens:
         if token in REGION_WORDS:
             continue
@@ -417,10 +548,17 @@ def map_location(location: str | None, settings: dict[str, Any] | None = None) -
             _add(code, "remote")
         return {"countries": countries, "is_remote": True, "matched": matched, "source": "remote"}
 
-    return {"countries": countries, "is_remote": is_remote, "matched": matched, "source": "city" if countries else "none"}
+    return {
+        "countries": countries,
+        "is_remote": is_remote,
+        "matched": matched,
+        "source": "city" if countries else "none",
+    }
 
 
-def resolve_preference_location(location: str, settings: dict[str, Any] | None = None) -> dict[str, Any]:
+def resolve_preference_location(
+    location: str, settings: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Resolve a preference location entry the same way jobs are mapped."""
     return map_location(location, settings)
 
@@ -454,9 +592,7 @@ def map_job_locations(
     countries: list[str] = []
     is_remote = False
     combined = " ".join([location_name or "", *(office_names or [])])
-    by_office = (
-        map_location(" ".join(office_names), settings) if office_names else {}
-    )
+    by_office = map_location(" ".join(office_names), settings) if office_names else {}
     by_location = map_location(location_name, settings) if location_name else {}
     for part in (by_office, by_location):
         for code in part.get("countries", []):
@@ -465,6 +601,5 @@ def map_job_locations(
         if part.get("is_remote"):
             is_remote = True
     if not countries and is_remote and settings:
-        for code in settings.get("remote_to") or []:
-            countries.append(code)
+        countries = list(settings.get("remote_to") or [])
     return {"countries": countries, "is_remote": is_remote, "raw": combined}

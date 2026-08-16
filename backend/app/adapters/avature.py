@@ -27,7 +27,7 @@ reliable full listing.
 import asyncio
 import html as html_module
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 
@@ -53,7 +53,9 @@ class AvatureAdapter(JobSourceAdapter):
             offset = 0
             empty_streak = 0
             while offset // 6 < MAX_PAGES:
-                text = await self._fetch_page(client, search_url, offset, offset_param, per_page_param)
+                text = await self._fetch_page(
+                    client, search_url, offset, offset_param, per_page_param
+                )
                 if offset == 0:
                     offset_param, per_page_param = _detect_pagination_params(text)
                 rows = re.findall(r"<article.*?</article>", text, re.DOTALL)
@@ -113,11 +115,7 @@ class AvatureAdapter(JobSourceAdapter):
         family = _clean(re.search(r'class="list-item-family"[^>]*>\s*(.*?)\s*<', row))
         url = link_m.group(1) if link_m else None
         job_id = _extract_job_id(url)
-        title = (
-            html_module.unescape(re.sub(r"\s+", " ", link_m.group(2))).strip()
-            if link_m
-            else ""
-        )
+        title = html_module.unescape(re.sub(r"\s+", " ", link_m.group(2))).strip() if link_m else ""
         parts = [part for part in (city, state, country) if part]
         location = ", ".join(parts) if parts else None
         posted = _clean(re.search(r'class="list-item-posted"[^>]*>\s*(.*?)\s*<', row))
@@ -196,7 +194,7 @@ def _parse_posted(posted: str | None) -> str | None:
         parsed = datetime.strptime(match.group(1), "%d-%b-%Y")
     except ValueError:
         return None
-    return parsed.replace(tzinfo=timezone.utc).isoformat()
+    return parsed.replace(tzinfo=UTC).isoformat()
 
 
 def _clean(match) -> str | None:
@@ -245,4 +243,3 @@ def _detect_pagination_params(text: str) -> tuple[str | None, str | None]:
                 "jobRecordsPerPage" if "jobRecordsPerPage" in query else "folderRecordsPerPage",
             )
     return (None, None)
-

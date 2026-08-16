@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -13,7 +13,9 @@ TEST_MODE_FROM = "jobRadar <onboarding@resend.dev>"
 IN_BATCH = 200
 
 
-def _fetch_candidate_jobs(supabase: Client, candidates: list[tuple[str, str]]) -> list[dict[str, Any]]:
+def _fetch_candidate_jobs(
+    supabase: Client, candidates: list[tuple[str, str]]
+) -> list[dict[str, Any]]:
     """Jobs that are candidates (newly discovered this run), by job id."""
     if not candidates:
         return []
@@ -88,7 +90,7 @@ def _send_email(
 def _mark_sent(supabase: Client, user_id: str, job_ids: list[str]) -> None:
     if not job_ids:
         return
-    sent_at = datetime.now(timezone.utc).isoformat()
+    sent_at = datetime.now(UTC).isoformat()
     supabase.table("notifications_sent").upsert(
         [
             {"user_id": user_id, "job_id": job_id, "channel": "email", "sent_at": sent_at}
@@ -119,7 +121,9 @@ def send_email_notifications(
         .eq("user_id", DEFAULT_USER_ID)
         .execute()
     )
-    matched_by_id = {row["job_id"]: row.get("matched_on") or [] for row in matched_response.data or []}
+    matched_by_id = {
+        row["job_id"]: row.get("matched_on") or [] for row in matched_response.data or []
+    }
 
     if scope == "matched":
         pending = [job for job in jobs if job["id"] in matched_by_id]
@@ -146,7 +150,7 @@ def send_email_notifications(
         to_addresses=to_addresses,
         subject=(
             f"📡 jobRadar: {len(jobs)} new job(s), "
-            f"{len(new_matches)} new matching job(s) — {datetime.now(timezone.utc):%b %d}"
+            f"{len(new_matches)} new matching job(s) — {datetime.now(UTC):%b %d}"
         ),
         html=build_html(new_matches, new_jobs=len(jobs), new_matches=len(new_matches)),
     )

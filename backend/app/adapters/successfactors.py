@@ -35,11 +35,13 @@ class SuccessFactorsAdapter(JobSourceAdapter):
             return await self._fetch_html_jobs(board_identifier)
         if "/services/recruiting/v1/jobs" in board_identifier:
             return await self._fetch_api_jobs(board_identifier)
-        return await self._fetch_api_jobs(f"{board_identifier.rstrip('/')}/services/recruiting/v1/jobs")
+        return await self._fetch_api_jobs(
+            f"{board_identifier.rstrip('/')}/services/recruiting/v1/jobs"
+        )
 
     async def _fetch_api_jobs(self, api_url: str) -> list[NormalizedJob]:
         jobs: list[NormalizedJob] = []
-        root = api_url.split("/services/")[0]
+        root = api_url.split("/services/", maxsplit=1)[0]
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             page_number = 0
             empty_streak = 0
@@ -64,7 +66,9 @@ class SuccessFactorsAdapter(JobSourceAdapter):
                 page_number += 1
         return jobs
 
-    async def _fetch_api_page(self, client: httpx.AsyncClient, api_url: str, root: str, page_number: int) -> dict:
+    async def _fetch_api_page(
+        self, client: httpx.AsyncClient, api_url: str, root: str, page_number: int
+    ) -> dict:
         last_exc: Exception | None = None
         for attempt in range(MAX_RETRIES):
             try:
@@ -96,7 +100,8 @@ class SuccessFactorsAdapter(JobSourceAdapter):
         url_title = resp.get("urlTitle") or resp.get("unifiedUrlTitle") or ""
         countries = [
             c
-            for c in list(resp.get("jobLocationCountry") or []) + list(resp.get("custCountryRegion") or [])
+            for c in list(resp.get("jobLocationCountry") or [])
+            + list(resp.get("custCountryRegion") or [])
             if c
         ]
         location = _first(
@@ -136,7 +141,9 @@ class SuccessFactorsAdapter(JobSourceAdapter):
                 next_hrefs = sorted(
                     {
                         href
-                        for href in re.findall(r'href="(\?[^"]*startrow=\d+[^"]*)"', html.unescape(text))
+                        for href in re.findall(
+                            r'href="(\?[^"]*startrow=\d+[^"]*)"', html.unescape(text)
+                        )
                     },
                     key=lambda h: int(re.search(r"startrow=(\d+)", h).group(1)),
                 )

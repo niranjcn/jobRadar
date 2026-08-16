@@ -6,7 +6,6 @@ each, no pagination). Reports the first provider+token that returns 200 with job
 """
 
 import asyncio
-import json
 import re
 from pathlib import Path
 
@@ -21,18 +20,65 @@ ENDPOINTS = {
 }
 
 FAILED = [
-    "OpenAI","HashiCorp","Ramp","Plaid","Canva","Notion","Rippling","Hugging Face",
-    "Weights & Biases","Confluent","Circle","Miro","Grammarly","Zapier","GitHub",
-    "Netflix","Lyft","DoorDash","Faire","Flexport","Lattice","Webflow","Sourcegraph",
-    "Mux","PlanetScale","Snyk","Remote","Oura","Anduril","Patreon","Intercom",
-    "Fivetran","dbt Labs","LaunchDarkly","Cohere","Grubhub","Airtable","CircleCI",
-    "Loom","Drift","Replicate","Together AI","Mistral AI","Anysphere","Retool",
-    "Glean","Tailscale",
+    "OpenAI",
+    "HashiCorp",
+    "Ramp",
+    "Plaid",
+    "Canva",
+    "Notion",
+    "Rippling",
+    "Hugging Face",
+    "Weights & Biases",
+    "Confluent",
+    "Circle",
+    "Miro",
+    "Grammarly",
+    "Zapier",
+    "GitHub",
+    "Netflix",
+    "Lyft",
+    "DoorDash",
+    "Faire",
+    "Flexport",
+    "Lattice",
+    "Webflow",
+    "Sourcegraph",
+    "Mux",
+    "PlanetScale",
+    "Snyk",
+    "Remote",
+    "Oura",
+    "Anduril",
+    "Patreon",
+    "Intercom",
+    "Fivetran",
+    "dbt Labs",
+    "LaunchDarkly",
+    "Cohere",
+    "Grubhub",
+    "Airtable",
+    "CircleCI",
+    "Loom",
+    "Drift",
+    "Replicate",
+    "Together AI",
+    "Mistral AI",
+    "Anysphere",
+    "Retool",
+    "Glean",
+    "Tailscale",
 ]
 
 
 def candidate_tokens(name: str) -> list[str]:
-    base = name.lower().replace("&", "").replace("+", "").replace(",", "").replace("-", "").replace(" ", "")
+    base = (
+        name.lower()
+        .replace("&", "")
+        .replace("+", "")
+        .replace(",", "")
+        .replace("-", "")
+        .replace(" ", "")
+    )
     base = re.sub(r"[^a-z0-9]", "", base)
     tokens = {base}
     known = {
@@ -79,7 +125,7 @@ async def probe(client: httpx.AsyncClient, provider: str, token: str) -> int:
     if provider == "ashby" and isinstance(data, dict):
         return len(data.get("jobs") or [])
     if provider == "workable" and isinstance(data, dict):
-        n = len(((data.get("jobs") or []) + (data.get("applyJobs") or [])))
+        n = len((data.get("jobs") or []) + (data.get("applyJobs") or []))
         return n
     return 0
 

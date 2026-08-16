@@ -1,6 +1,6 @@
 import asyncio
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -44,12 +44,7 @@ def sync_sources(supabase: Client) -> None:
 
 
 def fetch_sources(supabase: Client) -> list[dict[str, Any]]:
-    response = (
-        supabase.table("sources")
-        .select("*")
-        .eq("active", True)
-        .execute()
-    )
+    response = supabase.table("sources").select("*").eq("active", True).execute()
     return response.data
 
 
@@ -61,7 +56,7 @@ def source_status(source: dict[str, Any], interval: int, now: datetime) -> tuple
         return "never", "never checked yet"
     if isinstance(last, str):
         try:
-            last = datetime.fromisoformat(last.replace("Z", "+00:00"))
+            last = datetime.fromisoformat(last)
         except ValueError:
             return "stale", "last_checked_at unparseable"
     if now - last > timedelta(seconds=interval * 2):
@@ -69,8 +64,10 @@ def source_status(source: dict[str, Any], interval: int, now: datetime) -> tuple
             return "stale", f"last check failed: {last_error}"
         return (
             "stale",
-            f"last successful check was {(now - last).total_seconds() // 60:.0f}m ago "
-            f"(expected every {interval // 3600}h)",
+            (
+                f"last successful check was {(now - last).total_seconds() // 60:.0f}m ago "
+                f"(expected every {interval // 3600}h)"
+            ),
         )
     if last_error:
         return "stale", f"recovered but last run reported: {last_error}"
@@ -79,7 +76,7 @@ def source_status(source: dict[str, Any], interval: int, now: datetime) -> tuple
 
 def unhealthy_sources(supabase: Client, intervals: dict[str, int]) -> list[dict[str, Any]]:
     """Active sources whose status is not healthy (stale/never), with reason."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     result = []
     for source in fetch_sources(supabase):
         interval = intervals.get(source["ats_type"], 3600)
@@ -209,37 +206,36 @@ def update_job_detail(
         )
         if not (current.data and current.data[0].get("location")):
             update["location"] = location_name
-    supabase.table("jobs").update(update).eq("source_id", source_id).eq("external_job_id", external_job_id).execute()
+    supabase.table("jobs").update(update).eq("source_id", source_id).eq(
+        "external_job_id", external_job_id
+    ).execute()
 
 
 def mark_checked(supabase: Client, source_id: str) -> None:
     supabase.table("sources").update(
-        {"last_checked_at": datetime.now(timezone.utc).isoformat(), "last_error": None}
+        {"last_checked_at": datetime.now(UTC).isoformat(), "last_error": None}
     ).eq("id", source_id).execute()
 
 
 def mark_error(supabase: Client, source: dict[str, Any], exc: Exception) -> None:
     message = str(exc).strip().replace("\n", " ")[:500] or exc.__class__.__name__
     supabase.table("sources").update(
-        {"last_checked_at": datetime.now(timezone.utc).isoformat(), "last_error": message}
+        {"last_checked_at": datetime.now(UTC).isoformat(), "last_error": message}
     ).eq("id", source["id"]).execute()
 
 
 def prune_old_jobs(supabase: Client, retention_days: int) -> int:
-    cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
-    response = (
-        supabase.table("jobs")
-        .delete()
-        .lt("first_seen_at", cutoff.isoformat())
-        .execute()
-    )
+    cutoff = datetime.now(UTC) - timedelta(days=retention_days)
+    response = supabase.table("jobs").delete().lt("first_seen_at", cutoff.isoformat()).execute()
     deleted = len(response.data or [])
     if deleted:
         print(f"retention: deleted {deleted} job(s) older than {retention_days} day(s)")
     return deleted
 
 
-async def enrich_jobs(supabase: Client, source: dict[str, Any], adapter, external_ids: list[str]) -> None:
+async def enrich_jobs(
+    supabase: Client, source: dict[str, Any], adapter, external_ids: list[str]
+) -> None:
     if not external_ids:
         return
     semaphore = asyncio.Semaphore(DETAIL_CONCURRENCY)
@@ -249,7 +245,9 @@ async def enrich_jobs(supabase: Client, source: dict[str, Any], adapter, externa
             detail = await adapter.fetch_job_detail(source["board_identifier"], job_id)
             if not detail:
                 return
-            update_job_detail(supabase, source["id"], job_id, adapter.extract_description(detail), detail)
+            update_job_detail(
+                supabase, source["id"], job_id, adapter.extract_description(detail), detail
+            )
 
     results = await asyncio.gather(
         *(fetch_and_store(job_id) for job_id in external_ids), return_exceptions=True
@@ -263,12 +261,12 @@ def _is_within_age(job: NormalizedJob, max_age_days: int) -> bool:
     if max_age_days <= 0 or not job.posted_at:
         return True
     try:
-        posted = datetime.fromisoformat(job.posted_at.replace("Z", "+00:00"))
+        posted = datetime.fromisoformat(job.posted_at)
         if posted.tzinfo is None:
-            posted = posted.replace(tzinfo=timezone.utc)
+            posted = posted.replace(tzinfo=UTC)
     except (ValueError, TypeError):
         return True
-    cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+    cutoff = datetime.now(UTC) - timedelta(days=max_age_days)
     return posted >= cutoff
 
 
@@ -286,7 +284,10 @@ def dedupe_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 async def poll_source(
-    supabase: Client, source: dict[str, Any], adapter, max_posting_age_days: int = MAX_POSTING_AGE_DAYS
+    supabase: Client,
+    source: dict[str, Any],
+    adapter,
+    max_posting_age_days: int = MAX_POSTING_AGE_DAYS,
 ) -> dict[str, Any]:
     jobs = await adapter.fetch_jobs(source["board_identifier"])
     first_check = source.get("last_checked_at") is None
@@ -330,7 +331,7 @@ def clear_orphaned_runs(supabase: Client, stale_minutes: int = 10) -> int:
         supabase.table("poll_runs")
         .select("id")
         .eq("status", "running")
-        .lt("started_at", (datetime.now(timezone.utc) - timedelta(minutes=stale_minutes)).isoformat())
+        .lt("started_at", (datetime.now(UTC) - timedelta(minutes=stale_minutes)).isoformat())
         .execute()
     )
     rows = stale_ids.data or []
@@ -338,7 +339,7 @@ def clear_orphaned_runs(supabase: Client, stale_minutes: int = 10) -> int:
         supabase.table("poll_runs").update(
             {
                 "status": "failed",
-                "finished_at": datetime.now(timezone.utc).isoformat(),
+                "finished_at": datetime.now(UTC).isoformat(),
                 "error": "orphaned: process restarted before the run completed (cleared at startup)",
             }
         ).eq("id", row["id"]).execute()
@@ -347,7 +348,9 @@ def clear_orphaned_runs(supabase: Client, stale_minutes: int = 10) -> int:
     return len(rows)
 
 
-def create_poll_run(supabase: Client, *, triggered_by: str = "scheduled", ats_type: str | None = None) -> str:
+def create_poll_run(
+    supabase: Client, *, triggered_by: str = "scheduled", ats_type: str | None = None
+) -> str:
     response = (
         supabase.table("poll_runs")
         .insert(
@@ -355,7 +358,7 @@ def create_poll_run(supabase: Client, *, triggered_by: str = "scheduled", ats_ty
                 "triggered_by": triggered_by,
                 "ats_type": ats_type,
                 "status": "running",
-                "started_at": datetime.now(timezone.utc).isoformat(),
+                "started_at": datetime.now(UTC).isoformat(),
             }
         )
         .execute()
@@ -379,7 +382,7 @@ def finish_poll_run(
 ) -> None:
     update: dict[str, Any] = {
         "status": status,
-        "finished_at": datetime.now(timezone.utc).isoformat(),
+        "finished_at": datetime.now(UTC).isoformat(),
         "jobs_fetched": jobs_fetched,
         "jobs_new": jobs_new,
         "matches_considered": matches_considered,
@@ -443,7 +446,9 @@ async def poll_all_sources(
                 }
                 try:
                     adapter = adapter_for(source["ats_type"])
-                    result = await poll_source(supabase, source, adapter, settings.max_posting_age_days)
+                    result = await poll_source(
+                        supabase, source, adapter, settings.max_posting_age_days
+                    )
                     entry["fetched"] = result["fetched"]
                     entry["new"] = result["new"]
                     entry["first_check"] = result["first_check"]
@@ -451,7 +456,9 @@ async def poll_all_sources(
                     total_new += result["new"]
                     print(f"{result['company']}: fetched {result['fetched']}, new {result['new']}")
                     if not result["first_check"] or notify_first_check:
-                        candidates.extend((result["source_id"], job_id) for job_id in result["new_ids"])
+                        candidates.extend(
+                            (result["source_id"], job_id) for job_id in result["new_ids"]
+                        )
                 except Exception as exc:
                     entry["status"] = "error"
                     entry["error"] = str(exc)[:300]

@@ -66,7 +66,9 @@ class PhenomAdapter(JobSourceAdapter):
                     break
         return jobs
 
-    async def _fetch_page(self, client: httpx.AsyncClient, base_url: str, from_offset: int) -> tuple[list[dict], int | None]:
+    async def _fetch_page(
+        self, client: httpx.AsyncClient, base_url: str, from_offset: int
+    ) -> tuple[list[dict], int | None]:
         last_exc: Exception | None = None
         for attempt in range(MAX_RETRIES):
             try:
@@ -108,9 +110,7 @@ class PhenomAdapter(JobSourceAdapter):
         country = job.get("country")
         if country:
             countries.append(str(country))
-        is_remote = bool(
-            location and re.search(r"\b(virtual|remote)\b", location, re.IGNORECASE)
-        )
+        is_remote = bool(location and re.search(r"\b(virtual|remote)\b", location, re.IGNORECASE))
         return NormalizedJob(
             external_job_id=job_id,
             title=title,
@@ -136,15 +136,14 @@ def _extract_json_object(s: str, start: int) -> str | None:
                 esc = True
             elif c == '"':
                 in_str = False
-        else:
-            if c == '"':
-                in_str = True
-            elif c == "{":
-                depth += 1
-            elif c == "}":
-                depth -= 1
-                if depth == 0:
-                    return s[start : i + 1]
+        elif c == '"':
+            in_str = True
+        elif c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return s[start : i + 1]
     return None
 
 

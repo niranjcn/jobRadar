@@ -1,10 +1,10 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 from supabase import Client
 
-from app.db import query
 from app.config import load_settings
+from app.db import query
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -60,7 +60,7 @@ def set_interval_override(supabase: Client, ats_type: str, interval_seconds: int
         {
             "ats_type": ats_type,
             "interval_seconds": int(interval_seconds),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
         },
         on_conflict="ats_type",
     ).execute()
@@ -79,12 +79,11 @@ def next_run_at(interval_seconds: int, last_checked_at: str | None) -> str | Non
     base = now
     if last_checked_at is not None:
         try:
-            last = datetime.fromisoformat(last_checked_at.replace("Z", "+00:00"))
+            last = datetime.fromisoformat(last_checked_at)
             if last.tzinfo is None:
-                last = last.replace(tzinfo=timezone.utc)
+                last = last.replace(tzinfo=UTC)
             last = last.astimezone(IST)
-            if last > base:
-                base = last
+            base = max(base, last)
         except (ValueError, TypeError):
             return None
     if interval_seconds % 3600 == 0:

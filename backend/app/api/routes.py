@@ -4,14 +4,14 @@ All endpoints operate against the single default user. Auth is deliberately
 out of scope for now (single-user, self-hosted); secrets stay server-side.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app.api.detect import detect_source
 from app.adapters import adapter_for
+from app.api.detect import detect_source
 from app.config import DEFAULT_USER_ID, load_settings
 from app.db import get_supabase, query
 from app.geo import load_geo_index, map_location
@@ -97,7 +97,7 @@ def _company_names(supabase) -> dict[str, str]:
 @router.get("/stats")
 def stats() -> dict:
     settings = _settings()
-    since = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    since = (datetime.now(UTC) - timedelta(days=7)).isoformat()
 
     row = query(
         settings,
@@ -413,7 +413,7 @@ def sources() -> dict:
         interval = intervals.get(row["ats_type"], 3600)
         last = row["last_checked_at"]
         last_error = row["last_error"]
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         reason = None
         if last is None:
             status = "never"
@@ -504,9 +504,7 @@ def update_source(source_id: str, payload: SourceUpdate) -> dict:
         update["board_identifier"] = payload.board_identifier
     if not update:
         raise HTTPException(status_code=422, detail="nothing to update")
-    response = (
-        supabase.table("sources").update(update).eq("id", source_id).execute()
-    )
+    response = supabase.table("sources").update(update).eq("id", source_id).execute()
     if not response.data:
         raise HTTPException(status_code=404, detail="source not found")
     return {"ok": True, "source": response.data[0]}
@@ -557,12 +555,15 @@ async def run_poll(payload: PollRunRequest | None = None) -> dict:
     )
     if running:
         started = running[0]["started_at"]
-        age_minutes = (datetime.now(timezone.utc) - started).total_seconds() / 60
+        age_minutes = (datetime.now(UTC) - started).total_seconds() / 60
         if age_minutes > 45:
             # A crashed/killed run would otherwise block future polls forever.
             supabase.table("poll_runs").update(
-                {"status": "failed", "finished_at": datetime.now(timezone.utc).isoformat(),
-                 "error": "stale: previous run did not complete (marked failed)"}
+                {
+                    "status": "failed",
+                    "finished_at": datetime.now(UTC).isoformat(),
+                    "error": "stale: previous run did not complete (marked failed)",
+                }
             ).eq("id", running[0]["id"]).execute()
         else:
             raise HTTPException(
@@ -596,11 +597,14 @@ async def run_unhealthy_poll() -> dict:
     )
     if running:
         started = running[0]["started_at"]
-        age_minutes = (datetime.now(timezone.utc) - started).total_seconds() / 60
+        age_minutes = (datetime.now(UTC) - started).total_seconds() / 60
         if age_minutes > 45:
             supabase.table("poll_runs").update(
-                {"status": "failed", "finished_at": datetime.now(timezone.utc).isoformat(),
-                 "error": "stale: previous run did not complete (marked failed)"}
+                {
+                    "status": "failed",
+                    "finished_at": datetime.now(UTC).isoformat(),
+                    "error": "stale: previous run did not complete (marked failed)",
+                }
             ).eq("id", running[0]["id"]).execute()
         else:
             raise HTTPException(
@@ -661,7 +665,16 @@ def schedule() -> dict:
     last_checked = last_checked_by_ats(settings)
     counts = source_count_by_ats(settings)
 
-    ats_order = ["greenhouse", "lever", "ashby", "workday", "oracle", "icims", "successfactors", "custom"]
+    ats_order = [
+        "greenhouse",
+        "lever",
+        "ashby",
+        "workday",
+        "oracle",
+        "icims",
+        "successfactors",
+        "custom",
+    ]
     entries = []
     for ats in ats_order:
         if ats not in intervals:
@@ -674,7 +687,8 @@ def schedule() -> dict:
                 "overridden": ats in overrides,
                 "env_interval_seconds": env_intervals.get(ats, interval),
                 "last_checked_at": last_checked.get(ats),
-                "next_run_at": _scheduled_next_run(ats) or next_run_at(interval, last_checked.get(ats)),
+                "next_run_at": _scheduled_next_run(ats)
+                or next_run_at(interval, last_checked.get(ats)),
                 "source_count": counts.get(ats, 0),
             }
         )
@@ -800,7 +814,7 @@ def put_preferences(payload: PreferencesUpdate) -> dict:
         "telegram_scope": payload.telegram_scope,
         "email_scope": payload.email_scope,
         "notify_first_check": payload.notify_first_check,
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(UTC).isoformat(),
     }
     supabase.table("preferences").upsert(row, on_conflict="user_id").execute()
     try:
@@ -870,8 +884,12 @@ def put_location_mapping(payload: LocationMappingUpdate) -> dict:
     current = load_location_mapping(supabase)
     update = {
         "enabled": payload.enabled if payload.enabled is not None else current.get("enabled", True),
-        "remote_to": payload.remote_to if payload.remote_to is not None else current.get("remote_to", []),
-        "custom_aliases": payload.custom_aliases if payload.custom_aliases is not None else current.get("custom_aliases", {}),
+        "remote_to": payload.remote_to
+        if payload.remote_to is not None
+        else current.get("remote_to", []),
+        "custom_aliases": payload.custom_aliases
+        if payload.custom_aliases is not None
+        else current.get("custom_aliases", {}),
     }
     save_location_mapping(supabase, update)
     try:

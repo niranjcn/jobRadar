@@ -27,8 +27,7 @@ def get_supabase(settings: Settings) -> Client:
 
 def query(settings: Settings, sql: str, params: tuple = ()) -> list[dict[str, Any]]:
     """Run a read-only SQL query against Postgres and return rows as dicts."""
-    with get_pool(settings).connection(timeout=20) as conn:
-        with conn.cursor() as cur:
-            cur.execute(sql, params)
-            columns = [col.name for col in cur.description] if cur.description else []
-            return [dict(zip(columns, row)) for row in cur.fetchall()]
+    with get_pool(settings).connection(timeout=20) as conn, conn.cursor() as cur:
+        cur.execute(sql, params)
+        columns = [col.name for col in cur.description] if cur.description else []
+        return [dict(zip(columns, row)) for row in cur.fetchall()]

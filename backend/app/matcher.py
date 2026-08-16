@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from supabase import Client
@@ -72,9 +72,7 @@ def job_matches_preferences(
         # country-aware: also accept a job whose mapped countries cover a
         # preference that resolves to a country (India, Dubai -> AE, BLR -> IN).
         if job_countries:
-            locations_hit = list(
-                locations_hit
-            ) or [
+            locations_hit = list(locations_hit) or [
                 loc
                 for loc in locations
                 if location_matches_preference(job_countries, job_is_remote, loc, geo_settings)
@@ -92,7 +90,9 @@ def job_matches_preferences(
     return True, reasons
 
 
-def compute_match_score(job: dict[str, Any], preferences: dict[str, Any], geo_settings: dict[str, Any] | None = None) -> int:
+def compute_match_score(
+    job: dict[str, Any], preferences: dict[str, Any], geo_settings: dict[str, Any] | None = None
+) -> int:
     """Deterministic 0-100 score: share of active preference categories hit."""
     title = (job.get("title") or "").lower()
     description = (job.get("description") or "").lower()
@@ -121,11 +121,15 @@ def compute_match_score(job: dict[str, Any], preferences: dict[str, Any], geo_se
 
     if locations:
         categories += 1
-        if any(loc.lower() in location or (loc.lower() == "remote" and "remote" in location) for loc in locations):
-            hits += 1
-        elif job_countries and any(
-            location_matches_preference(job_countries, job_is_remote, loc, geo_settings)
+        if any(
+            loc.lower() in location or (loc.lower() == "remote" and "remote" in location)
             for loc in locations
+        ) or (
+            job_countries
+            and any(
+                location_matches_preference(job_countries, job_is_remote, loc, geo_settings)
+                for loc in locations
+            )
         ):
             hits += 1
 
@@ -147,10 +151,7 @@ def sync_preferences(supabase: Client, preferences: dict[str, Any]) -> None:
     defaults.
     """
     existing = (
-        supabase.table("preferences")
-        .select("user_id")
-        .eq("user_id", DEFAULT_USER_ID)
-        .execute()
+        supabase.table("preferences").select("user_id").eq("user_id", DEFAULT_USER_ID).execute()
     )
     if existing.data:
         return
@@ -169,7 +170,7 @@ def sync_preferences(supabase: Client, preferences: dict[str, Any]) -> None:
             {
                 "user_id": DEFAULT_USER_ID,
                 **fields,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(UTC).isoformat(),
             }
         ],
         on_conflict="user_id",
@@ -209,9 +210,7 @@ def load_notification_settings(supabase: Client) -> dict[str, Any]:
     }
 
 
-def match_all(
-    supabase: Client, candidates: list[tuple[str, str]] | None = None
-) -> dict[str, Any]:
+def match_all(supabase: Client, candidates: list[tuple[str, str]] | None = None) -> dict[str, Any]:
     preferences = load_preferences(supabase)
     if not preferences:
         return {"result": "no preferences row yet", "matched": 0}
@@ -297,21 +296,20 @@ def recompute_matches(supabase: Client, settings: Any | None = None) -> dict[str
                 {"raw": loc, "remote": False, "codes": mapped.get("countries") or []}
             )
 
-    with get_pool(settings).connection(timeout=60) as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "select recompute_job_matches(%s, %s, %s, %s::jsonb, %s, %s, %s)",
-                (
-                    DEFAULT_USER_ID,
-                    preferences.get("roles") or [],
-                    preferences.get("keywords") or [],
-                    json.dumps(pref_locations),
-                    preferences.get("seniority") or [],
-                    preferences.get("excluded_companies") or [],
-                    preferences.get("excluded_roles") or [],
-                ),
-            )
-            result = cur.fetchone()[0]
+    with get_pool(settings).connection(timeout=60) as conn, conn.cursor() as cur:
+        cur.execute(
+            "select recompute_job_matches(%s, %s, %s, %s::jsonb, %s, %s, %s)",
+            (
+                DEFAULT_USER_ID,
+                preferences.get("roles") or [],
+                preferences.get("keywords") or [],
+                json.dumps(pref_locations),
+                preferences.get("seniority") or [],
+                preferences.get("excluded_companies") or [],
+                preferences.get("excluded_roles") or [],
+            ),
+        )
+        result = cur.fetchone()[0]
 
     return {
         "result": result.get("result"),

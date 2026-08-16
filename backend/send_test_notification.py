@@ -4,15 +4,15 @@ Uses the exact production code paths (messages.build_text / build_html) so the
 delivered format is what a real poll would send. Does not touch the DB.
 """
 
-import sys
 import io
+import sys
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 from app.config import load_settings
-from app.messages import build_text, build_html
-from app.telegram import _send_message
+from app.messages import build_html, build_text
 from app.notify import _send_email
+from app.telegram import _send_message
 
 SAMPLE_JOBS = [
     {
