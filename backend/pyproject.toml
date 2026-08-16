@@ -1,0 +1,19 @@
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+# Scratch/dev tools are not held to the same bar as shipped code.
+extend-exclude = ["scripts"]
+
+[tool.ruff.lint]
+# Uses ruff's default rule set (deterministic because ruff is version-pinned
+# in requirements-dev.txt). The ignores below are deliberate style choices.
+ignore = [
+    "BLE001",  # broad excepts are intentional: sources must stay resilient
+    "DTZ007",  # scraped dates are parsed as naive datetimes on purpose
+    "S110",    # try/except/pass used deliberately in adapters
+    "S112",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests import inside test bodies on purpose (self-contained unit tests).
+"tests/**" = ["E402", "I001", "PLR0402"]

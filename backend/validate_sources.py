@@ -27,9 +27,7 @@ async def probe(source: dict) -> str:
     try:
         if ats in ("greenhouse", "lever", "ashby"):
             adapter = adapter_for(ats)
-            jobs = await asyncio.wait_for(
-                adapter.fetch_jobs(bid), timeout=60.0
-            )
+            jobs = await asyncio.wait_for(adapter.fetch_jobs(bid), timeout=60.0)
             return f"OK {len(jobs)}"
         elif ats == "workday":
             adapter = WorkdayAdapter()
@@ -49,14 +47,29 @@ async def probe(source: dict) -> str:
                 if page.status_code != 200:
                     return f"HTTP {page.status_code}"
                 import re
+
                 m = re.search(r"portalNo:\s*'(\d+)'", page.text)
                 if not m:
                     return "no portalNo found"
                 host = bid.split("/careersection")[0].rstrip("/")
                 r = await client.post(
                     f"{host}/careersection/rest/jobboard/searchjobs?portal={m.group(1)}",
-                    json={"multilineEnabled": False, "sortingSelection": {"sortBySelectionParam": "1", "ascendingSortingOrder": "false"}, "fieldData": {"fields": {"KEYWORD": "", "LOCATION": "", "CATEGORY": ""}, "valid": True}, "pageNo": 1},
-                    headers={"Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest"},
+                    json={
+                        "multilineEnabled": False,
+                        "sortingSelection": {
+                            "sortBySelectionParam": "1",
+                            "ascendingSortingOrder": "false",
+                        },
+                        "fieldData": {
+                            "fields": {"KEYWORD": "", "LOCATION": "", "CATEGORY": ""},
+                            "valid": True,
+                        },
+                        "pageNo": 1,
+                    },
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-Requested-With": "XMLHttpRequest",
+                    },
                 )
                 if r.status_code != 200:
                     return f"HTTP {r.status_code}"

@@ -59,7 +59,9 @@ class IcimsAdapter(JobSourceAdapter):
     @staticmethod
     def _normalize_json(entry: dict) -> NormalizedJob:
         data = entry.get("data") or {}
-        location = data.get("short_location") or data.get("full_location") or data.get("location_name")
+        location = (
+            data.get("short_location") or data.get("full_location") or data.get("location_name")
+        )
         return NormalizedJob(
             external_job_id=str(data.get("req_id") or data.get("slug") or ""),
             title=data.get("title") or "",
@@ -75,7 +77,9 @@ class IcimsAdapter(JobSourceAdapter):
         async with RetryingClient(timeout=30.0, follow_redirects=True) as client:
             page = 1
             while page <= JSON_API_MAX_PAGES:
-                url = re.sub(r"p=\d+", f"p={page}", search_url) if "p=" in search_url else search_url
+                url = (
+                    re.sub(r"p=\d+", f"p={page}", search_url) if "p=" in search_url else search_url
+                )
                 response = await client.get(url)
                 response.raise_for_status()
                 text = response.text

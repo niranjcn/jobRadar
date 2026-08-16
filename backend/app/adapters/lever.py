@@ -1,4 +1,5 @@
 import asyncio
+from datetime import UTC
 
 import httpx
 
@@ -26,7 +27,9 @@ class LeverAdapter(JobSourceAdapter):
                     if response.status_code not in (404, 429, 500, 502, 503):
                         response.raise_for_status()
                     last_error = httpx.HTTPStatusError(
-                        f"lever returned {response.status_code}", request=response.request, response=response
+                        f"lever returned {response.status_code}",
+                        request=response.request,
+                        response=response,
                     )
                 except httpx.TransportError as exc:
                     last_error = exc
@@ -41,8 +44,9 @@ class LeverAdapter(JobSourceAdapter):
         location = next((loc for loc in locations if loc), None) or categories.get("location")
         created_ms = posting.get("createdAt")
         if created_ms:
-            from datetime import datetime, timezone
-            posted_at = datetime.fromtimestamp(created_ms / 1000, tz=timezone.utc).isoformat()
+            from datetime import datetime
+
+            posted_at = datetime.fromtimestamp(created_ms / 1000, tz=UTC).isoformat()
         else:
             posted_at = None
         return NormalizedJob(

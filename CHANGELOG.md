@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- GitHub Actions CI (ruff lint + format, backend unit tests, frontend tests).
+- Pull request and issue templates; `CONTRIBUTING.md` and `CHANGELOG.md`.
+
+### Changed
+
+- License switched to Apache-2.0.
+- Backend lint policy codified in `pyproject.toml` and applied across the
+  codebase (ruff, deterministic and pinned).
+
 ### Planned
 
 - AI-assisted job matching (post-deterministic).

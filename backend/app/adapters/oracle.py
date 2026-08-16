@@ -54,7 +54,7 @@ class OracleAdapter(JobSourceAdapter):
         return board_identifier.rstrip("/")
 
     def _host(self, board_identifier: str) -> str:
-        return board_identifier.split("/careersection")[0].rstrip("/")
+        return board_identifier.split("/careersection", maxsplit=1)[0].rstrip("/")
 
     @property
     def _rest_base(self) -> str:
@@ -98,9 +98,7 @@ class OracleAdapter(JobSourceAdapter):
                 data = response.json()
                 item = (data.get("items") or [{}])[0]
                 postings = item.get("requisitionList") or []
-                jobs.extend(
-                    self._normalize_fusion(site_root, site_number, p) for p in postings
-                )
+                jobs.extend(self._normalize_fusion(site_root, site_number, p) for p in postings)
                 total = item.get("totalJobsCount") or 0
                 offset += len(postings)
                 if offset >= total or not postings:
@@ -240,7 +238,9 @@ class OracleAdapter(JobSourceAdapter):
             return await self._fetch_fusion_job_detail(board_identifier, external_job_id)
         return await self._fetch_taleo_job_detail(board_identifier, external_job_id)
 
-    async def _fetch_fusion_job_detail(self, board_identifier: str, external_job_id: str) -> dict | None:
+    async def _fetch_fusion_job_detail(
+        self, board_identifier: str, external_job_id: str
+    ) -> dict | None:
         base = self._base(board_identifier)
         url = f"{base}/job/{external_job_id}"
         async with RetryingClient(timeout=30.0) as client:
@@ -257,7 +257,9 @@ class OracleAdapter(JobSourceAdapter):
             return {"description": _strip_html(unquote_plus(match.group(1)))}
         return {"description": ""}
 
-    async def _fetch_taleo_job_detail(self, board_identifier: str, external_job_id: str) -> dict | None:
+    async def _fetch_taleo_job_detail(
+        self, board_identifier: str, external_job_id: str
+    ) -> dict | None:
         base = self._base(board_identifier)
         url = f"{base}/jobdetail.ftl?job={external_job_id}&lang=en"
         async with RetryingClient(timeout=30.0) as client:
@@ -270,7 +272,7 @@ class OracleAdapter(JobSourceAdapter):
             return {"description": ""}
         start = html_text.rfind("<input", 0, marker)
         end = html_text.find(">", marker) + 1
-        match = re.search(r'value="(.*?)"\s*/?>\s*$', html_text[start:end], re.S)
+        match = re.search(r'value="(.*?)"\s*/?>\s*$', html_text[start:end], re.DOTALL)
         if not match:
             return {"description": ""}
         raw = unquote_plus(match.group(1))

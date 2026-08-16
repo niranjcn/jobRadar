@@ -27,7 +27,7 @@ location/date; the board_identifier is the careers site root.
 import asyncio
 import html as html_module
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 
@@ -91,7 +91,9 @@ class CustomAdapter(JobSourceAdapter):
     @staticmethod
     def _normalize(tile: str, base: str | None = None) -> NormalizedJob:
         url = _clean(re.search(r'data-url="([^"]*)"', tile))
-        title = _clean(re.search(r'class="jobTitle-link[^"]*"[^>]*>\s*(.*?)\s*</a>', tile, re.DOTALL))
+        title = _clean(
+            re.search(r'class="jobTitle-link[^"]*"[^>]*>\s*(.*?)\s*</a>', tile, re.DOTALL)
+        )
         location = _clean(re.search(r'section-location-value"\s*>([^<]+?)\s*<', tile))
         posted = _clean(re.search(r'section-date-value"\s*>([^<]+?)\s*<', tile))
         job_id = _extract_job_id(url)
@@ -102,7 +104,11 @@ class CustomAdapter(JobSourceAdapter):
             title=title or "",
             location=location,
             url=url,
-            raw_payload={"requisition": _clean(re.search(r'section-customfield1-value"\s*>([^<]+?)\s*<', tile))},
+            raw_payload={
+                "requisition": _clean(
+                    re.search(r'section-customfield1-value"\s*>([^<]+?)\s*<', tile)
+                )
+            },
             posted_at=_parse_posted(posted),
         )
 
@@ -124,7 +130,7 @@ def _parse_posted(posted: str | None) -> str | None:
         parsed = datetime.strptime(posted, "%d %b %Y")
     except ValueError:
         return None
-    return parsed.replace(tzinfo=timezone.utc).isoformat()
+    return parsed.replace(tzinfo=UTC).isoformat()
 
 
 def _clean(match) -> str | None:

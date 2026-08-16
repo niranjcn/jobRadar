@@ -36,7 +36,9 @@ class RetryingClient(httpx.AsyncClient):
     deterministic and retrying would only hammer the board.
     """
 
-    async def request(self, method: str, url: str, *, retries: int = MAX_RETRIES, **kwargs) -> httpx.Response:
+    async def request(
+        self, method: str, url: str, *, retries: int = MAX_RETRIES, **kwargs
+    ) -> httpx.Response:
         last_response: httpx.Response | None = None
         for attempt in range(retries + 1):
             try:

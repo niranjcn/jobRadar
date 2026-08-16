@@ -19,9 +19,10 @@ import pytest
 os.environ["JOBRADAR_DISABLE_SCHEDULER"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import uvicorn  # noqa: E402
-from app.migrate import run_migrations  # noqa: E402
-from app.config import load_settings  # noqa: E402
+import uvicorn
+from app.migrate import run_migrations
+from app.config import load_settings
+from datetime import UTC
 
 BASE_URL = "http://127.0.0.1:8100"
 server = None
@@ -125,7 +126,13 @@ def test_schedule_shape():
     assert isinstance(data["schedule"], list)
     if data["schedule"]:
         entry = data["schedule"][0]
-        for key in ("ats_type", "interval_seconds", "last_checked_at", "next_run_at", "source_count"):
+        for key in (
+            "ats_type",
+            "interval_seconds",
+            "last_checked_at",
+            "next_run_at",
+            "source_count",
+        ):
             assert key in entry, f"missing {key}"
         # roundtrip: set an override, confirm it sticks, then reset
         _put(f"/api/schedule/{entry['ats_type']}", {"interval_seconds": 3600})
@@ -277,7 +284,7 @@ def test_poll_runs_conflict_guard():
 
 def test_clear_orphaned_runs():
     """Startup cleanup marks stale running rows as failed so they stop blocking polls."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
     from app.poller import create_poll_run, clear_orphaned_runs
     from app.db import get_supabase
 
@@ -287,7 +294,7 @@ def test_clear_orphaned_runs():
     try:
         # force the run to appear long-stale so the startup cleanup picks it up
         supabase.table("poll_runs").update(
-            {"started_at": (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat()}
+            {"started_at": (datetime.now(UTC) - timedelta(hours=3)).isoformat()}
         ).eq("id", run_id).execute()
         cleared = clear_orphaned_runs(supabase, stale_minutes=10)
         assert cleared >= 1

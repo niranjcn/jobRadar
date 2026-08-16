@@ -1,7 +1,7 @@
 """Read/write JSON settings in the app_settings table."""
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from supabase import Client
@@ -18,7 +18,7 @@ def load_app_settings(supabase: Client, key: str) -> dict[str, Any] | None:
 
 def save_app_settings(supabase: Client, key: str, value: dict[str, Any]) -> None:
     supabase.table("app_settings").upsert(
-        {"key": key, "value": value, "updated_at": datetime.now(timezone.utc).isoformat()},
+        {"key": key, "value": value, "updated_at": datetime.now(UTC).isoformat()},
         on_conflict="key",
     ).execute()
 
