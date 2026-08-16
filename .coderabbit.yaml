@@ -4,6 +4,27 @@ reviews:
   profile: "assertive"
   request_changes_workflow: true
   high_level_summary: true
+  high_level_summary_instructions: |
+    Generate a concise PR description from the actual diff and commit messages.
+    Do not invent facts that are not present in the changes. Follow this structure,
+    mirroring the project's PR template:
+
+    **Description** — one paragraph: what changed, why, and the approach taken.
+
+    **Type of Change** — pick the single best fit: Bug fix / New feature /
+    Breaking change / Documentation update / Style & formatting / Refactor /
+    Performance improvement / Test update / Chore (build/CI config).
+
+    **How Has This Been Tested** — list which checks apply and give the real
+    commands: `cd backend && ruff check . && ruff format --check .`,
+    `cd backend && python -m pytest tests/test_unit.py`, `cd frontend && npm test`.
+    Say "None" if no code or tests changed.
+
+    **Migration / Config Requirements** — say "None" unless the diff adds
+    migrations, env vars, or changes sources.json, docker-compose.yml, or
+    render.yaml; then list them.
+
+    Keep it under 150 words. Use Markdown headings.
   poem: false
   review_status: true
   collapse_walkthrough: true
