@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Chakra_Petch, DM_Sans, JetBrains_Mono } from "next/font/google";
+import { TelegramBridge } from "@/components/telegram-bridge";
 import "./globals.css";
 
 const chakra = Chakra_Petch({
@@ -35,7 +36,10 @@ export default function RootLayout({
       data-theme="dark"
       className={`${chakra.variable} ${dm.variable} ${jetbrains.variable}`}
     >
-      <body className="min-h-screen font-sans">{children}</body>
+      <body className="min-h-screen font-sans">
+        <TelegramBridge />
+        {children}
+      </body>
     </html>
   );
 }

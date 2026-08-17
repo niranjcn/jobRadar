@@ -34,6 +34,7 @@ class Settings:
         telegram_enabled: bool,
         telegram_bot_token: str,
         telegram_chat_id: str,
+        telegram_mini_app_url: str,
         ats_intervals: dict[str, int],
     ) -> None:
         self.supabase_url = supabase_url
@@ -49,6 +50,7 @@ class Settings:
         self.telegram_enabled = telegram_enabled
         self.telegram_bot_token = telegram_bot_token
         self.telegram_chat_id = telegram_chat_id
+        self.telegram_mini_app_url = telegram_mini_app_url
         self.ats_intervals = ats_intervals
 
 
@@ -91,5 +93,6 @@ def load_settings() -> Settings:
         telegram_enabled=os.environ.get("TELEGRAM_ENABLED", "").lower() in ("1", "true", "yes"),
         telegram_bot_token=os.environ.get("TELEGRAM_BOT_TOKEN", ""),
         telegram_chat_id=os.environ.get("TELEGRAM_CHAT_ID", ""),
+        telegram_mini_app_url=os.environ.get("TELEGRAM_MINI_APP_URL", ""),
         ats_intervals=_load_ats_intervals(),
     )

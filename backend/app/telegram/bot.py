@@ -43,6 +43,7 @@ COMMANDS: list[dict[str, str]] = [
     {"command": "runs", "description": "Recent poll runs"},
     {"command": "notifications", "description": "Recent alerts sent"},
     {"command": "preferences", "description": "Your preferences"},
+    {"command": "app", "description": "Open the JobRadar mini app"},
 ]
 
 # Inline menu (read-only commands only). Two columns per row keeps the
@@ -140,14 +141,33 @@ def _chunk_text(text: str, max_len: int = MAX_MESSAGE_LENGTH) -> list[str]:
     return chunks
 
 
-def _menu_markup() -> dict[str, Any]:
-    """Inline keyboard for the main menu (read-only command buttons)."""
+def _menu_markup(mini_app_url: str = "") -> dict[str, Any]:
+    """Inline keyboard for the main menu (read-only command buttons).
+
+    When a mini-app URL is configured, a WebApp button is appended as the last
+    row so the user can jump straight into the dashboard from the menu.
+    """
     pairs = [MENU_BUTTONS[i : i + 2] for i in range(0, len(MENU_BUTTONS), 2)]
+    keyboard = [
+        [{"text": label, "callback_data": f"menu:{command}"} for command, label in row]
+        for row in pairs
+    ]
+    if mini_app_url:
+        keyboard.append(
+            [
+                {
+                    "text": "🚀 Open JobRadar app",
+                    "web_app": {"url": mini_app_url},
+                }
+            ]
+        )
+    return {"inline_keyboard": keyboard}
+
+
+def _app_markup(mini_app_url: str) -> dict[str, Any]:
+    """Inline keyboard with a single WebApp button for the mini app."""
     return {
-        "inline_keyboard": [
-            [{"text": label, "callback_data": f"menu:{command}"} for command, label in row]
-            for row in pairs
-        ]
+        "inline_keyboard": [[{"text": "🚀 Open JobRadar app", "web_app": {"url": mini_app_url}}]]
     }
 
 
@@ -588,7 +608,13 @@ async def _handle_callback(
     supabase = get_supabase(settings)
     reply = dispatch_command(settings, supabase, command, "")
     if reply:
-        await _send_message(client, token, chat_id, reply, reply_markup=_menu_markup())
+        await _send_message(
+            client,
+            token,
+            chat_id,
+            reply,
+            reply_markup=_menu_markup(settings.telegram_mini_app_url),
+        )
 
 
 def _inline_results(settings: Settings, q: str, *, limit: int = 8) -> list[dict[str, Any]]:
@@ -716,9 +742,32 @@ async def handle_update(
         return
     command, args = parse_command(text)
     supabase = get_supabase(settings)
+    if command == "app":
+        if not settings.telegram_mini_app_url:
+            await _send_message(
+                client,
+                token,
+                chat_id,
+                "Mini app is not configured. Set TELEGRAM_MINI_APP_URL in the backend.",
+            )
+            return
+        await _send_message(
+            client,
+            token,
+            chat_id,
+            "🚀 Open the JobRadar dashboard:",
+            reply_markup=_app_markup(settings.telegram_mini_app_url),
+        )
+        return
     reply = dispatch_command(settings, supabase, command, args)
     if reply:
-        await _send_message(client, token, chat_id, reply, reply_markup=_menu_markup())
+        await _send_message(
+            client,
+            token,
+            chat_id,
+            reply,
+            reply_markup=_menu_markup(settings.telegram_mini_app_url),
+        )
 
 
 async def run_bot(settings: Settings) -> None:
