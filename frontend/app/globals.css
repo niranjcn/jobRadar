@@ -9,6 +9,8 @@
 
 :root,
 :root[data-theme="dark"] {
+  /* native form controls (select popups, scrollbars) follow the dark theme */
+  color-scheme: dark;
   /* base radar field */
   --color-bg: 11 21 38;
   --color-surface: 23 35 61;
@@ -54,6 +56,8 @@
 }
 
 :root[data-theme="light"] {
+  /* native form controls follow the light theme */
+  color-scheme: light;
   --color-bg: 219 231 246;
   --color-surface: 255 255 255;
   --color-elevated: 235 244 250;
@@ -142,9 +146,10 @@ h4 {
       rgba(148, 190, 255, 0.04)
     );
     box-shadow: var(--shadow-neo-raised);
-    backdrop-filter: blur(16px) saturate(160%);
-    -webkit-backdrop-filter: blur(16px) saturate(160%);
   }
+  /* Frosting lives on the ::before so .card itself does NOT create a stacking
+     context. Otherwise any absolute dropdown/tooltip inside a card gets trapped
+     and painted below the sibling cards that come later in DOM order. */
   .card::before {
     content: "";
     position: absolute;
@@ -152,11 +157,17 @@ h4 {
     border-radius: inherit;
     pointer-events: none;
     background: linear-gradient(135deg, var(--specular-top), transparent 40%);
+    backdrop-filter: blur(16px) saturate(160%);
+    -webkit-backdrop-filter: blur(16px) saturate(160%);
     opacity: 0.55;
   }
   .card > * {
     position: relative;
-    z-index: 1;
+    /* NOTE: no z-index here. `position: relative; z-index: 1` would make every
+       direct child of a card its own stacking context, trapping absolute
+       dropdowns inside it and painting them below sibling cards later in the
+       DOM. Content still sits above the ::before specular overlay via DOM
+       order (pseudo-element paints first). */
   }
 
   /* ---- pressed glass inputs ---- */
@@ -165,8 +176,6 @@ h4 {
     border: 1px solid var(--glass-border);
     background: var(--glass);
     box-shadow: var(--shadow-neo-pressed);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
     padding: 0.625rem 0.875rem;
     font-size: 0.875rem;
     color: rgb(var(--color-text));
@@ -179,6 +188,14 @@ h4 {
   .search-input:focus {
     border-color: rgb(var(--color-primary));
     box-shadow: var(--shadow-neo-pressed), 0 0 0 1px rgb(var(--color-primary));
+  }
+
+  /* native select popups: pin option colors to the active theme so the open
+     list is always readable, independent of how the browser renders the popup
+     chrome (color-scheme above handles the frame; these pin the rows). */
+  select.search-input option {
+    background-color: rgb(var(--color-surface));
+    color: rgb(var(--color-text));
   }
 
   /* ---- neomorphic buttons ----
