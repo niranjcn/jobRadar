@@ -1118,7 +1118,11 @@ def test_bot_authorized():
 def _fake_settings(chat_id: str):
     from types import SimpleNamespace
 
-    return SimpleNamespace(telegram_chat_id=chat_id, telegram_bot_token="test-token")
+    return SimpleNamespace(
+        telegram_chat_id=chat_id,
+        telegram_bot_token="test-token",
+        telegram_mini_app_url="",
+    )
 
 
 def test_bot_chunk_text_single():
@@ -1191,6 +1195,26 @@ def test_bot_menu_markup():
         command = button["callback_data"].split(":", 1)[1]
         assert command in MENU_COMMANDS
         assert button["text"]
+
+
+def test_bot_menu_markup_with_mini_app():
+    from app.telegram.bot import MENU_COMMANDS, _menu_markup
+
+    markup = _menu_markup(mini_app_url="https://example.com/app")
+    rows = markup["inline_keyboard"]
+    last_row = rows[-1]
+    assert len(last_row) == 1
+    assert last_row[0]["web_app"] == {"url": "https://example.com/app"}
+    buttons = [b for row in rows for b in row]
+    assert len(buttons) == len(MENU_COMMANDS) + 1
+
+
+def test_bot_app_markup():
+    from app.telegram.bot import _app_markup
+
+    markup = _app_markup("https://example.com/app")
+    buttons = markup["inline_keyboard"][0]
+    assert buttons[0]["web_app"] == {"url": "https://example.com/app"}
 
 
 def test_bot_menu_callback_unauthorized():
