@@ -9,11 +9,41 @@ import { api } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
 import type { Job } from "@/lib/types";
 
+function referralMessage(job: Job): string {
+  return [
+    "Hi [Name],",
+    "",
+    "I hope you're doing well. I've been following your journey at " +
+      job.company +
+      " and really admire your experience there.",
+    "",
+    "I'm a recent Computer Science graduate currently exploring Software Engineering opportunities, " +
+      "and I came across the " +
+      job.title +
+      " (Job ID: " +
+      job.external_job_id +
+      ") role. My background in Python, Java, SQL, Data Structures & Algorithms, " +
+      "and backend development aligns well with the role.",
+    "",
+    "If you're open to it, I'd really appreciate a quick conversation. I'd also be grateful if you " +
+      "could consider referring me for this position.",
+    "",
+    "I've attached my resume for your reference.",
+    "",
+    "Thank you for your time, and I look forward to hearing from you.",
+    "",
+    "Best regards,",
+    "Niranj C N",
+  ].join("\n");
+}
+
 export default function JobDetailPage() {
   const params = useParams<{ id: string }>();
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [referral, setReferral] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     api
@@ -28,6 +58,21 @@ export default function JobDetailPage() {
   if (!job) return null;
 
   const reasons = job.matched_on;
+
+  const generateReferral = () => {
+    setReferral(referralMessage(job));
+    setCopied(false);
+  };
+
+  const copyReferral = async () => {
+    if (referral === null) return;
+    try {
+      await navigator.clipboard.writeText(referral);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  };
 
   return (
     <div className="mx-auto max-w-3xl p-8">
@@ -77,6 +122,34 @@ export default function JobDetailPage() {
         <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-text-secondary">
           {job.description || "No description available."}
         </p>
+      </section>
+
+      <section className="card mt-8 p-5">
+        <h2 className="text-[15px] font-semibold">Referral Message</h2>
+        <p className="mt-2 text-sm text-text-muted">
+          Generate a copy-ready referral message with the company, title and job ID filled in
+          (leave the <code className="rounded bg-surface px-1">[Name]</code> placeholder for the
+          recipient's name).
+        </p>
+        <div className="mt-4 flex gap-3">
+          <button type="button" onClick={generateReferral} className="btn-primary">
+            Generate Referral Message
+          </button>
+          {referral !== null && (
+            <button type="button" onClick={copyReferral} className="btn-ghost">
+              {copied ? "Copied ✓" : "Copy Message"}
+            </button>
+          )}
+        </div>
+        {referral !== null && (
+          <textarea
+            readOnly
+            value={referral}
+            rows={12}
+            className="search-input mt-4 w-full resize-y rounded p-3 font-mono text-xs leading-relaxed"
+            onFocus={(e) => e.currentTarget.select()}
+          />
+        )}
       </section>
 
       <div className="mt-8">
