@@ -849,6 +849,18 @@ Never make the entire test suite dependent on a live third-party career site.
 
 ## 23. Git Workflow
 
+### Always sync before pushing
+
+Before any push to GitHub, ALWAYS:
+
+1. `git fetch origin`
+2. Compare the local branch against `origin/main` (and the branch's own remote tracking ref, if it exists).
+3. If `origin/main` has advanced, rebase the working branch onto `origin/main` (`git rebase origin/main`) and re-run the relevant checks (lint + tests).
+4. Resolve any conflicts before pushing.
+5. Only then push (use `--force-with-lease` if the push follows a rebase).
+
+Never push a stale branch. Never assume the remote is in the state you last saw it.
+
 Use small, focused commits.
 
 Good:
