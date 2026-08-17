@@ -6,7 +6,7 @@ import httpx
 from supabase import Client
 
 from app.config import DEFAULT_USER_ID
-from app.messages import build_text_sections, build_text_summary
+from app.telegram.messages import build_text_sections, build_text_summary
 
 TELEGRAM_API = "https://api.telegram.org/bot"
 MAX_MESSAGE_LENGTH = 4000

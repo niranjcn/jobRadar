@@ -1,3 +1,4 @@
+import asyncio
 import os
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -14,6 +15,7 @@ from app.db import get_supabase, query
 from app.migrate import run_migrations
 from app.poller import clear_orphaned_runs, poll_all_sources
 from app.schedule_store import effective_intervals, load_interval_overrides
+from app.telegram.bot import register_command_menu, run_bot
 
 
 def _supabase():
@@ -159,7 +161,29 @@ async def lifespan(app: FastAPI):
     else:
         print("scheduler disabled via JOBRADAR_DISABLE_SCHEDULER")
 
+    # Telegram command bot: register the command menu and long-poll for commands.
+    # Runs in the same event loop as the scheduler and is gated by the same
+    # env toggles so tests never hit the Telegram API.
+    bot_task = None
+    if settings.telegram_enabled and settings.telegram_bot_token and settings.telegram_chat_id:
+        if os.environ.get("JOBRADAR_DISABLE_BOT", "").lower() not in ("1", "true", "yes"):
+            try:
+                # setMyCommands is a best-effort one-shot; run it in a thread so
+                # a slow/unreachable Telegram API never blocks startup.
+                await asyncio.to_thread(register_command_menu, settings.telegram_bot_token)
+                bot_task = asyncio.create_task(run_bot(settings))
+                app.state.telegram_bot_task = bot_task
+                print("telegram bot: command menu registered, polling started")
+            except Exception as exc:
+                print(f"telegram bot startup failed: {exc}")
+        else:
+            print("telegram bot disabled via JOBRADAR_DISABLE_BOT")
+    else:
+        print("telegram bot disabled (telegram not configured)")
+
     yield
+    if bot_task:
+        bot_task.cancel()
     if scheduler:
         scheduler.shutdown(wait=False)
 

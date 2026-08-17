@@ -6,7 +6,7 @@ import httpx
 from supabase import Client
 
 from app.config import DEFAULT_USER_ID
-from app.messages import build_html
+from app.telegram.messages import build_html
 
 RESEND_API_URL = "https://api.resend.com/emails"
 TEST_MODE_FROM = "jobRadar <onboarding@resend.dev>"
