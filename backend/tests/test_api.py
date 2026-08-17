@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 os.environ["JOBRADAR_DISABLE_SCHEDULER"] = "1"
+os.environ["JOBRADAR_DISABLE_BOT"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import uvicorn

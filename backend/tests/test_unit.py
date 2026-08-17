@@ -9,6 +9,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ.setdefault("JOBRADAR_DISABLE_SCHEDULER", "1")
+os.environ.setdefault("JOBRADAR_DISABLE_BOT", "1")
 
 from app.main import _interval_seconds_to_cron
 from app.matcher import compute_match_score, job_matches_preferences
@@ -1088,3 +1089,87 @@ def test_retrying_client_does_not_retry_404():
     response = asyncio.run(run())
     assert response.status_code == 404
     assert attempts == 1
+
+
+# ---------- telegram bot ----------
+
+
+def test_bot_parse_command():
+    from app.telegram.bot import parse_command
+
+    assert parse_command("/start") == ("start", "")
+    assert parse_command("/jobs python") == ("jobs", "python")
+    assert parse_command("/jobs  python aws ") == ("jobs", "python aws")
+    assert parse_command("/matches@JobRadarBot adobe") == ("matches", "adobe")
+    assert parse_command("/HELP") == ("help", "")
+    assert parse_command("not a command") == ("", "")
+    assert parse_command("") == ("", "")
+
+
+def test_bot_authorized():
+    from app.telegram.bot import authorized
+
+    assert authorized(123456789, _fake_settings(chat_id="123456789")) is True
+    assert authorized("123456789", _fake_settings(chat_id="123456789")) is True
+    assert authorized(111, _fake_settings(chat_id="123456789")) is False
+
+
+def _fake_settings(chat_id: str):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(telegram_chat_id=chat_id)
+
+
+def test_bot_chunk_text_single():
+    from app.telegram.bot import _chunk_text
+
+    assert _chunk_text("short message") == ["short message"]
+    assert _chunk_text("") == [""]
+
+
+def test_bot_chunk_text_long():
+    from app.telegram.bot import _chunk_text
+
+    text = "\n\n".join(f"section {i}" + ("x" * 100) for i in range(100))
+    chunks = _chunk_text(text, max_len=500)
+    assert len(chunks) > 1
+    assert all(len(c) <= 500 for c in chunks)
+    assert "section 0" in chunks[0]
+    assert "section 99" in chunks[-1]
+    assert "\n\n".join(chunks) == text
+
+
+def test_bot_format_job_block():
+    from app.telegram.bot import format_job_block
+
+    text = format_job_block(
+        {
+            "title": "Software Engineer",
+            "company_name": "Adobe",
+            "location": "Bengaluru",
+            "url": "https://x",
+        }
+    )
+    assert "Software Engineer" in text
+    assert "Adobe" in text
+    assert "Bengaluru" in text
+    assert "https://x" in text
+
+    no_extra = format_job_block({"title": "Engineer", "company_name": "Acme"})
+    assert "location" not in no_extra.lower()
+
+
+def test_bot_format_job_block_score():
+    from app.telegram.bot import format_job_block
+
+    text = format_job_block(
+        {"title": "Backend Engineer", "company_name": "Acme", "match_score": 92}
+    )
+    assert "92%" in text
+
+
+def test_bot_dispatch_unknown_command():
+    from app.telegram.bot import dispatch_command
+
+    reply = dispatch_command(_fake_settings("123456789"), None, "nosuchcmd", "")
+    assert "Unknown command" in reply
