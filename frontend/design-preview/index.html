@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>JobRadar — Mission-Control Glass · Design Preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* base */
+  --bg-0: #060c18;
+  --bg-1: #0b1526;
+  --bg-2: #0e1b33;
+  --grid-line: rgba(148, 190, 255, 0.05);
+  --aurora-1: rgba(34, 211, 238, 0.14);
+  --aurora-2: rgba(96, 165, 250, 0.10);
+
+  /* glass */
+  --glass: rgba(148, 190, 255, 0.06);
+  --glass-strong: rgba(148, 190, 255, 0.10);
+  --glass-border: rgba(148, 190, 255, 0.14);
+  --specular: rgba(255, 255, 255, 0.10);
+  --specular-top: rgba(255, 255, 255, 0.12);
+
+  /* neomorphic shadows — dual light source */
+  --neo-raised: 7px 7px 18px rgba(2, 6, 18, 0.60), -7px -7px 18px rgba(120, 160, 255, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --neo-flat: 4px 4px 10px rgba(2, 6, 18, 0.45), -4px -4px 10px rgba(120, 160, 255, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --neo-pressed: inset 5px 5px 12px rgba(2, 6, 18, 0.55), inset -5px -5px 12px rgba(120, 160, 255, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.02);
+  --neo-hover: 10px 10px 24px rgba(2, 6, 18, 0.65), -10px -10px 24px rgba(120, 160, 255, 0.09), inset 0 1px 0 rgba(255, 255, 255, 0.10);
+
+  /* text */
+  --text-1: #eaf3ff;
+  --text-2: #9fb3d1;
+  --text-3: #5c7299;
+
+  /* accents */
+  --primary: #22d3ee;
+  --primary-glow: rgba(34, 211, 238, 0.35);
+  --secondary: #60a5fa;
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #f87171;
+
+  /* radii */
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 20px;
+  --r-pill: 999px;
+
+  /* fonts */
+  --f-display: "Chakra Petch", sans-serif;
+  --f-body: "DM Sans", sans-serif;
+  --f-mono: "JetBrains Mono", monospace;
+}
+
+[data-theme="light"] {
+  --bg-0: #dbe7f6;
+  --bg-1: #e3edfa;
+  --bg-2: #ecf4fd;
+  --grid-line: rgba(64, 100, 160, 0.06);
+  --aurora-1: rgba(34, 211, 238, 0.22);
+  --aurora-2: rgba(96, 165, 250, 0.18);
+
+  --glass: rgba(255, 255, 255, 0.55);
+  --glass-strong: rgba(255, 255, 255, 0.70);
+  --glass-border: rgba(255, 255, 255, 0.70);
+  --specular: rgba(255, 255, 255, 0.85);
+  --specular-top: rgba(255, 255, 255, 0.95);
+
+  --neo-raised: 7px 7px 18px rgba(100, 130, 180, 0.28), -7px -7px 18px rgba(255, 255, 255, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --neo-flat: 4px 4px 10px rgba(100, 130, 180, 0.22), -4px -4px 10px rgba(255, 255, 255, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --neo-pressed: inset 5px 5px 12px rgba(100, 130, 180, 0.30), inset -5px -5px 12px rgba(255, 255, 255, 0.9);
+  --neo-hover: 10px 10px 24px rgba(100, 130, 180, 0.30), -10px -10px 24px rgba(255, 255, 255, 0.95), inset 0 1px 0 rgba(255, 255, 255, 1);
+
+  --text-1: #12233f;
+  --text-2: #44608c;
+  --text-3: #6d84ab;
+
+  --primary: #0891b2;
+  --primary-glow: rgba(8, 145, 178, 0.25);
+  --secondary: #2563eb;
+  --success: #059669;
+  --warning: #d97706;
+  --danger: #dc2626;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--f-body);
+  color: var(--text-1);
+  background:
+    radial-gradient(1200px 600px at 85% -10%, var(--aurora-1), transparent 60%),
+    radial-gradient(1000px 700px at -10% 30%, var(--aurora-2), transparent 60%),
+    linear-gradient(160deg, var(--bg-0), var(--bg-1) 55%, var(--bg-2));
+  background-attachment: fixed;
+  min-height: 100vh;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  transition: background 0.4s ease, color 0.3s ease;
+}
+
+/* radar grid overlay */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse at center, rgba(0,0,0,0.5), transparent 80%);
+  z-index: 0;
+}
+
+.wrap { position: relative; z-index: 1; max-width: 1080px; margin: 0 auto; padding: 48px 28px 80px; }
+
+/* ---------- top bar ---------- */
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  position: sticky; top: 16px; z-index: 10;
+}
+.brand { display: flex; align-items: center; gap: 14px; }
+.radar-mark { position: relative; width: 34px; height: 34px; }
+.radar-mark .ring { position: absolute; inset: 0; border-radius: 50%; border: 1px solid var(--primary); opacity: 0.6; }
+.radar-mark .sweep {
+  position: absolute; inset: 0; border-radius: 50%;
+  border-top: 2px solid var(--primary); border-left: 2px solid var(--primary);
+  animation: spin 3.5s linear infinite;
+}
+.radar-mark .core { position: absolute; inset: 50%; transform: translate(-50%,-50%); width: 8px; height: 8px; border-radius: 50%; background: var(--primary); box-shadow: 0 0 14px var(--primary-glow); }
+.brand .name { font-family: var(--f-display); font-weight: 700; letter-spacing: 0.14em; font-size: 15px; }
+.brand .sub { font-family: var(--f-mono); font-size: 10px; color: var(--text-3); letter-spacing: 0.08em; }
+
+.theme-btn {
+  font-family: var(--f-mono); font-size: 11px; letter-spacing: 0.1em;
+  color: var(--text-2); background: var(--glass); border: 1px solid var(--glass-border);
+  padding: 9px 16px; border-radius: var(--r-pill);
+  box-shadow: var(--neo-flat); cursor: pointer;
+  transition: box-shadow 0.2s, transform 0.2s, color 0.2s;
+}
+.theme-btn:hover { box-shadow: var(--neo-hover); color: var(--text-1); }
+.theme-btn:active { box-shadow: var(--neo-pressed); transform: translateY(1px); }
+
+/* ---------- hero ---------- */
+.hero { margin-top: 72px; text-align: center; }
+.eyebrow {
+  font-family: var(--f-mono); font-size: 12px; letter-spacing: 0.28em;
+  color: var(--primary); text-transform: uppercase; margin-bottom: 18px;
+  display: inline-flex; align-items: center; gap: 10px;
+}
+.eyebrow::before, .eyebrow::after { content: ""; width: 28px; height: 1px; background: linear-gradient(90deg, transparent, var(--primary)); }
+.eyebrow::after { transform: scaleX(-1); }
+.hero h1 {
+  font-family: var(--f-display); font-weight: 700; font-size: clamp(40px, 7vw, 64px);
+  letter-spacing: 0.02em; line-height: 1.05;
+}
+.hero h1 .accent { color: var(--primary); text-shadow: 0 0 28px var(--primary-glow); }
+.hero p.lede { margin: 20px auto 0; max-width: 560px; color: var(--text-2); font-size: 17px; }
+
+.chips { margin-top: 30px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.chip {
+  font-family: var(--f-mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--text-2); background: var(--glass); border: 1px solid var(--glass-border);
+  padding: 8px 16px; border-radius: var(--r-pill); box-shadow: var(--neo-flat);
+}
+
+/* ---------- section shells ---------- */
+section { margin-top: 88px; }
+.sec-head { display: flex; align-items: baseline; gap: 16px; margin-bottom: 34px; }
+.sec-kicker { font-family: var(--f-mono); font-size: 12px; color: var(--primary); letter-spacing: 0.2em; }
+.sec-title { font-family: var(--f-display); font-weight: 600; font-size: 24px; letter-spacing: 0.03em; }
+.sec-note { color: var(--text-3); font-size: 14px; margin-left: auto; font-family: var(--f-mono); }
+
+/* ---------- glass panels ---------- */
+.panel {
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--neo-raised);
+  position: relative;
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+}
+.panel::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(135deg, var(--specular-top), transparent 40%);
+  opacity: 0.6;
+}
+.panel > * { position: relative; z-index: 1; }
+
+/* ---------- typography specimens ---------- */
+.type-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
+.type-block { padding: 26px 30px; }
+.type-block .name { font-family: var(--f-mono); font-size: 11px; color: var(--text-3); letter-spacing: 0.12em; }
+.type-block .role { font-size: 13px; color: var(--text-2); margin-top: 2px; }
+.spec-display { font-family: var(--f-display); font-weight: 700; font-size: 42px; margin-top: 14px; line-height: 1.1; }
+.spec-body { font-size: 16px; margin-top: 14px; color: var(--text-2); max-width: 60ch; }
+.spec-mono { font-family: var(--f-mono); font-size: 14px; margin-top: 14px; color: var(--text-2); }
+.spec-mono .hl { color: var(--primary); }
+
+/* ---------- color palette ---------- */
+.swatch-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 18px; }
+.swatch { border-radius: var(--r-md); padding: 16px; border: 1px solid var(--glass-border); }
+.swatch .box { height: 64px; border-radius: var(--r-sm); margin-bottom: 12px; box-shadow: var(--neo-flat); }
+.swatch .hex { font-family: var(--f-mono); font-size: 12px; color: var(--text-1); }
+.swatch .use { font-family: var(--f-mono); font-size: 10px; color: var(--text-3); margin-top: 3px; letter-spacing: 0.05em; }
+
+.comp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 22px; margin-top: 22px; }
+.comp-col { display: flex; flex-direction: column; gap: 14px; }
+.comp-label { font-family: var(--f-mono); font-size: 11px; color: var(--text-3); letter-spacing: 0.16em; text-transform: uppercase; }
+
+/* buttons */
+.btn {
+  font-family: var(--f-body); font-weight: 600; font-size: 14px;
+  padding: 11px 20px; border-radius: var(--r-md); border: 1px solid transparent;
+  cursor: pointer; transition: box-shadow 0.2s, transform 0.2s, filter 0.2s;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+}
+.btn:active { transform: translateY(1px); box-shadow: var(--neo-pressed); }
+.btn-press { box-shadow: var(--neo-pressed); }
+.btn-primary { background: var(--primary); color: #062733; box-shadow: var(--neo-raised), 0 0 22px var(--primary-glow); }
+.btn-primary:hover { box-shadow: var(--neo-hover), 0 0 30px var(--primary-glow); filter: brightness(1.06); }
+.btn-secondary { background: var(--secondary); color: #0a1733; box-shadow: var(--neo-raised); }
+.btn-secondary:hover { box-shadow: var(--neo-hover); }
+.btn-ghost { background: var(--glass); color: var(--text-2); border-color: var(--glass-border); box-shadow: var(--neo-flat); }
+.btn-ghost:hover { box-shadow: var(--neo-hover); color: var(--text-1); }
+.btn-danger { background: transparent; color: var(--danger); border-color: var(--glass-border); box-shadow: var(--neo-flat); }
+.btn-danger:hover { box-shadow: var(--neo-hover); }
+
+/* inputs */
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field label { font-family: var(--f-mono); font-size: 11px; color: var(--text-3); letter-spacing: 0.14em; text-transform: uppercase; }
+.input, select.input, textarea.input {
+  font-family: var(--f-body); font-size: 14px; color: var(--text-1);
+  background: var(--glass); border: 1px solid var(--glass-border);
+  padding: 11px 14px; border-radius: var(--r-md); box-shadow: var(--neo-pressed);
+  outline: none; transition: box-shadow 0.2s, border-color 0.2s;
+  backdrop-filter: blur(10px);
+}
+.input:focus { box-shadow: var(--neo-pressed), 0 0 0 1px var(--primary); border-color: var(--primary); }
+.input::placeholder { color: var(--text-3); }
+
+/* toggle */
+.toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.toggle-row span { font-size: 14px; color: var(--text-2); }
+.switch { position: relative; width: 46px; height: 26px; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider {
+  position: absolute; inset: 0; border-radius: var(--r-pill);
+  background: var(--glass); border: 1px solid var(--glass-border);
+  box-shadow: var(--neo-pressed); cursor: pointer; transition: 0.25s;
+}
+.slider::before {
+  content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px;
+  border-radius: 50%; background: var(--text-3); transition: 0.25s; box-shadow: var(--neo-flat);
+}
+.switch input:checked + .slider { background: var(--primary); border-color: var(--primary); box-shadow: var(--neo-raised), 0 0 14px var(--primary-glow); }
+.switch input:checked + .slider::before { transform: translateX(20px); background: #062733; }
+
+/* badges */
+.badge { font-family: var(--f-mono); font-size: 11px; letter-spacing: 0.08em; padding: 5px 12px; border-radius: var(--r-pill); border: 1px solid var(--glass-border); background: var(--glass); box-shadow: var(--neo-flat); }
+.badge.success { color: var(--success); }
+.badge.warning { color: var(--warning); }
+.badge.danger { color: var(--danger); }
+.badge.info { color: var(--primary); }
+
+/* alerts */
+.alert { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: var(--r-md); border: 1px solid; font-size: 14px; box-shadow: var(--neo-flat); }
+.alert.success { border-color: var(--success); color: var(--text-2); background: rgba(52, 211, 153, 0.08); }
+.alert.warning { border-color: var(--warning); color: var(--text-2); background: rgba(251, 191, 36, 0.08); }
+.alert.error { border-color: var(--danger); color: var(--text-2); background: rgba(248, 113, 113, 0.08); }
+.alert.info { border-color: var(--primary); color: var(--text-2); background: rgba(34, 211, 238, 0.08); }
+.alert b { font-family: var(--f-mono); font-size: 12px; letter-spacing: 0.06em; color: var(--text-1); }
+
+/* ---------- dashboard mockup ---------- */
+.mock-wrap { margin-top: 8px; }
+.mock {
+  display: grid; grid-template-columns: 200px 1fr; gap: 20px; padding: 20px;
+}
+.mock-side { display: flex; flex-direction: column; gap: 4px; padding: 8px; border-radius: var(--r-md); }
+.mock-nav-item {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--r-sm);
+  font-size: 13px; color: var(--text-2); transition: 0.2s;
+}
+.mock-nav-item:hover { color: var(--text-1); }
+.mock-nav-item.active { background: var(--glass-strong); color: var(--primary); box-shadow: var(--neo-pressed); font-weight: 600; }
+.mock-nav-item .ic { width: 16px; text-align: center; }
+.mock-main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+.mock-hdr { display: flex; align-items: center; justify-content: space-between; }
+.mock-hdr h3 { font-family: var(--f-display); font-weight: 600; font-size: 20px; letter-spacing: 0.02em; }
+.mock-hdr .live { display: inline-flex; align-items: center; gap: 7px; font-family: var(--f-mono); font-size: 11px; color: var(--success); }
+.mock-hdr .live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--success); box-shadow: 0 0 10px var(--success); animation: blink 1.6s infinite; }
+
+.stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.stat { padding: 18px 20px; }
+.stat .v { font-family: var(--f-display); font-weight: 700; font-size: 32px; letter-spacing: 0.02em; }
+.stat .v.cyan { color: var(--primary); text-shadow: 0 0 22px var(--primary-glow); }
+.stat .v.green { color: var(--success); }
+.stat .v.blue { color: var(--secondary); }
+.stat .l { font-family: var(--f-mono); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-3); margin-top: 4px; }
+
+.job-list { display: flex; flex-direction: column; gap: 12px; }
+.job { padding: 16px 18px; display: flex; align-items: center; gap: 14px; }
+.job .av { width: 38px; height: 38px; border-radius: var(--r-sm); display: flex; align-items: center; justify-content: center; font-family: var(--f-display); font-weight: 700; font-size: 13px; color: #062733; box-shadow: var(--neo-raised); flex-shrink: 0; }
+.job .t { font-weight: 600; font-size: 14px; }
+.job .c { font-size: 13px; color: var(--text-2); }
+.job .meta { font-family: var(--f-mono); font-size: 11px; color: var(--text-3); margin-top: 2px; }
+.job .score { margin-left: auto; font-family: var(--f-mono); font-weight: 600; font-size: 13px; color: var(--success); }
+.job .score.warn { color: var(--warning); }
+
+/* table */
+.table-panel { overflow: hidden; }
+table { width: 100%; border-collapse: collapse; }
+thead th {
+  font-family: var(--f-mono); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase;
+  text-align: left; color: var(--text-3); padding: 14px 20px; border-bottom: 1px solid var(--glass-border);
+  background: var(--glass);
+}
+tbody td { padding: 13px 20px; font-size: 13px; border-bottom: 1px solid var(--glass-border); color: var(--text-2); }
+tbody tr:last-child td { border-bottom: 0; }
+tbody td:first-child { color: var(--text-1); font-weight: 500; }
+td .mono { font-family: var(--f-mono); font-size: 12px; }
+td .ok { color: var(--success); }
+td .warn { color: var(--warning); }
+td .err { color: var(--danger); }
+
+/* footer */
+.foot { margin-top: 90px; text-align: center; font-family: var(--f-mono); font-size: 11px; color: var(--text-3); letter-spacing: 0.12em; }
+.foot .glow { color: var(--primary); }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+@media (max-width: 760px) {
+  .mock { grid-template-columns: 1fr; }
+  .mock-side { flex-direction: row; overflow-x: auto; }
+  .stat-row { grid-template-columns: repeat(2, 1fr); }
+  .sec-note { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <!-- top bar -->
+  <div class="topbar">
+    <div class="brand">
+      <div class="radar-mark"><span class="ring"></span><span class="sweep"></span><span class="core"></span></div>
+      <div>
+        <div class="name">JOBRADAR</div>
+        <div class="sub">CAREER INTELLIGENCE · V0.1</div>
+      </div>
+    </div>
+    <button class="theme-btn" id="themeToggle">LIGHT / DARK</button>
+  </div>
+
+  <!-- hero -->
+  <div class="hero">
+    <div class="eyebrow">Design System · Neo-Glass</div>
+    <h1>MISSION-CONTROL<br /><span class="accent">JOB RADAR</span></h1>
+    <p class="lede">Soft, physical depth on frosted liquid glass. A dashboard that feels like an instrument panel — every button rises, every input depresses, and the radar keeps sweeping.</p>
+    <div class="chips">
+      <span class="chip">Chakra Petch</span>
+      <span class="chip">DM Sans</span>
+      <span class="chip">JetBrains Mono</span>
+      <span class="chip">#22D3EE</span>
+      <span class="chip">Liquid Glass</span>
+    </div>
+  </div>
+
+  <!-- typography -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-kicker">01 / TYPE</span>
+      <h2 class="sec-title">Typography</h2>
+      <span class="sec-note">3 faces · instrument-panel voice</span>
+    </div>
+    <div class="type-grid">
+      <div class="panel type-block">
+        <div class="name">CHAKRA PETCH</div>
+        <div class="role">Display · headings · navigation</div>
+        <div class="spec-display">Backend Engineer, Dubai</div>
+      </div>
+      <div class="panel type-block">
+        <div class="name">DM SANS</div>
+        <div class="role">Body · paragraphs · buttons</div>
+        <p class="spec-body">Monitors 164 career pages across Workday, Greenhouse, Lever, Ashby, Oracle and more. New matching roles are surfaced the moment they are published — normalized, deduplicated, and scored against your preferences.</p>
+      </div>
+      <div class="panel type-block">
+        <div class="name">JETBRAINS MONO</div>
+        <div class="role">Data · scores · timestamps · run IDs</div>
+        <p class="spec-mono">match_score <span class="hl">92%</span> · jobs_new <span class="hl">294</span> · run <span class="hl">9f3c7a</span> · first_seen <span class="hl">2h ago</span></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- color -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-kicker">02 / COLOR</span>
+      <h2 class="sec-title">Palette &amp; Components</h2>
+      <span class="sec-note">dark tinted glass · cyan radar glow</span>
+    </div>
+    <div class="swatch-grid">
+      <div class="panel swatch"><div class="box" style="background:linear-gradient(160deg,#060c18,#0e1b33)"></div><div class="hex">#060C18 → #0E1B33</div><div class="use">BASE · radar field</div></div>
+      <div class="panel swatch"><div class="box" style="background:rgba(148,190,255,0.10)"></div><div class="hex">GLASS 10%</div><div class="use">SURFACE · panels</div></div>
+      <div class="panel swatch"><div class="box" style="background:#22d3ee"></div><div class="hex">#22D3EE</div><div class="use">PRIMARY · radar glow</div></div>
+      <div class="panel swatch"><div class="box" style="background:#60a5fa"></div><div class="hex">#60A5FA</div><div class="use">SECONDARY · links</div></div>
+      <div class="panel swatch"><div class="box" style="background:#34d399"></div><div class="hex">#34D399</div><div class="use">SUCCESS · match</div></div>
+      <div class="panel swatch"><div class="box" style="background:#fbbf24"></div><div class="hex">#FBBF24</div><div class="use">WARNING · stale</div></div>
+      <div class="panel swatch"><div class="box" style="background:#f87171"></div><div class="hex">#F87171</div><div class="use">DANGER · errors</div></div>
+      <div class="panel swatch"><div class="box" style="background:#eaf3ff"></div><div class="hex">#EAF3FF</div><div class="use">TEXT · primary</div></div>
+    </div>
+
+    <div class="comp-grid">
+      <div class="comp-col">
+        <div class="comp-label">Buttons</div>
+        <button class="btn btn-primary">Scan Sources</button>
+        <button class="btn btn-secondary">View Matches</button>
+        <button class="btn btn-ghost">Export</button>
+        <button class="btn btn-danger">Remove</button>
+      </div>
+      <div class="comp-col">
+        <div class="comp-label">Inputs &amp; Toggles</div>
+        <div class="field">
+          <label>Search Jobs</label>
+          <input class="input" type="text" placeholder="python · backend · remote" />
+        </div>
+        <div class="field">
+          <label>Role Keywords</label>
+          <textarea class="input" rows="2" placeholder="aws, kubernetes, terraform"></textarea>
+        </div>
+        <div class="toggle-row"><span>Telegram alerts</span><label class="switch"><input type="checkbox" checked /><span class="slider"></span></label></div>
+        <div class="toggle-row"><span>Email digest</span><label class="switch"><input type="checkbox" /><span class="slider"></span></label></div>
+      </div>
+      <div class="comp-col">
+        <div class="comp-label">Badges &amp; Alerts</div>
+        <div class="comp-row" style="display:flex;gap:8px;flex-wrap:wrap">
+          <span class="badge info">92% MATCH</span>
+          <span class="badge success">HEALTHY</span>
+          <span class="badge warning">STALE</span>
+          <span class="badge danger">FAILED</span>
+        </div>
+        <div class="alert success"><b>NEW MATCH ·</b> Software Engineer at Stripe matches your preferences.</div>
+        <div class="alert warning"><b>STALE ·</b> Greenhouse source last checked 3h ago.</div>
+        <div class="alert error"><b>FAILED ·</b> Workday adapter timed out. Retrying.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- dashboard mockup -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-kicker">03 / LIVE</span>
+      <h2 class="sec-title">Dashboard Mockup</h2>
+      <span class="sec-note">press the buttons — they depress</span>
+    </div>
+    <div class="panel mock">
+      <aside class="mock-side">
+        <div class="mock-nav-item active"><span class="ic">◉</span>Dashboard</div>
+        <div class="mock-nav-item"><span class="ic">▣</span>Jobs</div>
+        <div class="mock-nav-item"><span class="ic">✦</span>New Jobs Today</div>
+        <div class="mock-nav-item"><span class="ic">◎</span>Matches</div>
+        <div class="mock-nav-item"><span class="ic">□</span>Companies</div>
+        <div class="mock-nav-item"><span class="ic">◈</span>Sources</div>
+        <div class="mock-nav-item"><span class="ic">⏱</span>Schedule</div>
+        <div class="mock-nav-item"><span class="ic">▶</span>Runs</div>
+        <div class="mock-nav-item"><span class="ic">◉</span>Preferences</div>
+        <div class="mock-nav-item"><span class="ic">⚙</span>Settings</div>
+      </aside>
+      <div class="mock-main">
+        <div class="mock-hdr">
+          <h3>Good evening, Radar</h3>
+          <span class="live">LIVE · 164 sources</span>
+        </div>
+        <div class="stat-row">
+          <div class="panel stat"><div class="v cyan">294</div><div class="l">New jobs (7d)</div></div>
+          <div class="panel stat"><div class="v blue">488</div><div class="l">Matches</div></div>
+          <div class="panel stat"><div class="v">164</div><div class="l">Companies</div></div>
+          <div class="panel stat"><div class="v green">91%</div><div class="l">Avg match</div></div>
+        </div>
+        <div class="job-list">
+          <div class="panel job">
+            <div class="av" style="background:#22d3ee">ST</div>
+            <div><div class="t">Software Engineer</div><div class="c">Stripe · Greenhouse</div><div class="meta">India · Remote · 2h ago</div></div>
+            <div class="score">92%</div>
+          </div>
+          <div class="panel job">
+            <div class="av" style="background:#60a5fa">SP</div>
+            <div><div class="t">Backend Developer — Python</div><div class="c">SpaceX · Greenhouse</div><div class="meta">USA · Hybrid · 5h ago</div></div>
+            <div class="score">87%</div>
+          </div>
+          <div class="panel job">
+            <div class="av" style="background:#34d399">MD</div>
+            <div><div class="t">Software Development Engineer I</div><div class="c">Amazon · Workday</div><div class="meta">India · On-site · 8h ago</div></div>
+            <div class="score">81%</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel table-panel" style="margin-top:22px">
+      <table>
+        <thead>
+          <tr><th>Source</th><th>ATS</th><th>Jobs</th><th>Status</th><th>Last check</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Stripe</td><td class="mono">greenhouse</td><td class="mono">389</td><td class="ok">HEALTHY</td><td class="mono">2m ago</td></tr>
+          <tr><td>SpaceX</td><td class="mono">greenhouse</td><td class="mono">1,595</td><td class="ok">HEALTHY</td><td class="mono">2m ago</td></tr>
+          <tr><td>Marriott International</td><td class="mono">workday</td><td class="mono">10,869</td><td class="warn">STALE</td><td class="mono">3h ago</td></tr>
+          <tr><td>Oracle</td><td class="mono">oracle</td><td class="mono">23,086</td><td class="err">FAILED</td><td class="mono">1h ago</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="foot">JOBRADAR · MISSION-CONTROL GLASS · DESIGN PREVIEW <span class="glow">· SWEEPING</span></div>
+
+</div>
+
+<script>
+const root = document.documentElement;
+const btn = document.getElementById("themeToggle");
+btn.addEventListener("click", () => {
+  const next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+  root.setAttribute("data-theme", next);
+  btn.textContent = next === "dark" ? "LIGHT / DARK" : "DARK / LIGHT";
+});
+</script>
+
+</body>
+</html>
