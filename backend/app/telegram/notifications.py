@@ -43,15 +43,39 @@ def _fetch_companies(supabase: Client, source_ids: list[str]) -> dict[str, str]:
     return {src["id"]: src["company_name"] for src in response.data or []}
 
 
-def _fetch_sent_job_ids(supabase: Client) -> set[str]:
-    response = (
-        supabase.table("notifications_sent")
-        .select("job_id")
-        .eq("user_id", DEFAULT_USER_ID)
-        .eq("channel", "telegram")
-        .execute()
-    )
-    return {row["job_id"] for row in response.data or []}
+def _fetch_sent_job_ids(supabase: Client, job_ids: list[str]) -> set[str]:
+    if not job_ids:
+        return set()
+    sent: set[str] = set()
+    for start in range(0, len(job_ids), IN_BATCH):
+        batch = job_ids[start : start + IN_BATCH]
+        response = (
+            supabase.table("notifications_sent")
+            .select("job_id")
+            .eq("user_id", DEFAULT_USER_ID)
+            .eq("channel", "telegram")
+            .in_("job_id", batch)
+            .execute()
+        )
+        sent.update(row["job_id"] for row in response.data or [])
+    return sent
+
+
+def _fetch_matched_job_ids(supabase: Client, job_ids: list[str]) -> set[str]:
+    if not job_ids:
+        return set()
+    matched: set[str] = set()
+    for start in range(0, len(job_ids), IN_BATCH):
+        batch = job_ids[start : start + IN_BATCH]
+        response = (
+            supabase.table("job_matches")
+            .select("job_id")
+            .eq("user_id", DEFAULT_USER_ID)
+            .in_("job_id", batch)
+            .execute()
+        )
+        matched.update(row["job_id"] for row in response.data or [])
+    return matched
 
 
 def _chunk_sections(sections: list[str], max_len: int = MAX_MESSAGE_LENGTH) -> list[str]:
@@ -108,24 +132,22 @@ def send_telegram_notifications(
     chat_id: str,
     candidates: list[tuple[str, str]],
     scope: str = "all",
+    jobs: list[dict[str, Any]] | None = None,
 ) -> tuple[int, int]:
     if not enabled:
         return 0, 0
 
-    jobs = _fetch_new_jobs(supabase, candidates)
+    if jobs is None:
+        jobs = _fetch_new_jobs(supabase, candidates)
 
     companies = _fetch_companies(supabase, list({job["source_id"] for job in jobs}))
 
+    job_ids = [job["id"] for job in jobs]
     if scope == "matched":
-        matched_response = (
-            supabase.table("job_matches").select("job_id").eq("user_id", DEFAULT_USER_ID).execute()
-        )
-        matched_ids = {row["job_id"] for row in matched_response.data or []}
-        job_ids = [job["id"] for job in jobs if job["id"] in matched_ids]
-    else:
-        job_ids = [job["id"] for job in jobs]
+        matched_ids = _fetch_matched_job_ids(supabase, job_ids)
+        job_ids = [job_id for job_id in job_ids if job_id in matched_ids]
 
-    already_sent = _fetch_sent_job_ids(supabase)
+    already_sent = _fetch_sent_job_ids(supabase, job_ids)
     pending_ids = [job_id for job_id in job_ids if job_id not in already_sent]
     pending_by_id = {job["id"]: job for job in jobs}
     pending = [pending_by_id[job_id] for job_id in pending_ids if job_id in pending_by_id]
