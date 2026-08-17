@@ -1,7 +1,9 @@
+from app.adapters.amazon import AmazonAdapter
 from app.adapters.ashby import AshbyAdapter
 from app.adapters.avature import AvatureAdapter
 from app.adapters.base import JobSourceAdapter
 from app.adapters.custom import CustomAdapter
+from app.adapters.google import GoogleAdapter
 from app.adapters.greenhouse import GreenhouseAdapter
 from app.adapters.icims import IcimsAdapter
 from app.adapters.lever import LeverAdapter
@@ -30,6 +32,10 @@ def adapter_for(ats_type: str) -> JobSourceAdapter:
         return PhenomAdapter()
     if ats_type == AvatureAdapter.ats_type:
         return AvatureAdapter()
+    if ats_type == AmazonAdapter.ats_type:
+        return AmazonAdapter()
+    if ats_type == GoogleAdapter.ats_type:
+        return GoogleAdapter()
     if ats_type == CustomAdapter.ats_type:
         return CustomAdapter()
     raise ValueError(f"no adapter registered for ats_type={ats_type!r}")
