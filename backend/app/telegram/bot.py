@@ -621,6 +621,32 @@ def _inline_results(settings: Settings, q: str, *, limit: int = 8) -> list[dict[
     return results
 
 
+def _inline_placeholder(q: str) -> list[dict[str, Any]]:
+    """Single placeholder result so Telegram shows feedback instead of a blank list.
+
+    - Empty query  → prompt asking for a job title or company.
+    - No matches   → explicit "no jobs found" hint for the term.
+    Tapping either sends the hint text into the chat as-is.
+    """
+    if not q.strip():
+        title = "🔍 Search JobRadar jobs"
+        text = "Type a job title or company to search.\n\nTry: @JobRadarBot python"
+        description = "Type e.g. 'python' or 'Adobe'…"
+    else:
+        title = f"No jobs found for '{q}'"
+        text = f"No matching jobs for '{q}'.\n\nTry another title or company name."
+        description = "Try a different term"
+    return [
+        {
+            "type": "article",
+            "id": "placeholder",
+            "title": title,
+            "description": description,
+            "input_message_content": {"message_text": text},
+        }
+    ]
+
+
 async def _answer_inline(
     client: httpx.AsyncClient,
     token: str,
@@ -658,7 +684,13 @@ async def _handle_inline_query(
     if not authorized(user_id, settings):
         await _answer_inline(client, token, query_id, [])
         return
-    results = _inline_results(settings, q) if q else []
+    if not q:
+        await _answer_inline(client, token, query_id, _inline_placeholder(""))
+        return
+    results = _inline_results(settings, q)
+    if not results:
+        await _answer_inline(client, token, query_id, _inline_placeholder(q))
+        return
     await _answer_inline(client, token, query_id, results)
 
 

@@ -1272,6 +1272,20 @@ def test_bot_inline_results_empty_query():
     assert results == []
 
 
+def test_bot_inline_placeholder():
+    from app.telegram.bot import _inline_placeholder
+
+    empty = _inline_placeholder("")
+    assert len(empty) == 1
+    assert empty[0]["id"] == "placeholder"
+    assert "Search" in empty[0]["title"]
+
+    no_match = _inline_placeholder("xyznotfound")
+    assert len(no_match) == 1
+    assert no_match[0]["id"] == "placeholder"
+    assert "xyznotfound" in no_match[0]["title"]
+
+
 def test_bot_inline_query_unauthorized_answers_empty():
     import asyncio
 
@@ -1347,4 +1361,4 @@ def test_bot_inline_query_empty_when_no_term():
     answered = [c for c in calls if "answerInlineQuery" in c[0]]
     assert len(answered) == 1
     payload = json.loads(answered[0][1])
-    assert payload["results"] == []
+    assert payload["results"] and payload["results"][0]["id"] == "placeholder"
