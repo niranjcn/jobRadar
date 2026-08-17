@@ -19,6 +19,10 @@ htmlcov/
 # Logs / scratch files
 *.log
 
+# Local-only working docs (never pushed)
+/ARCHITECTURE_REVIEW.md
+/PR_DESCRIPTIONS.md
+
 # OS
 .DS_Store
 Thumbs.db

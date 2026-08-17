@@ -1,10 +1,23 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Chakra_Petch, DM_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({
+const chakra = Chakra_Petch({
   subsets: ["latin"],
-  variable: "--font-inter",
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-chakra",
+  display: "swap",
+});
+
+const dm = DM_Sans({
+  subsets: ["latin"],
+  variable: "--font-dm",
+  display: "swap",
+});
+
+const jetbrains = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-jetbrains",
   display: "swap",
 });
 
@@ -17,10 +30,12 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={inter.variable}>
-      <body className="min-h-screen bg-bg font-sans text-text">
-        {children}
-      </body>
+    <html
+      lang="en"
+      data-theme="dark"
+      className={`${chakra.variable} ${dm.variable} ${jetbrains.variable}`}
+    >
+      <body className="min-h-screen font-sans">{children}</body>
     </html>
   );
 }

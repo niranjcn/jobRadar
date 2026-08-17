@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -20,9 +21,37 @@ const NAV2 = [
   { href: "/notifications", label: "Notifications", icon: "✉" },
 ];
 
-const NAV3 = [
-  { href: "/settings", label: "Settings", icon: "⚙" },
-];
+const NAV3 = [{ href: "/settings", label: "Settings", icon: "⚙" }];
+
+function ThemeToggle() {
+  const [theme, setTheme] = useState<string>("dark");
+
+  useEffect(() => {
+    const stored = localStorage.getItem("theme") || "dark";
+    setTheme(stored);
+    document.documentElement.setAttribute("data-theme", stored);
+  }, []);
+
+  const toggle = () => {
+    const next = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    document.documentElement.setAttribute("data-theme", next);
+    localStorage.setItem("theme", next);
+  };
+
+  return (
+    <button
+      onClick={toggle}
+      title="Toggle light / dark"
+      className="flex w-full items-center justify-between rounded-md px-3 py-2 text-xs text-text-muted transition-colors hover:text-text"
+    >
+      <span className="font-mono uppercase tracking-widest">
+        {theme === "dark" ? "Dark" : "Light"}
+      </span>
+      <span className="text-text-muted">{theme === "dark" ? "◐" : "◑"}</span>
+    </button>
+  );
+}
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -33,10 +62,10 @@ export function Sidebar() {
       <Link
         key={item.href}
         href={item.href}
-        className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
+        className={`flex items-center gap-3 rounded-[10px] px-3 py-2 text-sm transition-all duration-200 ${
           active
-            ? "bg-primary/10 text-primary"
-            : "text-text-secondary hover:bg-surface hover:text-text"
+            ? "bg-primary/15 text-primary shadow-neo-pressed"
+            : "text-text-secondary hover:bg-primary/5 hover:text-text"
         }`}
       >
         <span className="w-4 text-center">{item.icon}</span>
@@ -46,19 +75,24 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="sticky top-0 flex h-screen w-56 shrink-0 flex-col border-r border-border bg-surface">
+    <aside className="sticky top-0 flex h-screen w-56 shrink-0 flex-col border-r border-[var(--glass-border)] bg-[var(--glass)] backdrop-blur-xl">
       <div className="flex items-center gap-2 px-5 py-5">
         <RadarMark />
-        <span className="text-sm font-semibold tracking-wide">JOBRADAR</span>
+        <span className="font-display text-sm font-bold tracking-[0.14em]">JOBRADAR</span>
       </div>
       <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-3">
         {NAV.map(render)}
-        <div className="my-2 border-t border-border" />
+        <div className="my-2 border-t border-[var(--glass-border)]" />
         {NAV2.map(render)}
-        <div className="my-2 border-t border-border" />
+        <div className="my-2 border-t border-[var(--glass-border)]" />
         {NAV3.map(render)}
       </nav>
-      <div className="px-5 py-4 text-xs text-text-muted">Career intelligence · v0.1</div>
+      <div className="space-y-1 border-t border-[var(--glass-border)] px-3 py-3">
+        <ThemeToggle />
+        <div className="px-3 py-1 font-mono text-[10px] uppercase tracking-[0.18em] text-text-muted">
+          Career intel · v0.1
+        </div>
+      </div>
     </aside>
   );
 }
@@ -66,9 +100,9 @@ export function Sidebar() {
 function RadarMark() {
   return (
     <span className="relative inline-flex h-5 w-5 items-center justify-center">
-      <span className="absolute inset-0 rounded-full border border-accent/60" />
-      <span className="radar-sweep absolute inset-0 rounded-full border-b-2 border-l-2 border-accent/70" />
-      <span className="relative h-1.5 w-1.5 rounded-full bg-accent" />
+      <span className="absolute inset-0 rounded-full border border-primary/50" />
+      <span className="radar-sweep absolute inset-0 rounded-full border-b-2 border-l-2 border-primary/70" />
+      <span className="relative h-1.5 w-1.5 rounded-full bg-primary shadow-neo-glow" />
     </span>
   );
 }

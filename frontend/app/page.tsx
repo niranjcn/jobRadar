@@ -8,8 +8,11 @@ export default function Home() {
         <div className="mb-6 flex justify-center">
           <RadarLoading label="" />
         </div>
-        <h1 className="mb-3 text-4xl font-semibold tracking-tight">JOBRADAR</h1>
-        <p className="mx-auto max-w-md text-[15px] leading-relaxed text-text-secondary">
+        <div className="mb-4 font-mono text-xs uppercase tracking-[0.28em] text-primary">
+          Career intelligence · mission control
+        </div>
+        <h1 className="font-display text-5xl font-bold tracking-[0.04em]">JOBRADAR</h1>
+        <p className="mx-auto mt-4 max-w-md text-[15px] leading-relaxed text-text-secondary">
           Find jobs before others.<br />
           JobRadar continuously monitors career pages and alerts you when the
           right opportunity appears.
@@ -23,7 +26,7 @@ export default function Home() {
           </Link>
         </div>
       </div>
-      <div className="flex flex-wrap items-center justify-center gap-3 text-xs tracking-widest text-text-muted">
+      <div className="flex flex-wrap items-center justify-center gap-3 font-mono text-xs tracking-widest text-text-muted">
         <span>WORKDAY</span>·<span>GREENHOUSE</span>·<span>LEVER</span>·
         <span>ASHBY</span>·<span>ORACLE</span>
       </div>
