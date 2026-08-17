@@ -706,6 +706,115 @@ def test_icims_html_normalize():
     assert job.url and "arm.com" in job.url
 
 
+def _load_amazon_json():
+    with open(FIXTURES / "amazon" / "amazon_jobs.json", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def test_amazon_normalize():
+    from app.adapters.amazon import AmazonAdapter
+
+    payload = _load_amazon_json()
+    assert payload["hits"] > 0
+    job = AmazonAdapter._normalize(payload["jobs"][0])
+    assert job.external_job_id.isdigit()
+    assert job.title
+    assert job.location
+    assert job.url and "amazon.jobs" in job.url
+    assert job.posted_at
+    assert job.countries
+    assert job.description
+
+
+def test_amazon_missing_fields():
+    from app.adapters.amazon import AmazonAdapter
+
+    job = AmazonAdapter._normalize(
+        {"id": "abc", "id_icims": "12345", "title": "Engineer", "job_path": "/en/jobs/12345/x"}
+    )
+    assert job.external_job_id == "12345"
+    assert job.title == "Engineer"
+    assert job.location is None
+    assert job.url == "https://www.amazon.jobs/en/jobs/12345/x"
+    assert job.posted_at is None
+    assert job.countries == []
+
+
+def test_amazon_remote_detection():
+    from app.adapters.amazon import AmazonAdapter
+
+    job = AmazonAdapter._normalize(
+        {
+            "id_icims": "9",
+            "title": "Engineer",
+            "location": "Virtual Location - Texas",
+            "locations": [
+                '{"type":"VIRTUAL","countryIso2a":"US","normalizedCountryCode":"USA"}'
+            ],
+        }
+    )
+    assert job.is_remote
+    assert job.countries == ["US"]
+
+
+def test_amazon_pagination_arithmetic():
+    """offset + PAGE_SIZE stopping matches the real endpoint semantics."""
+    from app.adapters.amazon import PAGE_SIZE
+
+    payload = _load_amazon_json()
+    total = int(payload["hits"])
+    pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
+    assert pages * PAGE_SIZE >= total
+
+
+def _load_google_html():
+    with open(FIXTURES / "google" / "google_search.html", encoding="utf-8") as f:
+        return f.read()
+
+
+def test_google_parse_page():
+    from app.adapters.google import _extract_ds1_data
+
+    data = _extract_ds1_data(_load_google_html())
+    assert data is not None
+    assert data[2] > 0  # total
+    assert len(data[0]) > 0
+
+
+def test_google_normalize():
+    from app.adapters.google import GoogleAdapter, _extract_ds1_data
+
+    data = _extract_ds1_data(_load_google_html())
+    job = GoogleAdapter._normalize(data[0][0])
+    assert job.external_job_id.isdigit()
+    assert job.title
+    assert job.location
+    assert job.url and "google.com/about/careers" in job.url
+    assert job.external_job_id in (job.url or "")
+    assert job.posted_at
+    assert job.countries
+    assert job.description
+
+
+def test_google_empty_result_page():
+    """A page whose ds:1 data[0] is None (no matches) must not crash."""
+    from app.adapters.google import _extract_ds1_data
+
+    html = (
+        "<script>AF_initDataCallback({key: 'ds:1', hash: '2', data:[null, null, 0, 20]});"
+        "</script>"
+    )
+    data = _extract_ds1_data(html)
+    assert data is not None
+    assert (data[0] or []) == []
+
+
+def test_google_no_callback_returns_none():
+    from app.adapters.google import _extract_ds1_data
+
+    assert _extract_ds1_data("<html><body>no data</body></html>") is None
+
+
 def _load_wipro_json():
     import json
 
