@@ -1,5 +1,6 @@
 """Unit tests that don't touch the network or DB."""
 
+import json
 import os
 import re
 import sys
@@ -1262,3 +1263,88 @@ def test_bot_menu_callback_ignores_unknown_data():
 
     calls = asyncio.run(run())
     assert calls == []
+
+
+def test_bot_inline_results_empty_query():
+    from app.telegram.bot import _inline_results
+
+    results = _inline_results(_fake_settings("123456789"), "   ", limit=5)
+    assert results == []
+
+
+def test_bot_inline_query_unauthorized_answers_empty():
+    import asyncio
+
+    from app.telegram.bot import _handle_inline_query
+
+    settings = _fake_settings("123456789")
+
+    async def run():
+        calls = []
+
+        class FakeResponse:
+            status_code = 200
+
+        class FakeClient:
+            async def post(self, url, **kwargs):
+                calls.append((url, kwargs.get("content")))
+                return FakeResponse()
+
+        await _handle_inline_query(
+            settings,
+            {
+                "inline_query": {
+                    "id": "iq-1",
+                    "query": "python",
+                    "from": {"id": 999},
+                }
+            },
+            FakeClient(),
+        )
+        return calls
+
+    calls = asyncio.run(run())
+    answered = [c for c in calls if "answerInlineQuery" in c[0]]
+    assert len(answered) == 1
+    payload = json.loads(answered[0][1])
+    assert payload["inline_query_id"] == "iq-1"
+    assert payload["results"] == []
+
+
+def test_bot_inline_query_empty_when_no_term():
+    import asyncio
+    import json
+
+    from app.telegram.bot import _handle_inline_query
+
+    settings = _fake_settings("123456789")
+
+    async def run():
+        calls = []
+
+        class FakeResponse:
+            status_code = 200
+
+        class FakeClient:
+            async def post(self, url, **kwargs):
+                calls.append((url, kwargs.get("content")))
+                return FakeResponse()
+
+        await _handle_inline_query(
+            settings,
+            {
+                "inline_query": {
+                    "id": "iq-2",
+                    "query": "",
+                    "from": {"id": 123456789},
+                }
+            },
+            FakeClient(),
+        )
+        return calls
+
+    calls = asyncio.run(run())
+    answered = [c for c in calls if "answerInlineQuery" in c[0]]
+    assert len(answered) == 1
+    payload = json.loads(answered[0][1])
+    assert payload["results"] == []
