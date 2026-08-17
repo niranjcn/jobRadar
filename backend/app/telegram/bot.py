@@ -1,8 +1,9 @@
 """Telegram command bot: command menu + long-polling command dispatcher.
 
-Mirrors the dashboard feature surface as bot commands. The bot only responds
-to the configured TELEGRAM_CHAT_ID (single-user, like the rest of the system).
-It uses getUpdates long polling, so no public URL or webhook is required.
+Mirrors the dashboard feature surface as bot commands, inline-menu buttons,
+and inline queries. The bot only responds to the configured TELEGRAM_CHAT_ID
+(single-user, like the rest of the system). It uses getUpdates long polling,
+so no public URL or webhook is required.
 """
 
 import asyncio
@@ -590,11 +591,117 @@ async def _handle_callback(
         await _send_message(client, token, chat_id, reply, reply_markup=_menu_markup())
 
 
+def _inline_results(settings: Settings, q: str, *, limit: int = 8) -> list[dict[str, Any]]:
+    """Build InlineQueryResultArticle results for a jobs/companies search.
+
+    These render as a live type-ahead list when the user types
+    `@<botname> <query>` in any chat. The result's message text reuses the
+    same formatted job block as the /jobs command.
+    """
+    if not q.strip():
+        return []
+    jobs = _list_jobs(settings, q=q, limit=limit)
+    results: list[dict[str, Any]] = []
+    for i, job in enumerate(jobs):
+        title = job.get("title") or "Untitled"
+        description = job.get("company_name") or "Unknown"
+        if job.get("location"):
+            description += f" · {job['location']}"
+        if job.get("match_score") is not None:
+            description += f" · {job['match_score']}% match"
+        results.append(
+            {
+                "type": "article",
+                "id": f"job-{i}",
+                "title": title,
+                "description": description,
+                "input_message_content": {"message_text": format_job_block(job)},
+            }
+        )
+    return results
+
+
+def _inline_placeholder(q: str) -> list[dict[str, Any]]:
+    """Single placeholder result so Telegram shows feedback instead of a blank list.
+
+    - Empty query  → prompt asking for a job title or company.
+    - No matches   → explicit "no jobs found" hint for the term.
+    Tapping either sends the hint text into the chat as-is.
+    """
+    if not q.strip():
+        title = "🔍 Search JobRadar jobs"
+        text = "Type a job title or company to search.\n\nTry: @JobRadarBot python"
+        description = "Type e.g. 'python' or 'Adobe'…"
+    else:
+        title = f"No jobs found for '{q}'"
+        text = f"No matching jobs for '{q}'.\n\nTry another title or company name."
+        description = "Try a different term"
+    return [
+        {
+            "type": "article",
+            "id": "placeholder",
+            "title": title,
+            "description": description,
+            "input_message_content": {"message_text": text},
+        }
+    ]
+
+
+async def _answer_inline(
+    client: httpx.AsyncClient,
+    token: str,
+    inline_query_id: str,
+    results: list[dict[str, Any]],
+    *,
+    cache_time: int = 30,
+) -> None:
+    response = await _post_async(
+        client,
+        token,
+        "answerInlineQuery",
+        {
+            "inline_query_id": inline_query_id,
+            "results": results,
+            "cache_time": cache_time,
+            "is_personal": True,
+        },
+    )
+    if response.status_code >= 400:
+        print(f"telegram answerInlineQuery {response.status_code}: {response.text[:200]}")
+
+
+async def _handle_inline_query(
+    settings: Settings, update: dict[str, Any], client: httpx.AsyncClient
+) -> None:
+    """Handle an inline query (`@<botname> <query>` from any chat)."""
+    inline = update.get("inline_query") or {}
+    query_id = inline.get("id") or ""
+    user_id = (inline.get("from") or {}).get("id")
+    q = (inline.get("query") or "").strip()
+    token = settings.telegram_bot_token
+    if not query_id:
+        return
+    if not authorized(user_id, settings):
+        await _answer_inline(client, token, query_id, [])
+        return
+    if not q:
+        await _answer_inline(client, token, query_id, _inline_placeholder(""))
+        return
+    results = _inline_results(settings, q)
+    if not results:
+        await _answer_inline(client, token, query_id, _inline_placeholder(q))
+        return
+    await _answer_inline(client, token, query_id, results)
+
+
 async def handle_update(
     settings: Settings, update: dict[str, Any], client: httpx.AsyncClient
 ) -> None:
     if "callback_query" in update:
         await _handle_callback(settings, update, client)
+        return
+    if "inline_query" in update:
+        await _handle_inline_query(settings, update, client)
         return
     message = update.get("message") or {}
     text = (message.get("text") or "").strip()
@@ -628,7 +735,7 @@ async def run_bot(settings: Settings) -> None:
                     {
                         "offset": offset,
                         "timeout": POLL_TIMEOUT,
-                        "allowed_updates": ["message", "callback_query"],
+                        "allowed_updates": ["message", "callback_query", "inline_query"],
                     },
                 )
                 if response.status_code >= 400:
