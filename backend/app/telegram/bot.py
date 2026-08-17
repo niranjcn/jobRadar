@@ -44,6 +44,25 @@ COMMANDS: list[dict[str, str]] = [
     {"command": "preferences", "description": "Your preferences"},
 ]
 
+# Inline menu (read-only commands only). Two columns per row keeps the
+# keyboard compact on phones. Callback data is "menu:<command>".
+MENU_BUTTONS: list[tuple[str, str]] = [
+    ("stats", "📊 Stats"),
+    ("jobs", "📦 Jobs"),
+    ("newjobs", "🆕 New jobs"),
+    ("matches", "🎯 Matches"),
+    ("newmatches", "✨ New matches"),
+    ("companies", "🏢 Companies"),
+    ("sources", "🩺 Sources"),
+    ("schedule", "🕐 Schedule"),
+    ("runs", "▶️ Runs"),
+    ("notifications", "🔔 Alerts"),
+    ("preferences", "⚙️ Preferences"),
+    ("help", "❓ Help"),
+]
+
+MENU_COMMANDS = {command for command, _ in MENU_BUTTONS}
+
 STATUS_EMOJI = {"healthy": "\U0001f7e2", "stale": "\U0001f7e1", "never": "\u26aa"}
 
 
@@ -120,11 +139,29 @@ def _chunk_text(text: str, max_len: int = MAX_MESSAGE_LENGTH) -> list[str]:
     return chunks
 
 
-async def _send_message(client: httpx.AsyncClient, token: str, chat_id: Any, text: str) -> None:
+def _menu_markup() -> dict[str, Any]:
+    """Inline keyboard for the main menu (read-only command buttons)."""
+    pairs = [MENU_BUTTONS[i : i + 2] for i in range(0, len(MENU_BUTTONS), 2)]
+    return {
+        "inline_keyboard": [
+            [{"text": label, "callback_data": f"menu:{command}"} for command, label in row]
+            for row in pairs
+        ]
+    }
+
+
+async def _send_message(
+    client: httpx.AsyncClient,
+    token: str,
+    chat_id: Any,
+    text: str,
+    reply_markup: dict[str, Any] | None = None,
+) -> None:
+    payload = {"chat_id": chat_id, "text": text}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
     for chunk in _chunk_text(text):
-        response = await _post_async(
-            client, token, "sendMessage", {"chat_id": chat_id, "text": chunk}
-        )
+        response = await _post_async(client, token, "sendMessage", {**payload, "text": chunk})
         if response.status_code >= 400:
             raise RuntimeError(f"telegram API {response.status_code}: {response.text[:200]}")
 
@@ -513,9 +550,48 @@ def dispatch_command(settings: Settings, supabase: Client, command: str, args: s
 # ---------- long polling ----------
 
 
+async def _answer_callback(client: httpx.AsyncClient, token: str, callback_id: str) -> None:
+    response = await _post_async(
+        client, token, "answerCallbackQuery", {"callback_query_id": callback_id}
+    )
+    if response.status_code >= 400:
+        print(f"telegram answerCallbackQuery {response.status_code}: {response.text[:200]}")
+
+
+async def _handle_callback(
+    settings: Settings, update: dict[str, Any], client: httpx.AsyncClient
+) -> None:
+    """Handle an inline-menu callback (read-only commands only).
+
+    The menu never exposes mutating actions, so a callback is safe to answer
+    as-is. Chat authorization still applies exactly like a typed command.
+    """
+    callback = update.get("callback_query") or {}
+    data = callback.get("data") or ""
+    callback_id = callback.get("id") or ""
+    chat_id = (callback.get("message") or {}).get("chat", {}).get("id")
+    token = settings.telegram_bot_token
+    if not data.startswith("menu:") or not callback_id or not chat_id:
+        return
+    command = data.split(":", 1)[1]
+    if command not in MENU_COMMANDS:
+        return
+    await _answer_callback(client, token, callback_id)
+    if not authorized(chat_id, settings):
+        await _send_message(client, token, chat_id, "Not authorized.")
+        return
+    supabase = get_supabase(settings)
+    reply = dispatch_command(settings, supabase, command, "")
+    if reply:
+        await _send_message(client, token, chat_id, reply, reply_markup=_menu_markup())
+
+
 async def handle_update(
     settings: Settings, update: dict[str, Any], client: httpx.AsyncClient
 ) -> None:
+    if "callback_query" in update:
+        await _handle_callback(settings, update, client)
+        return
     message = update.get("message") or {}
     text = (message.get("text") or "").strip()
     chat_id = (message.get("chat") or {}).get("id")
@@ -531,7 +607,7 @@ async def handle_update(
     supabase = get_supabase(settings)
     reply = dispatch_command(settings, supabase, command, args)
     if reply:
-        await _send_message(client, token, chat_id, reply)
+        await _send_message(client, token, chat_id, reply, reply_markup=_menu_markup())
 
 
 async def run_bot(settings: Settings) -> None:
@@ -545,7 +621,11 @@ async def run_bot(settings: Settings) -> None:
                     client,
                     token,
                     "getUpdates",
-                    {"offset": offset, "timeout": POLL_TIMEOUT, "allowed_updates": ["message"]},
+                    {
+                        "offset": offset,
+                        "timeout": POLL_TIMEOUT,
+                        "allowed_updates": ["message", "callback_query"],
+                    },
                 )
                 if response.status_code >= 400:
                     raise RuntimeError(f"getUpdates {response.status_code}: {response.text[:200]}")

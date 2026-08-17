@@ -1117,7 +1117,7 @@ def test_bot_authorized():
 def _fake_settings(chat_id: str):
     from types import SimpleNamespace
 
-    return SimpleNamespace(telegram_chat_id=chat_id)
+    return SimpleNamespace(telegram_chat_id=chat_id, telegram_bot_token="test-token")
 
 
 def test_bot_chunk_text_single():
@@ -1173,3 +1173,92 @@ def test_bot_dispatch_unknown_command():
 
     reply = dispatch_command(_fake_settings("123456789"), None, "nosuchcmd", "")
     assert "Unknown command" in reply
+
+
+def test_bot_menu_markup():
+    from app.telegram.bot import MENU_COMMANDS, _menu_markup
+
+    markup = _menu_markup()
+    rows = markup["inline_keyboard"]
+    assert len(rows) >= 1
+    buttons = [b for row in rows for b in row]
+    assert len(buttons) == len(MENU_COMMANDS)
+    for row in rows:
+        assert len(row) <= 2
+    for button in buttons:
+        assert button["callback_data"].startswith("menu:")
+        command = button["callback_data"].split(":", 1)[1]
+        assert command in MENU_COMMANDS
+        assert button["text"]
+
+
+def test_bot_menu_callback_unauthorized():
+    import asyncio
+
+    from app.telegram.bot import _handle_callback
+
+    settings = _fake_settings("123456789")
+
+    async def run():
+        calls = []
+
+        class FakeResponse:
+            status_code = 200
+
+        class FakeClient:
+            async def post(self, url, **kwargs):
+                calls.append((url, kwargs.get("content")))
+                return FakeResponse()
+
+        await _handle_callback(
+            settings,
+            {
+                "callback_query": {
+                    "id": "cb-1",
+                    "data": "menu:stats",
+                    "message": {"chat": {"id": 999}},
+                }
+            },
+            FakeClient(),
+        )
+        return calls
+
+    calls = asyncio.run(run())
+    sent = [c for c in calls if "sendMessage" in c[0]]
+    assert len(sent) == 1
+    assert "Not authorized." in sent[0][1]
+
+
+def test_bot_menu_callback_ignores_unknown_data():
+    import asyncio
+
+    from app.telegram.bot import _handle_callback
+
+    settings = _fake_settings("123456789")
+
+    async def run():
+        calls = []
+
+        class FakeResponse:
+            status_code = 200
+
+        class FakeClient:
+            async def post(self, url, **kwargs):
+                calls.append((url, kwargs.get("content")))
+                return FakeResponse()
+
+        await _handle_callback(
+            settings,
+            {
+                "callback_query": {
+                    "id": "cb-1",
+                    "data": "other:stuff",
+                    "message": {"chat": {"id": 123456789}},
+                }
+            },
+            FakeClient(),
+        )
+        return calls
+
+    calls = asyncio.run(run())
+    assert calls == []
