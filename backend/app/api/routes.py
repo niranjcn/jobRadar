@@ -17,7 +17,7 @@ from app.db import get_supabase, query
 from app.geo import load_geo_index, map_location
 from app.matcher import recompute_matches
 from app.poller import create_poll_run as poller_create_run
-from app.poller import poll_all_sources, poll_source, unhealthy_sources
+from app.poller import poll_all_sources, poll_source, run_pipeline_in_thread, unhealthy_sources
 from app.schedule_store import (
     effective_intervals,
     last_checked_by_ats,
@@ -519,7 +519,9 @@ async def run_source(source_id: str) -> dict:
         raise HTTPException(status_code=404, detail="source not found")
     source = response.data[0]
     adapter = adapter_for(source["ats_type"])
-    result = await poll_source(supabase, source, adapter, settings.max_posting_age_days)
+    result = await run_pipeline_in_thread(
+        poll_source(supabase, source, adapter, settings.max_posting_age_days)
+    )
     return {
         "ok": True,
         "company": result["company"],
@@ -578,7 +580,9 @@ async def run_poll(payload: PollRunRequest | None = None) -> dict:
 
 async def _run_poll_background(run_id: str, ats_type: str | None) -> None:
     try:
-        await poll_all_sources(ats_type=ats_type, run_id=run_id, triggered_by="manual")
+        await run_pipeline_in_thread(
+            poll_all_sources(ats_type=ats_type, run_id=run_id, triggered_by="manual")
+        )
     except Exception as exc:
         print(f"manual poll run {run_id} FAILED: {exc}")
 
@@ -624,7 +628,9 @@ async def run_unhealthy_poll() -> dict:
 
 async def _run_unhealthy_background(run_id: str, source_ids: list[str]) -> None:
     try:
-        await poll_all_sources(run_id=run_id, triggered_by="manual", source_ids=source_ids)
+        await run_pipeline_in_thread(
+            poll_all_sources(run_id=run_id, triggered_by="manual", source_ids=source_ids)
+        )
     except Exception as exc:
         print(f"unhealthy poll run {run_id} FAILED: {exc}")
 

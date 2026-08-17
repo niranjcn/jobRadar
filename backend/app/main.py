@@ -13,7 +13,7 @@ from app.api.routes import router
 from app.config import load_settings
 from app.db import get_supabase, query
 from app.migrate import run_migrations
-from app.poller import clear_orphaned_runs, poll_all_sources
+from app.poller import clear_orphaned_runs, poll_all_sources, run_pipeline_in_thread
 from app.schedule_store import effective_intervals, load_interval_overrides
 from app.telegram.bot import register_command_menu, run_bot
 
@@ -73,7 +73,7 @@ async def _run_safe(ats_type: str | None = None) -> None:
                 f"scheduler: skipping {ats_type or 'all'} poll, run {running[0]['id']} already in progress"
             )
             return
-        await poll_all_sources(ats_type=ats_type)
+        await run_pipeline_in_thread(poll_all_sources(ats_type=ats_type))
     except Exception as exc:
         print(f"poll run failed ({ats_type or 'all'}): {exc}")
 

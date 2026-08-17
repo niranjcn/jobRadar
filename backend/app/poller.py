@@ -8,7 +8,7 @@ from supabase import Client
 
 from app.adapters import adapter_for
 from app.config import load_settings
-from app.db import get_supabase
+from app.db import get_supabase, query
 from app.geo import map_job_locations, map_location
 from app.matcher import load_notification_settings, match_all, sync_preferences
 from app.models import NormalizedJob, strip_html
@@ -95,28 +95,18 @@ def unhealthy_sources(supabase: Client, intervals: dict[str, int]) -> list[dict[
     return result
 
 
-PAGE_SIZE = 1000
-
-
-def _fetch_external_job_ids(supabase: Client, source_id: str) -> set[str]:
-    ids: set[str] = set()
-    for start in range(0, 1_000_000, PAGE_SIZE):
-        response = (
-            supabase.table("jobs")
-            .select("external_job_id")
-            .eq("source_id", source_id)
-            .range(start, start + PAGE_SIZE - 1)
-            .execute()
-        )
-        rows = response.data or []
-        ids.update(row["external_job_id"] for row in rows)
-        if len(rows) < PAGE_SIZE:
-            break
-    return ids
-
-
 def fetch_existing_job_ids(supabase: Client, source_id: str) -> set[str]:
-    return _fetch_external_job_ids(supabase, source_id)
+    """External job IDs already stored for a source.
+
+    Uses a single pooled SQL query instead of paginating 1000-row REST pages
+    (a 20k-job source used to cost 20 sequential HTTP round-trips per poll).
+    """
+    rows = query(
+        load_settings(),
+        "select external_job_id from jobs where source_id = %s",
+        (source_id,),
+    )
+    return {row["external_job_id"] for row in rows}
 
 
 def upsert_jobs(supabase: Client, rows: list[dict[str, Any]]) -> None:
@@ -281,6 +271,44 @@ def dedupe_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         seen.add(key)
         result.append(row)
     return result
+
+
+async def run_pipeline_in_thread(coro) -> Any:
+    """Run a blocking-heavy async pipeline in a dedicated worker thread.
+
+    The ingestion pipeline interleaves async adapter calls with synchronous
+    Supabase REST / psycopg calls. Running it directly on the main event loop
+    would stall the Telegram bot long-poll and every API request for the whole
+    poll. Running the coroutine in a worker thread (with its own event loop)
+    keeps the main loop responsive.
+    """
+    return await asyncio.to_thread(asyncio.run, coro)
+
+
+def fetch_candidate_jobs(
+    supabase: Client, candidates: list[tuple[str, str]]
+) -> list[dict[str, Any]]:
+    """Fetch the newly-discovered candidate job rows once so the Telegram and
+    email notification paths share a single lookup instead of each refetching
+    the same candidates."""
+    if not candidates:
+        return []
+    by_source: dict[str, list[str]] = {}
+    for source_id, external_job_id in candidates:
+        by_source.setdefault(source_id, []).append(external_job_id)
+    jobs: list[dict[str, Any]] = []
+    for source_id, external_ids in by_source.items():
+        for start in range(0, len(external_ids), IN_BATCH):
+            batch = external_ids[start : start + IN_BATCH]
+            response = (
+                supabase.table("jobs")
+                .select("id, source_id, title, location, url")
+                .eq("source_id", source_id)
+                .in_("external_job_id", batch)
+                .execute()
+            )
+            jobs.extend(response.data or [])
+    return jobs
 
 
 async def poll_source(
@@ -486,6 +514,8 @@ async def poll_all_sources(
         telegram_scope = notify_settings.get("telegram_scope", "all")
         email_scope = notify_settings.get("email_scope", "matched")
 
+        candidate_jobs = fetch_candidate_jobs(supabase, candidates)
+
         telegram_sent = 0
         try:
             sent, candidate = send_telegram_notifications(
@@ -494,6 +524,7 @@ async def poll_all_sources(
                 bot_token=settings.telegram_bot_token,
                 chat_id=settings.telegram_chat_id,
                 candidates=candidates,
+                jobs=candidate_jobs,
                 scope=telegram_scope,
             )
             telegram_sent = sent
@@ -509,6 +540,7 @@ async def poll_all_sources(
                 api_key=settings.resend_api_key,
                 to_addresses=settings.notify_to,
                 candidates=candidates,
+                jobs=candidate_jobs,
                 scope=email_scope,
             )
             email_sent = sent
