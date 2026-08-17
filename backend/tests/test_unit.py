@@ -13,7 +13,7 @@ os.environ.setdefault("JOBRADAR_DISABLE_SCHEDULER", "1")
 from app.main import _interval_seconds_to_cron
 from app.matcher import compute_match_score, job_matches_preferences
 from app.geo import map_location, location_matches_preference, map_job_locations
-from app.messages import build_html, build_text, build_text_sections, build_text_summary
+from app.telegram.messages import build_html, build_text, build_text_sections, build_text_summary
 from app.adapters.oracle import OracleAdapter, _is_fusion
 from app.adapters.icims import IcimsAdapter
 from app.api.detect import _detect_from_url

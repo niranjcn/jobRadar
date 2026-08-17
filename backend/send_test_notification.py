@@ -10,9 +10,9 @@ import sys
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 from app.config import load_settings
-from app.messages import build_html, build_text
 from app.notify import _send_email
-from app.telegram import _send_message
+from app.telegram.messages import build_html, build_text
+from app.telegram.notifications import _send_message
 
 SAMPLE_JOBS = [
     {
