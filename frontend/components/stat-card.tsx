@@ -12,11 +12,20 @@ export function StatCard({
       ? "text-accent"
       : accent === "success"
         ? "text-success"
-        : "text-text";
+        : accent === "primary"
+          ? "text-primary"
+          : "text-text";
+  const glow = accent === "primary" ? "text-glow" : "";
   return (
     <div className="card p-4">
-      <div className={`font-serif text-3xl font-semibold ${color}`}>{value}</div>
-      <div className="mt-1 text-[13px] text-text-secondary">{label}</div>
+      <div
+        className={`font-display text-2xl font-bold tabular-nums whitespace-nowrap sm:text-3xl ${color} ${glow}`}
+      >
+        {value}
+      </div>
+      <div className="mt-1 font-mono text-[11px] uppercase tracking-[0.16em] text-text-secondary">
+        {label}
+      </div>
     </div>
   );
 }
