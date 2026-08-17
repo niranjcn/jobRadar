@@ -309,11 +309,13 @@ def _cmd_stats(settings: Settings, supabase: Client, args: str) -> str:
     return _build_reply(
         [
             "📊 Dashboard stats",
-            f"New jobs (7d): {row['jobs_7d']}\n"
-            f"Matches: {row['matches']}\n"
-            f"Companies monitored: {row['companies']}\n"
-            f"Avg match: {row['avg_score']}%\n"
-            f"Total jobs: {row['jobs_total']}",
+            (
+                f"New jobs (7d): {row['jobs_7d']}\n"
+                f"Matches: {row['matches']}\n"
+                f"Companies monitored: {row['companies']}\n"
+                f"Avg match: {row['avg_score']}%\n"
+                f"Total jobs: {row['jobs_total']}"
+            ),
         ]
     )
 
@@ -508,13 +510,15 @@ def _cmd_preferences(settings: Settings, supabase: Client, args: str) -> str:
     return _build_reply(
         [
             "⚙️ Preferences",
-            f"Roles: {_fmt_list(prefs['roles'])}\n"
-            f"Skills: {_fmt_list(prefs['keywords'])}\n"
-            f"Locations: {_fmt_list(prefs['locations'])}\n"
-            f"Seniority: {_fmt_list(prefs['seniority'])}\n"
-            f"Excluded roles: {_fmt_list(prefs['excluded_roles'])}\n"
-            f"Excluded companies: {_fmt_list(prefs['excluded_companies'])}\n"
-            f"Alerts: {', '.join(notify) if notify else '—'} · {prefs['alert_frequency']}",
+            (
+                f"Roles: {_fmt_list(prefs['roles'])}\n"
+                f"Skills: {_fmt_list(prefs['keywords'])}\n"
+                f"Locations: {_fmt_list(prefs['locations'])}\n"
+                f"Seniority: {_fmt_list(prefs['seniority'])}\n"
+                f"Excluded roles: {_fmt_list(prefs['excluded_roles'])}\n"
+                f"Excluded companies: {_fmt_list(prefs['excluded_companies'])}\n"
+                f"Alerts: {', '.join(notify) if notify else '—'} · {prefs['alert_frequency']}"
+            ),
         ]
     )
 
