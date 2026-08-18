@@ -15,6 +15,8 @@ ATS_DEFAULT_SECONDS = {
     "successfactors": 3600,
     "phenom": 3600,
     "avature": 21600,
+    "google": 3600,
+    "amazon": 3600,
 }
 
 
