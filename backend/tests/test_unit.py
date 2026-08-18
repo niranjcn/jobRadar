@@ -748,9 +748,7 @@ def test_amazon_remote_detection():
             "id_icims": "9",
             "title": "Engineer",
             "location": "Virtual Location - Texas",
-            "locations": [
-                '{"type":"VIRTUAL","countryIso2a":"US","normalizedCountryCode":"USA"}'
-            ],
+            "locations": ['{"type":"VIRTUAL","countryIso2a":"US","normalizedCountryCode":"USA"}'],
         }
     )
     assert job.is_remote
@@ -801,8 +799,7 @@ def test_google_empty_result_page():
     from app.adapters.google import _extract_ds1_data
 
     html = (
-        "<script>AF_initDataCallback({key: 'ds:1', hash: '2', data:[null, null, 0, 20]});"
-        "</script>"
+        "<script>AF_initDataCallback({key: 'ds:1', hash: '2', data:[null, null, 0, 20]});</script>"
     )
     data = _extract_ds1_data(html)
     assert data is not None
