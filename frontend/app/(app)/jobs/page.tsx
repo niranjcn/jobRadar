@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { CompanySelect } from "@/components/company-select";
 import { JobCard } from "@/components/job-card";
 import { RadarLoading } from "@/components/radar-loading";
 import { api } from "@/lib/api";
@@ -67,14 +68,13 @@ export default function JobsPage() {
             placeholder="Search title…"
             className="search-input w-52"
           />
-          <select value={company} onChange={(e) => resetPage(setCompany, e.target.value)} className="search-input w-44">
-            <option value="">All companies</option>
-            {companyOptions.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
+          <div className="w-44">
+            <CompanySelect
+              companies={companyOptions}
+              value={company}
+              onChange={(v) => resetPage(setCompany, v)}
+            />
+          </div>
           <select value={country} onChange={(e) => resetPage(setCountry, e.target.value)} className="search-input w-36">
             <option value="">All countries</option>
             {countryOptions.map((c) => (
