@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { CompanySelect } from "@/components/company-select";
 import { JobCard } from "@/components/job-card";
 import { RadarLoading } from "@/components/radar-loading";
 import { api } from "@/lib/api";
@@ -11,6 +12,8 @@ const PAGE_SIZE = 20;
 
 export default function NewMatchesPage() {
   const [ats, setAts] = useState("");
+  const [company, setCompany] = useState("");
+  const [companyOptions, setCompanyOptions] = useState<string[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
@@ -19,13 +22,14 @@ export default function NewMatchesPage() {
   const since = startOfTodayUTC();
 
   useEffect(() => {
-    api.jobFilters();
+    api.jobFilters().then((f) => setCompanyOptions(f.companies));
   }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await api.matchedJobs({
+        company: company || undefined,
         ats: ats || undefined,
         since,
         limit: PAGE_SIZE,
@@ -38,7 +42,7 @@ export default function NewMatchesPage() {
     } finally {
       setLoading(false);
     }
-  }, [ats, since, page]);
+  }, [ats, company, since, page]);
 
   useEffect(() => {
     load();
@@ -61,6 +65,13 @@ export default function NewMatchesPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <div className="w-44">
+            <CompanySelect
+              companies={companyOptions}
+              value={company}
+              onChange={(v) => resetPage(setCompany, v)}
+            />
+          </div>
           <select value={ats} onChange={(e) => resetPage(setAts, e.target.value)} className="search-input w-36">
             <option value="">All sources</option>
             {ATS_ORDER.map((a) => (
