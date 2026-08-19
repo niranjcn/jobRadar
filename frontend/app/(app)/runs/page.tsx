@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RadarLoading } from "@/components/radar-loading";
 import { api } from "@/lib/api";
-import { atsLabel, formatDateTime, timeIST } from "@/lib/format";
+import { atsLabel, ATS_ORDER, formatDateTime, timeIST } from "@/lib/format";
 import type { PollRun, UnhealthySource } from "@/lib/types";
 
 const STATUS_META: Record<PollRun["status"], { label: string; className: string }> = {
@@ -208,11 +208,11 @@ export default function RunsPage() {
           className="search-input w-40"
         >
           <option value="all">All sources</option>
-          <option value="greenhouse">Greenhouse</option>
-          <option value="lever">Lever</option>
-          <option value="ashby">Ashby</option>
-          <option value="workday">Workday</option>
-          <option value="oracle">Oracle</option>
+          {ATS_ORDER.map((a) => (
+            <option key={a} value={a}>
+              {atsLabel(a)}
+            </option>
+          ))}
         </select>
         <button onClick={runPoll} disabled={triggering || !!isRunning} className="btn-primary">
           {triggering ? "Starting…" : isRunning ? "Poll in progress…" : "Run poll now"}

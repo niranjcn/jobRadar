@@ -12,6 +12,7 @@ export default function MatchesPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [summary, setSummary] = useState<CompanyMatchSummary[]>([]);
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
+  const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
   const [companyLoading, setCompanyLoading] = useState(false);
   const [page, setPage] = useState(0);
@@ -51,6 +52,11 @@ export default function MatchesPage() {
 
   const pageCount = useMemo(() => Math.max(1, Math.ceil(total / PAGE_SIZE)), [total]);
 
+  const filteredSummary = useMemo(
+    () => summary.filter((s) => s.company.toLowerCase().includes(q.trim().toLowerCase())),
+    [summary, q],
+  );
+
   return (
     <div className="mx-auto max-w-6xl p-8">
       <h1 className="text-[28px] font-semibold">Matches</h1>
@@ -65,24 +71,42 @@ export default function MatchesPage() {
           </div>
         ) : (
           <>
+            <section className="mb-6 flex items-center justify-between gap-3">
+              <p className="text-sm text-text-secondary">
+                {summary.length} compan{summary.length === 1 ? "y" : "ies"} with matches
+              </p>
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Search matched companies…"
+                className="search-input w-56"
+              />
+            </section>
+
             <section className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {summary.map((entry) => (
-                <button
-                  key={entry.company}
-                  onClick={() => selectCompany(entry.company)}
-                  className={`card flex items-center justify-between p-4 text-left transition-colors ${
-                    selectedCompany === entry.company ? "ring-2 ring-primary" : "hover:border-primary/60"
-                  }`}
-                >
-                  <div>
-                    <p className="text-sm font-semibold text-text">{entry.company}</p>
-                    <p className="text-xs text-text-muted">
-                      {entry.matches} match{entry.matches === 1 ? "" : "es"}
-                    </p>
-                  </div>
-                  <span className="text-xl font-semibold text-success">{entry.matches}</span>
-                </button>
-              ))}
+              {filteredSummary.length === 0 ? (
+                <div className="card p-6 text-center text-sm text-text-muted sm:col-span-2 lg:col-span-4">
+                  No companies match your search.
+                </div>
+              ) : (
+                filteredSummary.map((entry) => (
+                  <button
+                    key={entry.company}
+                    onClick={() => selectCompany(entry.company)}
+                    className={`card flex items-center justify-between p-4 text-left transition-colors ${
+                      selectedCompany === entry.company ? "ring-2 ring-primary" : "hover:border-primary/60"
+                    }`}
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-text">{entry.company}</p>
+                      <p className="text-xs text-text-muted">
+                        {entry.matches} match{entry.matches === 1 ? "" : "es"}
+                      </p>
+                    </div>
+                    <span className="text-xl font-semibold text-success">{entry.matches}</span>
+                  </button>
+                ))
+              )}
             </section>
 
             {selectedCompany && (

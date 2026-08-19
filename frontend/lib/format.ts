@@ -82,12 +82,14 @@ export function atsLabel(ats: string): string {
     successfactors: "SAP SuccessFactors",
     phenom: "Phenom",
     avature: "Avature",
+    google: "Google",
+    amazon: "Amazon",
     custom: "Custom",
   };
   return map[ats] || ats;
 }
 
-export const ATS_ORDER = ["workday", "greenhouse", "lever", "ashby", "oracle", "icims", "successfactors", "phenom", "avature", "custom"];
+export const ATS_ORDER = ["workday", "greenhouse", "lever", "ashby", "oracle", "icims", "successfactors", "phenom", "avature", "google", "amazon", "custom"];
 
 /** ISO timestamp (UTC) for the start of the current day (00:00 local). */
 export function startOfTodayUTC(): string {

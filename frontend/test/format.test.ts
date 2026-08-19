@@ -42,6 +42,8 @@ describe("format helpers", () => {
   it("atsLabel", () => {
     expect(atsLabel("greenhouse")).toBe("Greenhouse");
     expect(atsLabel("workday")).toBe("Workday");
+    expect(atsLabel("google")).toBe("Google");
+    expect(atsLabel("amazon")).toBe("Amazon");
     expect(atsLabel("unknown")).toBe("unknown");
   });
 
