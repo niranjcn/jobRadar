@@ -16,7 +16,6 @@ export default function JobsPage() {
   const [country, setCountry] = useState("");
   const [companyOptions, setCompanyOptions] = useState<string[]>([]);
   const [countryOptions, setCountryOptions] = useState<string[]>([]);
-  const [atsOptions, setAtsOptions] = useState<string[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
@@ -26,7 +25,6 @@ export default function JobsPage() {
     api.jobFilters().then((f) => {
       setCompanyOptions(f.companies);
       setCountryOptions(f.countries);
-      setAtsOptions(f.ats_types);
     });
   }, []);
 
@@ -87,7 +85,7 @@ export default function JobsPage() {
           </select>
           <select value={ats} onChange={(e) => resetPage(setAts, e.target.value)} className="search-input w-36">
             <option value="">All sources</option>
-            {ATS_ORDER.filter((a) => atsOptions.includes(a)).map((a) => (
+            {ATS_ORDER.map((a) => (
               <option key={a} value={a}>
                 {atsLabel(a)}
               </option>
