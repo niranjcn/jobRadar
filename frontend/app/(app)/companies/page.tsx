@@ -11,6 +11,7 @@ const PAGE_SIZE = 20;
 export default function CompaniesPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
+  const [q, setQ] = useState("");
   const [page, setPage] = useState(0);
 
   useEffect(() => {
@@ -20,17 +21,35 @@ export default function CompaniesPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const pageCount = useMemo(() => Math.max(1, Math.ceil(companies.length / PAGE_SIZE)), [companies]);
-  const visible = companies.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
+  const filtered = useMemo(
+    () =>
+      companies.filter((c) => c.company_name.toLowerCase().includes(q.trim().toLowerCase())),
+    [companies, q],
+  );
+
+  const pageCount = useMemo(() => Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)), [filtered]);
+  const visible = filtered.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
 
   return (
     <div className="mx-auto max-w-4xl p-8">
       <h1 className="text-[28px] font-semibold">Companies</h1>
       <p className="mt-1 text-sm text-text-secondary">
-        {companies.length} companies monitored across your sources
+        {filtered.length} company{filtered.length === 1 ? "" : "s"} monitored across your sources
       </p>
 
-      <div className="mt-8">
+      <div className="mt-6 flex items-center gap-2">
+        <input
+          value={q}
+          onChange={(e) => {
+            setQ(e.target.value);
+            setPage(0);
+          }}
+          placeholder="Search companies…"
+          className="search-input w-64"
+        />
+      </div>
+
+      <div className="mt-4">
         {loading ? (
           <RadarLoading />
         ) : (
@@ -54,6 +73,13 @@ export default function CompaniesPage() {
                       <td className="px-4 py-3 text-text-muted">{timeAgo(c.last_checked_at)}</td>
                     </tr>
                   ))}
+                  {visible.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="px-4 py-8 text-center text-sm text-text-muted">
+                        No companies match your search.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
