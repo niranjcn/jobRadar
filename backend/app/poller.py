@@ -330,51 +330,6 @@ async def poll_all_sources(
         total_fetched = 0
         total_new = 0
 
-        # Hybrid immediate per-company (Option C, user request: "after you check
-        # a company immediately sent me the match (else its taking alot of time)").
-        # Buffer per-source matches and flush every 5 companies or 30s, so admin
-        # gets low-latency alerts without 200 separate messages. Final
-        # numbers-only drain + failure report still happen after all 200.
-        immediate_buffer: list[dict[str, Any]] = []
-        immediate_lock = asyncio.Lock()
-        last_immediate_flush = datetime.now(UTC)
-
-        async def flush_immediate(force: bool = False) -> None:
-            nonlocal immediate_buffer, last_immediate_flush
-            async with immediate_lock:
-                if not immediate_buffer:
-                    return
-                now = datetime.now(UTC)
-                if (
-                    not force
-                    and len(immediate_buffer) < 5
-                    and (now - last_immediate_flush).total_seconds() < 30
-                ):
-                    return
-                # Copy and clear under lock, then send outside lock
-                to_send = list(immediate_buffer)
-                immediate_buffer = []
-                last_immediate_flush = now
-            # Send outside lock to avoid blocking _poll
-            try:
-                from app.telegram.notifications import (
-                    MAX_MESSAGE_LENGTH,
-                    _chunk_sections,
-                    _send_message,
-                )
-
-                lines = [f"🔔 New matches — {now:%H:%M UTC} ({len(to_send)} companies)"]
-                for entry in to_send:
-                    lines.append(
-                        f"• {entry['company']} ({entry['ats_type']}): {entry['matched']} new"
-                    )
-                text = "\n".join(lines)
-                for chunk in _chunk_sections([text], MAX_MESSAGE_LENGTH):
-                    _send_message(settings.telegram_bot_token, settings.telegram_chat_id, chunk)
-                print(f"immediate: sent {len(to_send)} companies with new matches")
-            except Exception as exc:
-                print(f"immediate: FAILED - {exc}")
-
         async def _poll(source: dict[str, Any]) -> None:
             nonlocal total_fetched, total_new
             async with semaphore:
@@ -411,25 +366,6 @@ async def poll_all_sources(
                         tally["considered"] += outcome["considered"]
                         tally["matched"] += outcome["matched"]
                         tally["enqueued"] += outcome["enqueued"]
-                        # Hybrid immediate per-company (Option C): if this company
-                        # produced new matches, buffer it for near-real-time admin
-                        # alert. Flush is debounced (5 companies or 30s).
-                        if (
-                            outcome["matched"] > 0
-                            and settings.telegram_enabled
-                            and settings.telegram_bot_token
-                            and settings.telegram_chat_id
-                        ):
-                            async with immediate_lock:
-                                immediate_buffer.append(
-                                    {
-                                        "company": source["company_name"],
-                                        "ats_type": source["ats_type"],
-                                        "matched": outcome["matched"],
-                                    }
-                                )
-                            # Try debounced flush (may send if threshold reached)
-                            await flush_immediate()
                 except Exception as exc:
                     entry["status"] = "error"
                     entry["error"] = str(exc)[:300]
@@ -442,65 +378,18 @@ async def poll_all_sources(
 
         await asyncio.gather(*(_poll(source) for source in sources))
 
-        # Ensure any remaining immediate per-company alerts are flushed before
-        # the final batch drain and failure report (user: matching first, then
-        # issue report after all 200).
-        await flush_immediate(force=True)
-
         print(
             f"matching: considered={tally['considered']}, "
             f"matched={tally['matched']}, enqueued={tally['enqueued']}"
         )
 
-        # Flush everything already due right now — accounts with delay 0 get
-        # their alerts here. Delayed accounts are released by the scheduler's
-        # drain ticker when scheduled_for passes.
+        # Batch drain after all 200 are checked — matching is sent first,
+        # numbers-only, and only when there are new matches (early-return
+        # when pending==0 in notification_queue). No failure report, as
+        # requested: only new matching job alerts like before.
         drained = drain_due_notifications(settings, supabase)
         telegram_sent = drained["sent_telegram"]
         email_sent = drained["sent_email"]
-
-        # Failure report: after all checks, summarize which sites failed (if any).
-        # Separate from job-match alerts (which only fire when pending > 0).
-        try:
-            failed = [s for s in source_results if s.get("status") == "error"]
-            if (
-                failed
-                and settings.telegram_enabled
-                and settings.telegram_bot_token
-                and settings.telegram_chat_id
-            ):
-                # Reuse the same helper as the legacy poller (main branch).
-                # Import locally to avoid circular import at module load.
-                try:
-                    from app.telegram.notifications import send_poll_failure_report
-                except ImportError:
-                    send_poll_failure_report = None  # type: ignore
-                if send_poll_failure_report is not None:
-                    send_poll_failure_report(
-                        bot_token=settings.telegram_bot_token,
-                        chat_id=settings.telegram_chat_id,
-                        sources=source_results,
-                        run_id=run_id,
-                    )
-                    print(f"failure-report: sent for {len(failed)} failed source(s)")
-                else:
-                    # Fallback: numbers-only (no per-site list) as requested
-                    import json
-
-                    import httpx
-
-                    text = f"⚠️ Poll completed — {datetime.now(UTC):%Y-%m-%d %H:%M UTC}\n{len(source_results)} checked, {len(source_results) - len(failed)} ok, {len(failed)} failed (run {run_id[:8]}…)"
-                    with httpx.Client(timeout=30) as client:
-                        client.post(
-                            f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
-                            content=json.dumps(
-                                {"chat_id": settings.telegram_chat_id, "text": text}
-                            ),
-                            headers={"Content-Type": "application/json"},
-                        )
-                    print(f"failure-report: sent (fallback) for {len(failed)} failed source(s)")
-        except Exception as exc:
-            print(f"failure-report: FAILED - {exc}")
 
         finish_poll_run(
             supabase,
