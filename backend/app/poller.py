@@ -9,16 +9,13 @@ from supabase import Client
 from app.adapters import adapter_for
 from app.config import load_settings
 from app.db import get_supabase, query
-from app.geo import map_job_locations, map_location
-from app.matcher import load_notification_settings, match_all, sync_preferences
-from app.models import NormalizedJob, strip_html
-from app.notify import send_email_notifications
+from app.geo import map_location
+from app.matcher import load_notification_settings, sync_preferences
+from app.models import NormalizedJob
+from app.notification_queue import drain_due_notifications, load_audience, match_and_enqueue
 from app.settings_store import load_location_mapping
-from app.telegram import send_telegram_notifications
 
-DETAIL_CONCURRENCY = 15
 SOURCE_CONCURRENCY = 8
-IN_BATCH = 200
 MAX_POSTING_AGE_DAYS = 90
 SOURCES_FILE = Path(__file__).resolve().parent.parent / "sources.json"
 
@@ -115,92 +112,6 @@ def upsert_jobs(supabase: Client, rows: list[dict[str, Any]]) -> None:
     supabase.table("jobs").upsert(rows, on_conflict="source_id,external_job_id").execute()
 
 
-def clear_descriptions(supabase: Client, candidates: list[tuple[str, str]]) -> int:
-    """Null out the description of newly-seen jobs once their alert is sent.
-
-    Descriptions are only needed transiently (keyword matching + first alert).
-    After both notification channels have run, reclaim the space.
-    """
-    if not candidates:
-        return 0
-    by_source: dict[str, list[str]] = {}
-    for source_id, external_job_id in candidates:
-        by_source.setdefault(source_id, []).append(external_job_id)
-    cleared = 0
-    for source_id, external_ids in by_source.items():
-        for start in range(0, len(external_ids), IN_BATCH):
-            batch = external_ids[start : start + IN_BATCH]
-            response = (
-                supabase.table("jobs")
-                .update({"description": None})
-                .eq("source_id", source_id)
-                .in_("external_job_id", batch)
-                .execute()
-            )
-            cleared += len(response.data or [])
-    return cleared
-
-
-def _detail_location_hints(detail: dict) -> tuple[str | None, list[str]]:
-    """Pull the best location + office/alternate location strings from a detail payload."""
-    location_name: str | None = None
-    offices: list[str] = []
-
-    loc = detail.get("location")
-    if isinstance(loc, dict) and loc.get("name"):
-        location_name = loc["name"]
-    elif isinstance(loc, str) and loc:
-        location_name = loc
-
-    for office in detail.get("offices") or []:
-        name = office.get("name")
-        if name:
-            offices.append(name)
-
-    for key in ("additionalLocations", "secondaryLocations", "locations"):
-        for item in detail.get(key) or []:
-            if isinstance(item, str) and item:
-                offices.append(item)
-            elif isinstance(item, dict):
-                name = item.get("location") or item.get("name")
-                if name:
-                    offices.append(name)
-
-    categories = detail.get("categories") or {}
-    if isinstance(categories, dict):
-        all_locations = categories.get("allLocations") or []
-        if isinstance(all_locations, list):
-            offices.extend(loc for loc in all_locations if loc)
-        elif isinstance(all_locations, str) and all_locations:
-            offices.append(all_locations)
-    return location_name, offices
-
-
-def update_job_detail(
-    supabase: Client, source_id: str, external_job_id: str, description: str, detail: dict
-) -> None:
-    location_name, offices = _detail_location_hints(detail)
-    mapped = map_job_locations(location_name, offices, load_location_mapping(supabase))
-    update: dict[str, Any] = {
-        "description": strip_html(description),
-        "countries": mapped["countries"],
-        "is_remote": mapped["is_remote"],
-    }
-    if location_name:
-        current = (
-            supabase.table("jobs")
-            .select("location")
-            .eq("source_id", source_id)
-            .eq("external_job_id", external_job_id)
-            .execute()
-        )
-        if not (current.data and current.data[0].get("location")):
-            update["location"] = location_name
-    supabase.table("jobs").update(update).eq("source_id", source_id).eq(
-        "external_job_id", external_job_id
-    ).execute()
-
-
 def mark_checked(supabase: Client, source_id: str) -> None:
     supabase.table("sources").update(
         {"last_checked_at": datetime.now(UTC).isoformat(), "last_error": None}
@@ -221,30 +132,6 @@ def prune_old_jobs(supabase: Client, retention_days: int) -> int:
     if deleted:
         print(f"retention: deleted {deleted} job(s) older than {retention_days} day(s)")
     return deleted
-
-
-async def enrich_jobs(
-    supabase: Client, source: dict[str, Any], adapter, external_ids: list[str]
-) -> None:
-    if not external_ids:
-        return
-    semaphore = asyncio.Semaphore(DETAIL_CONCURRENCY)
-
-    async def fetch_and_store(job_id: str) -> None:
-        async with semaphore:
-            detail = await adapter.fetch_job_detail(source["board_identifier"], job_id)
-            if not detail:
-                return
-            update_job_detail(
-                supabase, source["id"], job_id, adapter.extract_description(detail), detail
-            )
-
-    results = await asyncio.gather(
-        *(fetch_and_store(job_id) for job_id in external_ids), return_exceptions=True
-    )
-    for result in results:
-        if isinstance(result, Exception):
-            print(f"{source['company_name']}: detail enrichment failed - {result}")
 
 
 def _is_within_age(job: NormalizedJob, max_age_days: int) -> bool:
@@ -285,32 +172,6 @@ async def run_pipeline_in_thread(coro) -> Any:
     return await asyncio.to_thread(asyncio.run, coro)
 
 
-def fetch_candidate_jobs(
-    supabase: Client, candidates: list[tuple[str, str]]
-) -> list[dict[str, Any]]:
-    """Fetch the newly-discovered candidate job rows once so the Telegram and
-    email notification paths share a single lookup instead of each refetching
-    the same candidates."""
-    if not candidates:
-        return []
-    by_source: dict[str, list[str]] = {}
-    for source_id, external_job_id in candidates:
-        by_source.setdefault(source_id, []).append(external_job_id)
-    jobs: list[dict[str, Any]] = []
-    for source_id, external_ids in by_source.items():
-        for start in range(0, len(external_ids), IN_BATCH):
-            batch = external_ids[start : start + IN_BATCH]
-            response = (
-                supabase.table("jobs")
-                .select("id, source_id, title, location, url")
-                .eq("source_id", source_id)
-                .in_("external_job_id", batch)
-                .execute()
-            )
-            jobs.extend(response.data or [])
-    return jobs
-
-
 async def poll_source(
     supabase: Client,
     source: dict[str, Any],
@@ -333,8 +194,6 @@ async def poll_source(
         if row["external_job_id"] in existing:
             row.pop("description", None)
     upsert_jobs(supabase, rows)
-    if not first_check:
-        await enrich_jobs(supabase, source, adapter, [row["external_job_id"] for row in new_rows])
     mark_checked(supabase, source["id"])
     return {
         "company": source["company_name"],
@@ -456,13 +315,20 @@ async def poll_all_sources(
             finish_poll_run(supabase, run_id, status="completed")
             return {"run_id": run_id, "status": "completed", "jobs_new": 0, "matches_new": 0}
 
-        candidates: list[tuple[str, str]] = []
+        # Preferences must exist before the audience snapshot so a fresh
+        # deployment matches on its very first poll.
+        sync_preferences(supabase, settings.preferences)
+        notify_settings = load_notification_settings(supabase)
+        notify_first_check = notify_settings.get("notify_first_check", True)
+        geo_settings = load_location_mapping(supabase)
+        company_by_source = {source["id"]: source["company_name"] for source in sources}
+        audience = load_audience(settings)
+
+        tally = {"considered": 0, "matched": 0, "enqueued": 0}
         source_results: list[dict[str, Any]] = []
         semaphore = asyncio.Semaphore(SOURCE_CONCURRENCY)
         total_fetched = 0
         total_new = 0
-        notify_settings = load_notification_settings(supabase)
-        notify_first_check = notify_settings.get("notify_first_check", True)
 
         async def _poll(source: dict[str, Any]) -> None:
             nonlocal total_fetched, total_new
@@ -483,10 +349,23 @@ async def poll_all_sources(
                     total_fetched += result["fetched"]
                     total_new += result["new"]
                     print(f"{result['company']}: fetched {result['fetched']}, new {result['new']}")
-                    if not result["first_check"] or notify_first_check:
-                        candidates.extend(
-                            (result["source_id"], job_id) for job_id in result["new_ids"]
+                    # Match + enqueue IMMEDIATELY for this source — a slow board
+                    # elsewhere no longer delays these alerts (per-source pipeline).
+                    suppress = result["first_check"] and not notify_first_check
+                    new_ids = [] if suppress else list(result["new_ids"])
+                    if new_ids:
+                        outcome = match_and_enqueue(
+                            supabase,
+                            settings,
+                            company_by_source=company_by_source,
+                            audience=audience,
+                            geo_settings=geo_settings,
+                            source_id=result["source_id"],
+                            external_ids=new_ids,
                         )
+                        tally["considered"] += outcome["considered"]
+                        tally["matched"] += outcome["matched"]
+                        tally["enqueued"] += outcome["enqueued"]
                 except Exception as exc:
                     entry["status"] = "error"
                     entry["error"] = str(exc)[:300]
@@ -499,57 +378,17 @@ async def poll_all_sources(
 
         await asyncio.gather(*(_poll(source) for source in sources))
 
-        sync_preferences(supabase, settings.preferences)
-        match_result = match_all(supabase, candidates=candidates)
-        matches_new = match_result.get("matched", 0)
         print(
-            f"matching: result={match_result.get('result')}, "
-            f"considered={match_result.get('considered')}, "
-            f"matched={matches_new}"
+            f"matching: considered={tally['considered']}, "
+            f"matched={tally['matched']}, enqueued={tally['enqueued']}"
         )
 
-        notify_settings = load_notification_settings(supabase)
-        telegram_ui = notify_settings.get("notify_telegram", True)
-        email_ui = notify_settings.get("notify_email", True)
-        telegram_scope = notify_settings.get("telegram_scope", "all")
-        email_scope = notify_settings.get("email_scope", "matched")
-
-        candidate_jobs = fetch_candidate_jobs(supabase, candidates)
-
-        telegram_sent = 0
-        try:
-            sent, candidate = send_telegram_notifications(
-                supabase,
-                enabled=settings.telegram_enabled and telegram_ui,
-                bot_token=settings.telegram_bot_token,
-                chat_id=settings.telegram_chat_id,
-                candidates=candidates,
-                jobs=candidate_jobs,
-                scope=telegram_scope,
-            )
-            telegram_sent = sent
-            print(f"notify-tg: sent={sent} candidates={candidate}")
-        except Exception as exc:
-            print(f"notify-tg: FAILED - {exc}")
-
-        email_sent = 0
-        try:
-            sent, candidate = send_email_notifications(
-                supabase,
-                enabled=settings.notify_enabled and email_ui,
-                api_key=settings.resend_api_key,
-                to_addresses=settings.notify_to,
-                candidates=candidates,
-                jobs=candidate_jobs,
-                scope=email_scope,
-            )
-            email_sent = sent
-            print(f"notify: sent={sent} candidates={candidate}")
-        except Exception as exc:
-            print(f"notify: FAILED - {exc}")
-
-        cleared = clear_descriptions(supabase, candidates)
-        print(f"descriptions: cleared {cleared} new-job description(s) after notify")
+        # Flush everything already due right now — accounts with delay 0 get
+        # their alerts here. Delayed accounts are released by the scheduler's
+        # drain ticker when scheduled_for passes.
+        drained = drain_due_notifications(settings, supabase)
+        telegram_sent = drained["sent_telegram"]
+        email_sent = drained["sent_email"]
 
         finish_poll_run(
             supabase,
@@ -557,8 +396,8 @@ async def poll_all_sources(
             status="completed",
             jobs_fetched=total_fetched,
             jobs_new=total_new,
-            matches_considered=match_result.get("considered", 0),
-            matches_new=matches_new,
+            matches_considered=tally["considered"],
+            matches_new=tally["matched"],
             telegram_sent=telegram_sent,
             email_sent=email_sent,
             sources=source_results,
@@ -568,7 +407,7 @@ async def poll_all_sources(
             "status": "completed",
             "jobs_fetched": total_fetched,
             "jobs_new": total_new,
-            "matches_new": matches_new,
+            "matches_new": tally["matched"],
             "telegram_sent": telegram_sent,
             "email_sent": email_sent,
             "sources": source_results,

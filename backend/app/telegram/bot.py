@@ -86,7 +86,150 @@ def parse_command(text: str) -> tuple[str, str]:
 
 
 def authorized(chat_id: Any, settings: Settings) -> bool:
-    return str(chat_id) == str(settings.telegram_chat_id)
+    """Multi-user aware: admin env id bypasses, otherwise DB row with that telegram id and approved status."""
+    # Admin bypass (single owner)
+    admin_id = getattr(settings, "admin_chat_id", "") or settings.telegram_chat_id
+    if admin_id and str(chat_id) == str(admin_id):
+        return True
+    try:
+        rows = query(
+            settings,
+            "select 1 from users where (telegram_chat_id = %s or telegram_user_id = %s) and status != 'disabled' limit 1",
+            (int(chat_id), int(chat_id)),
+        )
+        return bool(rows)
+    except Exception:
+        # If DB unavailable or chat_id not numeric, deny
+        return False
+
+
+def _ensure_telegram_user(
+    settings: Settings, chat_id: Any, from_user: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Create a normal user on first /start if missing. Returns user row or None."""
+    try:
+        cid = int(chat_id)
+        uid = int(from_user.get("id") or chat_id)
+    except (TypeError, ValueError):
+        return None
+    # Already exists?
+    existing = query(
+        settings,
+        "select id, role, telegram_chat_id from users where telegram_chat_id = %s or telegram_user_id = %s limit 1",
+        (cid, uid),
+    )
+    if existing:
+        return existing[0]
+    # Determine role: admin if matches ADMIN_CHAT_ID, else normal (instant active per plan)
+    admin_id = getattr(settings, "admin_chat_id", "") or settings.telegram_chat_id
+    is_admin = admin_id and str(cid) == str(admin_id)
+    role = "admin" if is_admin else "user"
+    username = from_user.get("username")
+    first = from_user.get("first_name") or ""
+    last = from_user.get("last_name") or ""
+    display = f"{first} {last}".strip() or username or f"tg_{cid}"
+    # Insert new user
+    try:
+        rows = query(
+            settings,
+            """
+            insert into users (telegram_chat_id, telegram_user_id, telegram_username, display_name, role, status, access_locked, is_owner)
+            values (%s, %s, %s, %s, %s, 'approved', false, %s)
+            returning id, role
+            """,
+            (cid, uid, username, display, role, is_admin),
+        )
+        # Create empty preferences row for isolated prefs (so Mini App can edit)
+        if rows:
+            user_id = rows[0]["id"]
+            try:
+                query(
+                    settings,
+                    "insert into preferences (user_id) values (%s) on conflict (user_id) do nothing",
+                    (user_id,),
+                )
+            except Exception:
+                pass
+            return rows[0]
+    except Exception as exc:
+        print(f"ensure user failed for {cid}: {exc}")
+    return None
+
+
+def _resolve_user_id_for_chat(
+    settings: Settings, chat_id: Any, from_user_id: Any = None
+) -> str | None:
+    """Return the users.id for a Telegram chat/user id, or None if unknown."""
+    for ident in (chat_id, from_user_id):
+        if ident is None:
+            continue
+        try:
+            iid = int(ident)
+        except (TypeError, ValueError):
+            continue
+        try:
+            rows = query(
+                settings,
+                "select id from users where telegram_user_id = %s or telegram_chat_id = %s limit 1",
+                (iid, iid),
+            )
+            if rows:
+                return str(rows[0]["id"])
+        except Exception:
+            continue
+    return None
+
+
+def _handle_login_nonce(
+    settings: Settings, token: str, from_user: dict[str, Any], chat_id: Any
+) -> str:
+    """Attempt to authenticate a deep-link nonce. Returns a human reply."""
+    if not token:
+        return "❌ Invalid login link."
+    try:
+        from app.auth import authenticate_telegram_login_token
+
+        tg_identity = {
+            "id": int(from_user.get("id") or chat_id),
+            "chat_id": int(chat_id),
+            "username": from_user.get("username"),
+            "first_name": from_user.get("first_name") or "",
+            "last_name": from_user.get("last_name") or "",
+            "photo_url": None,
+        }
+        ok = authenticate_telegram_login_token(settings, token, tg_identity)
+        if ok:
+            return (
+                "✅ Telegram connected!\n\n"
+                "Return to your browser — you're now logged in.\n"
+                "If you're creating a new account, you'll be guided to set your name and email next."
+            )
+        # Check why it failed: already authenticated / expired / missing
+        from app.auth import get_telegram_login_token
+
+        row = get_telegram_login_token(settings, token)
+        if not row:
+            return "❌ This login link is invalid or has been removed."
+        if row.get("consumed_at"):
+            return "⚠️ This link has already been used."
+        if row.get("authenticated_at"):
+            return "ℹ️ This link is already authenticated — return to your browser and refresh."
+        # Check expiry
+        exp = row.get("expires_at")
+        if exp:
+            from datetime import datetime
+
+            if isinstance(exp, str):
+                try:
+                    exp = datetime.fromisoformat(exp)
+                except ValueError:
+                    exp = None
+            if exp and exp < datetime.now(UTC):
+                return "⏰ This login link has expired. Generate a new one on the website and try again."
+        return "❌ Could not authenticate this link. Please generate a new one."
+    except Exception as exc:
+        print(f"telegram login nonce error: {exc}")
+        return "⚠️ Could not process the login link. Please try again or use the website login."
 
 
 # ---------- API helpers ----------
@@ -231,9 +374,11 @@ def _list_jobs(
     q: str = "",
     since_days: int | None = None,
     limit: int = 10,
+    user_id: str | None = None,
 ) -> list[dict[str, Any]]:
+    uid = user_id or DEFAULT_USER_ID
     since_cond = " and j.first_seen_at >= %s::timestamptz" if since_days else ""
-    params: list[Any] = [DEFAULT_USER_ID, q, q, q]
+    params: list[Any] = [uid, q, q, q]
     if since_days:
         params.append((datetime.now(UTC) - timedelta(days=since_days)).isoformat())
     params.append(limit)
@@ -261,9 +406,11 @@ def _list_matches(
     company: str = "",
     since_days: int | None = None,
     limit: int = 10,
+    user_id: str | None = None,
 ) -> list[dict[str, Any]]:
+    uid = user_id or DEFAULT_USER_ID
     since_cond = " and m.created_at >= now() - interval '7 days'" if since_days else ""
-    params: list[Any] = [DEFAULT_USER_ID, company, company]
+    params: list[Any] = [uid, company, company]
     params.append(limit)
     return query(
         settings,
@@ -286,7 +433,8 @@ def _list_matches(
 # ---------- command handlers ----------
 
 
-def _cmd_start(settings: Settings, supabase: Client, args: str) -> str:
+def _cmd_start(settings: Settings, supabase: Client, args: str, user_id: str | None = None) -> str:
+    uid = user_id or DEFAULT_USER_ID
     row = query(
         settings,
         """
@@ -295,7 +443,7 @@ def _cmd_start(settings: Settings, supabase: Client, args: str) -> str:
           (select count(*)::int from sources where active) as companies,
           (select count(*)::int from job_matches where user_id = %s) as matches
         """,
-        (DEFAULT_USER_ID,),
+        (uid,),
     )[0]
     return (
         "👋 Welcome to JobRadar!\n\n"
@@ -313,7 +461,8 @@ def _cmd_help(settings: Settings, supabase: Client, args: str) -> str:
     return "\n".join(lines)
 
 
-def _cmd_stats(settings: Settings, supabase: Client, args: str) -> str:
+def _cmd_stats(settings: Settings, supabase: Client, args: str, user_id: str | None = None) -> str:
+    uid = user_id or DEFAULT_USER_ID
     since = (datetime.now(UTC) - timedelta(days=7)).isoformat()
     row = query(
         settings,
@@ -325,7 +474,7 @@ def _cmd_stats(settings: Settings, supabase: Client, args: str) -> str:
           (select count(*)::int from job_matches where user_id = %s) as matches,
           (select coalesce(round(avg(match_score))::int, 0) from job_matches where user_id = %s) as avg_score
         """,
-        (since, DEFAULT_USER_ID, DEFAULT_USER_ID),
+        (since, uid, uid),
     )[0]
     return _build_reply(
         [
@@ -341,8 +490,8 @@ def _cmd_stats(settings: Settings, supabase: Client, args: str) -> str:
     )
 
 
-def _cmd_jobs(settings: Settings, supabase: Client, args: str) -> str:
-    rows = _list_jobs(settings, q=args, limit=10)
+def _cmd_jobs(settings: Settings, supabase: Client, args: str, user_id: str | None = None) -> str:
+    rows = _list_jobs(settings, q=args, limit=10, user_id=user_id)
     if not rows:
         return "No jobs found." if args else "No jobs tracked yet."
     header = f"📦 {len(rows)} job(s)"
@@ -351,15 +500,19 @@ def _cmd_jobs(settings: Settings, supabase: Client, args: str) -> str:
     return _build_reply([header, *[format_job_block(j) for j in rows]])
 
 
-def _cmd_newjobs(settings: Settings, supabase: Client, args: str) -> str:
-    rows = _list_jobs(settings, since_days=7, limit=10)
+def _cmd_newjobs(
+    settings: Settings, supabase: Client, args: str, user_id: str | None = None
+) -> str:
+    rows = _list_jobs(settings, since_days=7, limit=10, user_id=user_id)
     if not rows:
         return "No new jobs in the last 7 days."
     return _build_reply(["📦 New jobs (7d)", *[format_job_block(j) for j in rows]])
 
 
-def _cmd_matches(settings: Settings, supabase: Client, args: str) -> str:
-    rows = _list_matches(settings, company=args, limit=10)
+def _cmd_matches(
+    settings: Settings, supabase: Client, args: str, user_id: str | None = None
+) -> str:
+    rows = _list_matches(settings, company=args, limit=10, user_id=user_id)
     if not rows:
         return "No matches found." if args else "No matching jobs yet."
     header = f"🎯 {len(rows)} match(es)"
@@ -368,8 +521,10 @@ def _cmd_matches(settings: Settings, supabase: Client, args: str) -> str:
     return _build_reply([header, *[format_job_block(j) for j in rows]])
 
 
-def _cmd_newmatches(settings: Settings, supabase: Client, args: str) -> str:
-    rows = _list_matches(settings, since_days=7, limit=10)
+def _cmd_newmatches(
+    settings: Settings, supabase: Client, args: str, user_id: str | None = None
+) -> str:
+    rows = _list_matches(settings, since_days=7, limit=10, user_id=user_id)
     if not rows:
         return "No new matches in the last 7 days."
     return _build_reply(["🎯 New matches (7d)", *[format_job_block(j) for j in rows]])
@@ -453,7 +608,10 @@ def _cmd_runs(settings: Settings, supabase: Client, args: str) -> str:
     return "\n".join(lines)
 
 
-def _cmd_notifications(settings: Settings, supabase: Client, args: str) -> str:
+def _cmd_notifications(
+    settings: Settings, supabase: Client, args: str, user_id: str | None = None
+) -> str:
+    uid = user_id or DEFAULT_USER_ID
     rows = query(
         settings,
         """
@@ -465,7 +623,7 @@ def _cmd_notifications(settings: Settings, supabase: Client, args: str) -> str:
         order by n.sent_at desc
         limit 10
         """,
-        (DEFAULT_USER_ID,),
+        (uid,),
     )
     if not rows:
         return "No alerts sent yet."
@@ -478,7 +636,10 @@ def _cmd_notifications(settings: Settings, supabase: Client, args: str) -> str:
     return "\n".join(lines)
 
 
-def _cmd_preferences(settings: Settings, supabase: Client, args: str) -> str:
+def _cmd_preferences(
+    settings: Settings, supabase: Client, args: str, user_id: str | None = None
+) -> str:
+    uid = user_id or DEFAULT_USER_ID
     rows = query(
         settings,
         """
@@ -487,7 +648,7 @@ def _cmd_preferences(settings: Settings, supabase: Client, args: str) -> str:
                telegram_scope, email_scope, notify_first_check
         from preferences where user_id = %s
         """,
-        (DEFAULT_USER_ID,),
+        (uid,),
     )
     env = settings.preferences
     if not rows:
@@ -561,12 +722,18 @@ HANDLERS: dict[str, Any] = {
 }
 
 
-def dispatch_command(settings: Settings, supabase: Client, command: str, args: str) -> str:
+def dispatch_command(
+    settings: Settings, supabase: Client, command: str, args: str, user_id: str | None = None
+) -> str:
     handler = HANDLERS.get(command)
     if handler is None:
         return "Unknown command. Try /help."
     try:
-        return handler(settings, supabase, args)
+        # Try per-user signature first, fall back to old 3-arg signature
+        try:
+            return handler(settings, supabase, args, user_id)  # type: ignore[call-arg]
+        except TypeError:
+            return handler(settings, supabase, args)
     except Exception as exc:
         print(f"telegram command '{command}' failed: {exc}")
         return f"Error running /{command}: {exc}"
@@ -606,7 +773,8 @@ async def _handle_callback(
         await _send_message(client, token, chat_id, "Not authorized.")
         return
     supabase = get_supabase(settings)
-    reply = dispatch_command(settings, supabase, command, "")
+    user_id = _resolve_user_id_for_chat(settings, chat_id)
+    reply = dispatch_command(settings, supabase, command, "", user_id)
     if reply:
         await _send_message(
             client,
@@ -617,7 +785,9 @@ async def _handle_callback(
         )
 
 
-def _inline_results(settings: Settings, q: str, *, limit: int = 8) -> list[dict[str, Any]]:
+def _inline_results(
+    settings: Settings, q: str, *, limit: int = 8, user_id: str | None = None
+) -> list[dict[str, Any]]:
     """Build InlineQueryResultArticle results for a jobs/companies search.
 
     These render as a live type-ahead list when the user types
@@ -626,7 +796,7 @@ def _inline_results(settings: Settings, q: str, *, limit: int = 8) -> list[dict[
     """
     if not q.strip():
         return []
-    jobs = _list_jobs(settings, q=q, limit=limit)
+    jobs = _list_jobs(settings, q=q, limit=limit, user_id=user_id)
     results: list[dict[str, Any]] = []
     for i, job in enumerate(jobs):
         title = job.get("title") or "Untitled"
@@ -713,7 +883,8 @@ async def _handle_inline_query(
     if not q:
         await _answer_inline(client, token, query_id, _inline_placeholder(""))
         return
-    results = _inline_results(settings, q)
+    resolved = _resolve_user_id_for_chat(settings, user_id)
+    results = _inline_results(settings, q, user_id=resolved)
     if not results:
         await _answer_inline(client, token, query_id, _inline_placeholder(q))
         return
@@ -732,15 +903,64 @@ async def handle_update(
     message = update.get("message") or {}
     text = (message.get("text") or "").strip()
     chat_id = (message.get("chat") or {}).get("id")
+    from_user = message.get("from") or {}
     if not text or not chat_id:
         return
     if not text.startswith("/"):
         return
     token = settings.telegram_bot_token
-    if not authorized(chat_id, settings):
-        await _send_message(client, token, chat_id, "Not authorized.")
-        return
     command, args = parse_command(text)
+    # /start is always allowed — it creates the user (instant active per plan)
+    if command == "start":
+        # Deep-link login nonce still handled first
+        if args.startswith("login_"):
+            nonce = args[len("login_") :].strip()
+            reply = _handle_login_nonce(settings, nonce, from_user, chat_id)
+            await _send_message(client, token, chat_id, reply)
+            if "connected" in reply.lower():
+                try:
+                    supabase = get_supabase(settings)
+                    welcome = _cmd_start(settings, supabase, "")
+                    await _send_message(
+                        client,
+                        token,
+                        chat_id,
+                        welcome,
+                        reply_markup=_menu_markup(settings.telegram_mini_app_url),
+                    )
+                except Exception:
+                    pass
+            return
+        # Normal /start — ensure user exists (instant active, isolated prefs)
+        _ensure_telegram_user(settings, chat_id, from_user)
+        supabase = get_supabase(settings)
+        # Personal welcome
+        admin_id = getattr(settings, "admin_chat_id", "") or settings.telegram_chat_id
+        is_admin = admin_id and str(chat_id) == str(admin_id)
+        role_label = "admin" if is_admin else "normal"
+        welcome = _cmd_start(settings, supabase, "")
+        # Add role + mini app hint
+        extra = (
+            f"\n\n✅ You are registered as **{role_label}**.\n"
+            "Tap below to open the Mini App and set your preferences — you will only get jobs that match *your* settings."
+        )
+        # Simple markdown-like, no parse_mode needed
+        await _send_message(
+            client,
+            token,
+            chat_id,
+            welcome + extra,
+            reply_markup=_menu_markup(settings.telegram_mini_app_url),
+        )
+        return
+    if not authorized(chat_id, settings):
+        await _send_message(
+            client,
+            token,
+            chat_id,
+            "Not authorized. Tap /start to register, or ask an admin to link your Telegram.",
+        )
+        return
     supabase = get_supabase(settings)
     if command == "app":
         if not settings.telegram_mini_app_url:
@@ -759,7 +979,9 @@ async def handle_update(
             reply_markup=_app_markup(settings.telegram_mini_app_url),
         )
         return
-    reply = dispatch_command(settings, supabase, command, args)
+    # Per-user: resolve user_id for this chat_id
+    user_id = _resolve_user_id_for_chat(settings, chat_id, from_user.get("id"))
+    reply = dispatch_command(settings, supabase, command, args, user_id)
     if reply:
         await _send_message(
             client,
