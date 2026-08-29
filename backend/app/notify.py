@@ -167,6 +167,10 @@ def send_email_notifications(
         for job in pending
     ]
 
+    # Only send email when there is at least one new matched job.
+    if not new_matches:
+        return 0, 0
+
     _send_email(
         api_key=api_key,
         to_addresses=to_addresses,

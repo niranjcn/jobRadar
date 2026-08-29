@@ -155,9 +155,12 @@ def send_telegram_notifications(
     for job in pending:
         job["company"] = companies.get(job.get("source_id"), "")
 
+    # Only send when there is at least one new (unsent) matched job.
+    if not pending:
+        return 0, len(jobs)
+
     sections = [build_text_summary(len(jobs), len(pending))]
-    if pending:
-        sections += build_text_sections(pending)[1:]
+    sections += build_text_sections(pending)[1:]
     chunks = _chunk_sections(sections)
 
     for chunk in chunks:
@@ -165,3 +168,32 @@ def send_telegram_notifications(
 
     _mark_sent(supabase, DEFAULT_USER_ID, pending_ids)
     return len(pending), len(jobs)
+
+
+def send_poll_failure_report(
+    *,
+    bot_token: str,
+    chat_id: str,
+    sources: list[dict[str, Any]],
+    run_id: str | None = None,
+) -> None:
+    """Send a Telegram summary of sources that failed this poll run."""
+    failed = [s for s in sources if s.get("status") == "error"]
+    if not failed:
+        return
+    ok_count = len([s for s in sources if s.get("status") == "ok"])
+    total = len(sources)
+    header = f"⚠️ Poll completed — {datetime.now(UTC):%Y-%m-%d %H:%M UTC}\n{total} sources checked, {ok_count} ok, {len(failed)} failed"
+    if run_id:
+        header += f" (run {run_id[:8]}…)"
+    lines = [header, "", "Failed sites:"]
+    for entry in failed[:20]:
+        company = entry.get("company") or entry.get("id") or "unknown"
+        ats = entry.get("ats_type") or ""
+        err = (entry.get("error") or "unknown error")[:120]
+        lines.append(f"• {company} ({ats}): {err}")
+    if len(failed) > 20:
+        lines.append(f"… and {len(failed) - 20} more")
+    text = "\n".join(lines)
+    for chunk in _chunk_sections([text], MAX_MESSAGE_LENGTH):
+        _send_message(bot_token, chat_id, chunk)
