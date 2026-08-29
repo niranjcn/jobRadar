@@ -9,13 +9,20 @@ from apscheduler.triggers.interval import IntervalTrigger
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.access import sweep_expired_subscriptions
+from app.api.access_routes import router as access_router
+from app.api.admin_routes import router as admin_router
+from app.api.auth_routes import router as auth_router
+from app.api.miniapp import router as miniapp_router
 from app.api.routes import router
 from app.config import load_settings
 from app.db import get_supabase, query
 from app.migrate import run_migrations
+from app.notification_queue import drain_due_notifications
 from app.poller import clear_orphaned_runs, poll_all_sources, run_pipeline_in_thread
 from app.schedule_store import effective_intervals, load_interval_overrides
 from app.telegram.bot import register_command_menu, run_bot
+from app.users import ensure_owner
 
 
 def _supabase():
@@ -109,7 +116,44 @@ def _build_scheduler() -> AsyncIOScheduler:
         coalesce=True,
         misfire_grace_time=3600,
     )
+    _scheduler.add_job(
+        _drain_notifications_safe,
+        IntervalTrigger(seconds=max(10, settings.notify_drain_seconds)),
+        id="notify-drain",
+        name="drain notification queue",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=60,
+    )
+    _scheduler.add_job(
+        _sweep_subscriptions_safe,
+        CronTrigger(hour=3, minute=17),
+        id="subscription-sweep",
+        name="expire subscriptions / relock users",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
     return _scheduler
+
+
+async def _drain_notifications_safe() -> None:
+    try:
+        settings = load_settings()
+        result = await asyncio.to_thread(drain_due_notifications, settings, get_supabase(settings))
+        if result["sent_telegram"] or result["sent_email"] or result["failed"]:
+            print(f"notify-drain: {result}")
+    except Exception as exc:
+        print(f"notify-drain failed: {exc}")
+
+
+async def _sweep_subscriptions_safe() -> None:
+    try:
+        locked = await asyncio.to_thread(sweep_expired_subscriptions, load_settings())
+        if locked:
+            print(f"subscription sweep: expired plans, relocked {locked} account(s)")
+    except Exception as exc:
+        print(f"subscription sweep failed: {exc}")
 
 
 def scheduler_next_run(ats_type: str) -> str | None:
@@ -145,13 +189,29 @@ async def lifespan(app: FastAPI):
     settings = load_settings()
     run_migrations(settings.database_url)
 
+    # Seed the owner account (the historical sentinel user) so every existing
+    # reference keeps working; also stamps env telegram/email identities.
+    try:
+        await asyncio.to_thread(ensure_owner, settings)
+    except Exception as exc:
+        print(f"owner bootstrap failed: {exc}")
+
     # A reload (uvicorn --reload restarts on any code change) kills in-flight
     # polls but leaves their 'running' rows behind, which would block the
     # per-ATS scheduler lock. Clear orphaned rows before starting fresh.
-    try:
-        clear_orphaned_runs(get_supabase(settings))
-    except Exception as exc:
-        print(f"scheduler: startup orphan cleanup failed - {exc}")
+    # Retry briefly while postgrest is still in crash-recovery (see logs:
+    # "Could not query the database for the schema cache. Retrying." 503).
+    _supa = get_supabase(settings)
+    for _attempt in range(6):
+        try:
+            clear_orphaned_runs(_supa)
+            break
+        except Exception as exc:
+            is_last = _attempt == 5
+            print(f"scheduler: startup orphan cleanup failed (attempt {_attempt + 1}/6) - {exc}")
+            if is_last:
+                break
+            await asyncio.sleep(2 * (_attempt + 1))
 
     scheduler = None
     if os.environ.get("JOBRADAR_DISABLE_SCHEDULER", "").lower() not in ("1", "true", "yes"):
@@ -191,14 +251,23 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="jobRadar", lifespan=lifespan)
 
 app.include_router(router)
+app.include_router(auth_router)
+app.include_router(access_router)
+app.include_router(admin_router)
+app.include_router(miniapp_router)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        *[
+            origin.strip()
+            for origin in os.environ.get("CORS_ORIGINS", "").split(",")
+            if origin.strip()
+        ],
     ],
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
