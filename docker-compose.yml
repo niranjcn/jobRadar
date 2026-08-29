@@ -1,4 +1,42 @@
 services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: jobradar-postgres
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Give postgres time to checkpoint cleanly on `docker compose down` —
+    # without this the WAL isn't flushed and the next start must replay 50+ s of recovery
+    # (see logs: "database system was interrupted" + "redo in progress 54s" + "invalid record length").
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  postgrest:
+    image: postgrest/postgrest:v12.2.0
+    container_name: jobradar-postgrest
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGRST_DB_URI: postgres://postgres:postgres@postgres:5432/postgres
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: postgres
+      PGRST_JWT_SECRET: local-super-secret-jwt-token-with-at-least-32-characters-long
+      PGRST_SERVER_PROXY_URI: http://postgrest:3000
+    ports:
+      - "3001:3000"
+    restart: unless-stopped
+
   poll:
     build: ./backend
     container_name: jobradar-poll
@@ -10,6 +48,11 @@ services:
     env_file:
       - path: ./backend/.env
         required: false
+    depends_on:
+      postgres:
+        condition: service_healthy
+      postgrest:
+        condition: service_started
     restart: "no"
 
   web:
@@ -24,6 +67,16 @@ services:
     env_file:
       - path: ./backend/.env
         required: false
+    environment:
+      # Windows + WSL2 9p bind mounts don't support inotify reliably — force
+      # polling so watchfiles doesn't crash with "Input/output error (os error 5)".
+      # See logs: WatchfilesRustInternalError about ["/app/app"].
+      WATCHFILES_FORCE_POLLING: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      postgrest:
+        condition: service_started
     restart: unless-stopped
 
   frontend:
@@ -36,6 +89,10 @@ services:
       - "3000:3000"
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8000
+      # Next.js (watchpack/chokidar) also fails on Windows 9p mounts with EIO scandir errors.
+      # Force polling to avoid "Watchpack Error (initial scan): EIO: i/o error".
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
     volumes:
       # Live code reload: edit frontend/ and next dev hot-reloads automatically.
       # node_modules/.next are anonymous volumes so the host mount doesn't
@@ -47,3 +104,6 @@ services:
     restart: unless-stopped
     depends_on:
       - web
+
+volumes:
+  pgdata:
