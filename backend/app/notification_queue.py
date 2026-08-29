@@ -21,7 +21,7 @@ from app.entitlements import (
 )
 from app.matcher import compute_match_score, job_matches_preferences
 from app.notify import _send_email
-from app.telegram.messages import build_html, build_text_summary
+from app.telegram.messages import build_html, build_text_sections, build_text_summary
 from app.telegram.notifications import MAX_MESSAGE_LENGTH, _chunk_sections, _send_message
 
 IN_BATCH = 200
@@ -347,18 +347,14 @@ def drain_due_notifications(
         items = _load_job_items(settings, job_ids, user_id)
         try:
             if channel == "telegram":
-                # User request: matching alert is numbers-only, no per-job links.
-                # Previously sent detailed per-job blocks (company + Apply link) which
-                # was spammy and duplicated the dashboard. Now just the summary after
-                # all 200 sources are checked (drain is called after the poll gathers
-                # all sources, so this runs after the batch).
                 sections = [build_text_summary(len(items), len(items))]
+                if items:
+                    sections += build_text_sections(items)[1:]
                 for chunk in _chunk_sections(sections, MAX_MESSAGE_LENGTH):
                     _send_message(settings.telegram_bot_token, destination, chunk)
                 sent["telegram"] += len(rows)
             else:
-                # Email: numbers-only header as well (no per-job links)
-                html = build_html([], new_jobs=len(items), new_matches=len(items))
+                html = build_html(items, new_jobs=len(items), new_matches=len(items))
                 subject = (
                     f"📡 jobRadar: {len(items)} new matching job(s) — {datetime.now(UTC):%b %d}"
                 )
