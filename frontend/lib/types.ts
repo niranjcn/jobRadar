@@ -181,3 +181,104 @@ export interface JobFilters {
   countries: string[];
   ats_types: string[];
 }
+
+// ---------- access / subscription ----------
+
+export interface SubscriptionInfo {
+  plan_code: string;
+  status: string;
+  provider: string;
+  current_period_end?: string | null;
+  plan_limits?: Record<string, unknown> | null;
+}
+
+export type Role = "user" | "privileged" | "admin";
+
+export interface Me {
+  id: string;
+  email: string | null;
+  display_name?: string;
+  role: Role;
+  status: string;
+  capabilities: string[];
+  alert_delay_minutes: number;
+  access_locked: boolean;
+  is_owner: boolean;
+  telegram_linked?: boolean;
+  telegram_username?: string | null;
+  telegram_photo_url?: string | null;
+  has_password?: boolean;
+  needs_onboarding?: boolean;
+  anonymous: boolean;
+  subscription?: SubscriptionInfo | null;
+}
+
+export interface Plan {
+  code: string;
+  name: string;
+  price_cents: number;
+  currency: string;
+  interval: string;
+}
+
+export type PresetField =
+  | "roles"
+  | "keywords"
+  | "locations"
+  | "seniority"
+  | "excluded_companies"
+  | "excluded_roles";
+
+export interface Preset {
+  id: string;
+  name: string;
+  description: string;
+  roles: string[];
+  keywords: string[];
+  locations: string[];
+  seniority: string[];
+  excluded_companies: string[];
+  excluded_roles: string[];
+  is_admin_only: boolean;
+}
+
+export interface AdminUser {
+  id: string;
+  email: string | null;
+  display_name: string;
+  role: Role;
+  status: "pending" | "approved" | "disabled";
+  access_locked: boolean;
+  alert_delay_minutes: number;
+  capabilities: string[];
+  is_owner: boolean;
+  created_at: string | null;
+  last_login_at: string | null;
+  sub_plan?: string | null;
+  sub_provider?: string | null;
+  sub_period_end?: string | null;
+}
+
+export interface Coupon {
+  id: string;
+  code: string;
+  grants_role: "user" | "privileged";
+  duration_days: number | null;
+  note: string | null;
+  created_at: string;
+  expires_at: string;
+  claimed_at: string | null;
+  claimed_by_email?: string | null;
+  created_by_email?: string | null;
+}
+
+export interface AdminStats {
+  users_total: number;
+  privileged: number;
+  locked: number;
+  disabled: number;
+  active_subs: number;
+  coupons_open: number;
+  mrr_cents: number;
+  alerts_7d: number;
+}

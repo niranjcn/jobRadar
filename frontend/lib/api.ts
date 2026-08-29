@@ -1,5 +1,8 @@
 import type {
+  AdminStats,
+  AdminUser,
   Company,
+  Coupon,
   GeoCountry,
   Job,
   JobFilters,
@@ -8,26 +11,40 @@ import type {
   LocationMappingSettings,
   LocationPreview,
   MatchesSummary,
+  Me,
   Notification,
+  Plan,
   PollRunsResult,
   Preferences,
+  Preset,
+  Role,
   ScheduleResult,
   SourceResult,
   Stats,
+  SubscriptionInfo,
   UnhealthySource,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, statusText: string, body: string) {
+    super(`${status} ${statusText}: ${body.slice(0, 200)}`);
+    this.status = status;
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     ...init,
     headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
+    credentials: "include",
     cache: "no-store",
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(`${res.status} ${res.statusText}: ${body.slice(0, 200)}`);
+    throw new ApiError(res.status, res.statusText, body);
   }
   return res.json() as Promise<T>;
 }
@@ -140,5 +157,109 @@ export const api = {
     request<LocationPreview>("/api/settings/location-mapping/preview", {
       method: "POST",
       body: JSON.stringify({ location }),
+    }),
+
+  // ---------- auth / access ----------
+
+  me: () => request<Me>("/api/auth/me"),
+  register: (payload: { email: string; display_name?: string; password: string }) =>
+    request<{ ok: boolean; access_locked: boolean; user_id: string; status: string } & Me>("/api/auth/register", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  loginPassword: (email: string, password: string) =>
+    request<Me>("/api/auth/login-password", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
+  updateProfile: (payload: { display_name?: string; email?: string }) =>
+    request<Me>("/api/auth/profile", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  logout: () => request<{ ok: boolean }>("/api/auth/logout", { method: "POST" }),
+  setPassword: (new_password: string, current_password = "") =>
+    request<{ ok: boolean; message: string }>("/api/auth/password", {
+      method: "POST",
+      body: JSON.stringify({ new_password, current_password }),
+    }),
+
+  plans: () => request<{ plans: Plan[] }>("/api/plans"),
+  redeemCoupon: (code: string) =>
+    request<{ ok: boolean; role: Role; duration_days: number | null }>("/api/coupons/redeem", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    }),
+  checkout: (plan_code = "standard") =>
+    request<{ provider: string; instructions: string }>("/api/billing/checkout", {
+      method: "POST",
+      body: JSON.stringify({ plan_code }),
+    }),
+  userPresets: () => request<{ presets: Preset[] }>("/api/presets"),
+
+  // ---------- admin ----------
+
+  adminStats: () => request<AdminStats>("/api/admin/stats"),
+  adminUsers: (params?: { query_text?: string; role?: string; status?: string; limit?: number }) => {
+    const search = new URLSearchParams();
+    if (params?.query_text) search.set("query_text", params.query_text);
+    if (params?.role) search.set("role", params.role);
+    if (params?.status) search.set("status", params.status);
+    if (params?.limit) search.set("limit", String(params.limit));
+    const qs = search.toString();
+    return request<{ users: AdminUser[]; total: number }>(`/api/admin/users${qs ? `?${qs}` : ""}`);
+  },
+  adminUserAction: (
+    id: string,
+    action: "approve" | "disable" | "enable" | "lock" | "unlock",
+  ) => request<AdminUser>(`/api/admin/users/${id}/${action}`, { method: "POST" }),
+  setUserRole: (id: string, role: Role) =>
+    request<AdminUser>(`/api/admin/users/${id}/role`, {
+      method: "PUT",
+      body: JSON.stringify({ role }),
+    }),
+  setUserDelay: (id: string, alert_delay_minutes: number) =>
+    request<AdminUser>(`/api/admin/users/${id}/delay`, {
+      method: "PUT",
+      body: JSON.stringify({ alert_delay_minutes }),
+    }),
+  setUserCapabilities: (id: string, add: string[], remove: string[]) =>
+    request<AdminUser>(`/api/admin/users/${id}/capabilities`, {
+      method: "POST",
+      body: JSON.stringify({ add, remove }),
+    }),
+  compSubscription: (id: string, plan_code = "standard", duration_days?: number | null) =>
+    request<{ ok: boolean; subscription: SubscriptionInfo }>(`/api/admin/users/${id}/subscription`, {
+      method: "PUT",
+      body: JSON.stringify({ plan_code, duration_days: duration_days ?? null }),
+    }),
+  applyPresetToUser: (id: string, preset_id: string) =>
+    request<{ ok: boolean; preset: string }>(`/api/admin/users/${id}/apply-preset`, {
+      method: "POST",
+      body: JSON.stringify({ preset_id }),
+    }),
+  adminCoupons: (state?: "open" | "claimed" | "expired") =>
+    request<{ coupons: Coupon[] }>(
+      `/api/admin/coupons${state ? `?state=${state}` : ""}`,
+    ),
+  mintCoupon: (payload: { grants_role: "user" | "privileged"; duration_days?: number | null; note?: string }) =>
+    request<Coupon>("/api/admin/coupons", { method: "POST", body: JSON.stringify(payload) }),
+  voidCoupon: (id: string) => request<{ ok: boolean }>(`/api/admin/coupons/${id}`, { method: "DELETE" }),
+  adminPresets: () => request<{ presets: Preset[] }>("/api/admin/presets"),
+  createPreset: (payload: Partial<Preset> & { name: string }) =>
+    request<{ id: string; name: string }>("/api/admin/presets", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updatePreset: (id: string, patch: Partial<Preset>) =>
+    request<Preset>(`/api/admin/presets/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+  deletePreset: (id: string) => request<{ ok: boolean }>(`/api/admin/presets/${id}`, { method: "DELETE" }),
+  snapshotPreset: (payload: { source_user_id: string; name: string; description?: string; is_admin_only?: boolean }) =>
+    request<{ id: string; name: string }>("/api/admin/presets/snapshot", {
+      method: "POST",
+      body: JSON.stringify(payload),
     }),
 };
