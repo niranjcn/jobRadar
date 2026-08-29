@@ -390,6 +390,57 @@ async def poll_all_sources(
         telegram_sent = drained["sent_telegram"]
         email_sent = drained["sent_email"]
 
+        # Failure report: after all checks, summarize which sites failed (if any).
+        # Separate from job-match alerts (which only fire when pending > 0).
+        try:
+            failed = [s for s in source_results if s.get("status") == "error"]
+            if (
+                failed
+                and settings.telegram_enabled
+                and settings.telegram_bot_token
+                and settings.telegram_chat_id
+            ):
+                # Reuse the same helper as the legacy poller (main branch).
+                # Import locally to avoid circular import at module load.
+                try:
+                    from app.telegram.notifications import send_poll_failure_report
+                except ImportError:
+                    send_poll_failure_report = None  # type: ignore
+                if send_poll_failure_report is not None:
+                    send_poll_failure_report(
+                        bot_token=settings.telegram_bot_token,
+                        chat_id=settings.telegram_chat_id,
+                        sources=source_results,
+                        run_id=run_id,
+                    )
+                    print(f"failure-report: sent for {len(failed)} failed source(s)")
+                else:
+                    # Fallback: minimal inline send if helper missing
+                    import json
+
+                    import httpx
+
+                    header = f"⚠️ Poll completed — {datetime.now(UTC):%Y-%m-%d %H:%M UTC}\n{len(source_results)} sources checked, {len(source_results) - len(failed)} ok, {len(failed)} failed (run {run_id[:8]}…)"
+                    lines = [header, "", "Failed sites:"]
+                    for entry in failed[:20]:
+                        lines.append(
+                            f"• {entry.get('company', 'unknown')} ({entry.get('ats_type', '')}): {(entry.get('error') or 'unknown')[:120]}"
+                        )
+                    if len(failed) > 20:
+                        lines.append(f"… and {len(failed) - 20} more")
+                    text = "\n".join(lines)
+                    with httpx.Client(timeout=30) as client:
+                        client.post(
+                            f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
+                            content=json.dumps(
+                                {"chat_id": settings.telegram_chat_id, "text": text}
+                            ),
+                            headers={"Content-Type": "application/json"},
+                        )
+                    print(f"failure-report: sent (fallback) for {len(failed)} failed source(s)")
+        except Exception as exc:
+            print(f"failure-report: FAILED - {exc}")
+
         finish_poll_run(
             supabase,
             run_id,
