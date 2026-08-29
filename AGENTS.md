@@ -937,6 +937,7 @@ AI agents must:
 8. Preserve existing interfaces unless there is a clear reason to change them.
 9. Update documentation when architecture changes.
 10. Never expose secrets in code, logs, or commits.
+11. Always explain in a way that is easier to understand but also ensures the reader still grasps the underlying technical concepts.
 
 ### One task at a time
 

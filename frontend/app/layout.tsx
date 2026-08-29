@@ -1,21 +1,31 @@
 import type { Metadata } from "next";
-import { Chakra_Petch, DM_Sans, JetBrains_Mono } from "next/font/google";
+import { Fraunces, IBM_Plex_Mono, Inter } from "next/font/google";
 import { TelegramBridge } from "@/components/telegram-bridge";
+import { AuthProvider } from "@/lib/auth-context";
 import "./globals.css";
 
-const chakra = Chakra_Petch({
+const fraunces = Fraunces({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-chakra",
+  weight: ["700", "800"],
+  variable: "--font-fraunces",
   display: "swap",
 });
 
-const dm = DM_Sans({
+const plexMono = IBM_Plex_Mono({
   subsets: ["latin"],
-  variable: "--font-dm",
+  weight: ["400", "500"],
+  variable: "--font-plex",
   display: "swap",
 });
 
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
+  display: "swap",
+});
+
+// Keep JetBrains for compatibility (mono fallback)
+import { JetBrains_Mono } from "next/font/google";
 const jetbrains = JetBrains_Mono({
   subsets: ["latin"],
   variable: "--font-jetbrains",
@@ -33,12 +43,14 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      data-theme="dark"
-      className={`${chakra.variable} ${dm.variable} ${jetbrains.variable}`}
+      data-theme="warm"
+      className={`${fraunces.variable} ${plexMono.variable} ${inter.variable} ${jetbrains.variable}`}
     >
       <body className="min-h-screen font-sans">
-        <TelegramBridge />
-        {children}
+        <AuthProvider>
+          <TelegramBridge />
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );

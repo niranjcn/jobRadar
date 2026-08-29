@@ -6,7 +6,7 @@ export function Avatar({ name, size = "md" }: { name: string; size?: "md" | "lg"
   const cls = size === "lg" ? "h-12 w-12 text-sm" : "h-9 w-9 text-xs";
   return (
     <div
-      className={`flex ${cls} shrink-0 items-center justify-center rounded-[10px] font-display font-bold shadow-neo-flat ${avatarColor(name)}`}
+      className={`flex ${cls} shrink-0 items-center justify-center rounded-[10px] border-2 border-border font-fraunces font-extrabold shadow-offset-sm ${avatarColor(name)}`}
     >
       {initials(name)}
     </div>
@@ -43,20 +43,21 @@ export function CountryBadges({ countries, isRemote }: { countries: string[]; is
   );
 }
 
-export function JobCard({ job }: { job: Job }) {
+export function JobCard({ job, index = 0 }: { job: Job; index?: number }) {
   return (
     <Link
       href={`/jobs/${job.id}`}
-      className="card group block p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-neo-hover"
+      className="card group block p-4 animate-rise hover:translate-y-[-2px] hover:shadow-offset-hover"
+      style={{ animationDelay: `${150 + index * 60}ms`, animationFillMode: "both" }}
     >
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-3">
           <Avatar name={job.company} />
           <div>
-            <h3 className="font-display text-[15px] font-semibold leading-snug text-text group-hover:text-primary">
+            <h3 className="font-fraunces text-[15px] font-bold leading-snug tracking-[-0.01em] text-text group-hover:text-primary">
               {job.title}
             </h3>
-            <p className="text-sm text-text-secondary">{job.company}</p>
+            <p className="text-sm font-medium text-text-secondary">{job.company}</p>
           </div>
         </div>
         <MatchBadge score={job.match_score} />

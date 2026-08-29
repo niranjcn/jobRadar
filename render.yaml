@@ -38,3 +38,11 @@ services:
         sync: false
       - key: TELEGRAM_CHAT_ID
         sync: false
+      - key: TELEGRAM_BOT_USERNAME
+        sync: false
+      - key: TELEGRAM_MINI_APP_URL
+        sync: false
+      - key: SECRET_KEY
+        sync: false
+      - key: JOBRADAR_REQUIRE_AUTH
+        value: "true"

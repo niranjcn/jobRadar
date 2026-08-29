@@ -3,96 +3,85 @@
 @tailwind utilities;
 
 /* ------------------------------------------------------------------ */
-/*  Neo-Glass Console — DESIGN.md                                       */
-/*  Dark tinted glass is primary; [data-theme="light"] is the opt-in.  */
+/*  Warm Editorial — heritage ink on warm parchment                    */
+/*  Light parchment is primary; dark remains as legacy option         */
 /* ------------------------------------------------------------------ */
 
 :root,
+:root[data-theme="warm"] {
+  color-scheme: light;
+  /* warm parchment field */
+  --color-bg: 255 251 240;
+  --color-surface: 255 255 255;
+  --color-elevated: 255 255 255;
+  --color-border: 10 10 10;
+
+  /* identity — ink + vermillion */
+  --color-primary: 255 59 48;
+  --color-accent: 10 10 10;
+  --color-text: 10 10 10;
+  --color-text-secondary: 107 107 107;
+  --color-text-muted: 138 138 138;
+
+  /* semantic */
+  --color-success: 22 101 52;
+  --color-warning: 180 83 9;
+  --color-danger: 220 38 38;
+
+  /* material — ink offset shadow */
+  --shadow-offset: 6px 6px 0 rgb(10 10 10);
+  --shadow-offset-hover: 8px 8px 0 rgb(10 10 10);
+  --shadow-offset-sm: 4px 4px 0 rgb(10 10 10);
+  --shadow-soft: 0 8px 24px rgba(10, 10, 10, 0.06);
+
+  /* paper texture */
+  --paper-dot: rgba(10, 10, 10, 0.04);
+  --grid-line: rgba(10, 10, 10, 0.06);
+}
+
+/* legacy dark — kept for users who prefer it */
 :root[data-theme="dark"] {
-  /* native form controls (select popups, scrollbars) follow the dark theme */
   color-scheme: dark;
-  /* base radar field */
   --color-bg: 11 21 38;
   --color-surface: 23 35 61;
   --color-elevated: 31 46 78;
   --color-border: 54 74 112;
-
-  /* identity accents */
   --color-primary: 34 211 238;
   --color-accent: 96 165 250;
   --color-text: 234 243 255;
   --color-text-secondary: 159 179 209;
   --color-text-muted: 92 114 153;
-
-  /* semantic */
   --color-success: 52 211 153;
   --color-warning: 251 191 36;
   --color-danger: 248 113 113;
-
-  /* glass material */
-  --glass: rgba(148, 190, 255, 0.06);
-  --glass-strong: rgba(148, 190, 255, 0.1);
-  --glass-border: rgba(148, 190, 255, 0.14);
-  --specular-top: rgba(255, 255, 255, 0.12);
-
-  /* neomorphic dual-source shadows */
-  --shadow-neo-raised: 7px 7px 18px rgba(2, 6, 18, 0.6), -7px -7px 18px rgba(120, 160, 255, 0.07),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  --shadow-neo-flat: 4px 4px 10px rgba(2, 6, 18, 0.45), -4px -4px 10px rgba(120, 160, 255, 0.05),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  --shadow-neo-pressed: inset 5px 5px 12px rgba(2, 6, 18, 0.55),
-    inset -5px -5px 12px rgba(120, 160, 255, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.02);
-  --shadow-neo-hover: 10px 10px 24px rgba(2, 6, 18, 0.65), -10px -10px 24px rgba(120, 160, 255, 0.09),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
-  --shadow-neo-glow: 0 0 22px rgba(34, 211, 238, 0.35);
-
-  /* radar field backdrop */
+  --shadow-offset: 6px 6px 0 rgba(2, 6, 18, 0.9);
+  --shadow-offset-hover: 8px 8px 0 rgba(2, 6, 18, 0.9);
+  --shadow-offset-sm: 4px 4px 0 rgba(2, 6, 18, 0.9);
+  --shadow-soft: 0 8px 24px rgba(2, 6, 18, 0.25);
+  --paper-dot: rgba(148, 190, 255, 0.04);
   --grid-line: rgba(148, 190, 255, 0.05);
-  --aurora-1: rgba(34, 211, 238, 0.14);
-  --aurora-2: rgba(96, 165, 250, 0.1);
-
-  /* material transparency (light theme overrides) */
-  --surface-alpha: 0.45;
 }
 
 :root[data-theme="light"] {
-  /* native form controls follow the light theme */
   color-scheme: light;
-  --color-bg: 219 231 246;
+  --color-bg: 255 251 240;
   --color-surface: 255 255 255;
-  --color-elevated: 235 244 250;
-  --color-border: 255 255 255;
-
-  --color-primary: 8 145 178;
-  --color-accent: 37 99 235;
-  --color-text: 18 35 63;
-  --color-text-secondary: 68 96 140;
-  --color-text-muted: 109 132 171;
-
-  --color-success: 5 150 105;
-  --color-warning: 217 119 6;
+  --color-elevated: 255 255 255;
+  --color-border: 10 10 10;
+  --color-primary: 255 59 48;
+  --color-accent: 10 10 10;
+  --color-text: 10 10 10;
+  --color-text-secondary: 107 107 107;
+  --color-text-muted: 138 138 138;
+  --color-success: 22 101 52;
+  --color-warning: 180 83 9;
   --color-danger: 220 38 38;
-
-  --glass: rgba(255, 255, 255, 0.55);
-  --glass-strong: rgba(255, 255, 255, 0.7);
-  --glass-border: rgba(255, 255, 255, 0.7);
-  --specular-top: rgba(255, 255, 255, 0.95);
-
-  --shadow-neo-raised: 7px 7px 18px rgba(100, 130, 180, 0.28), -7px -7px 18px rgba(255, 255, 255, 0.9),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  --shadow-neo-flat: 4px 4px 10px rgba(100, 130, 180, 0.22), -4px -4px 10px rgba(255, 255, 255, 0.85),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  --shadow-neo-pressed: inset 5px 5px 12px rgba(100, 130, 180, 0.3),
-    inset -5px -5px 12px rgba(255, 255, 255, 0.9);
-  --shadow-neo-hover: 10px 10px 24px rgba(100, 130, 180, 0.3), -10px -10px 24px rgba(255, 255, 255, 0.95),
-    inset 0 1px 0 rgba(255, 255, 255, 1);
-  --shadow-neo-glow: 0 0 22px rgba(8, 145, 178, 0.25);
-
-  --grid-line: rgba(64, 100, 160, 0.06);
-  --aurora-1: rgba(34, 211, 238, 0.22);
-  --aurora-2: rgba(96, 165, 250, 0.18);
-
-  --surface-alpha: 0.7;
+  --shadow-offset: 6px 6px 0 rgb(10 10 10);
+  --shadow-offset-hover: 8px 8px 0 rgb(10 10 10);
+  --shadow-offset-sm: 4px 4px 0 rgb(10 10 10);
+  --shadow-soft: 0 8px 24px rgba(10, 10, 10, 0.06);
+  --paper-dot: rgba(10, 10, 10, 0.04);
+  --grid-line: rgba(10, 10, 10, 0.06);
 }
 
 html,
@@ -104,103 +93,87 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   background-color: rgb(var(--color-bg));
-  /* radar field: aurora glow + faint grid */
-  background-image: radial-gradient(1200px 600px at 85% -10%, var(--aurora-1), transparent 60%),
-    radial-gradient(1000px 700px at -10% 30%, var(--aurora-2), transparent 60%);
+  background-image: radial-gradient(var(--paper-dot) 1px, transparent 1px);
+  background-size: 14px 14px;
   background-attachment: fixed;
-  transition: background 0.4s ease, color 0.3s ease;
+  transition: background 0.3s ease, color 0.3s ease;
 }
 
-/* faint radar grid overlay */
+/* subtle paper grain overlay */
 body::before {
   content: "";
   position: fixed;
   inset: 0;
   pointer-events: none;
-  background-image: linear-gradient(var(--grid-line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
-  background-size: 48px 48px;
-  -webkit-mask-image: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.5), transparent 80%);
-  mask-image: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.5), transparent 80%);
+  opacity: 0.35;
+  background-image: radial-gradient(var(--paper-dot) 1px, transparent 1px);
+  background-size: 14px 14px;
   z-index: 0;
 }
 
-/* headings inherit the instrument voice */
+/* headings — editorial serif */
 h1,
 h2,
 h3,
 h4 {
-  font-family: var(--font-chakra);
-  letter-spacing: 0.02em;
+  font-family: var(--font-fraunces), var(--font-inter), serif;
+  letter-spacing: -0.02em;
 }
 
 @layer components {
-  /* ---- glass panel ---- */
+  /* ---- ink panel — 2px border + offset shadow ---- */
   .card {
     position: relative;
-    border-radius: 20px;
-    border: 1px solid var(--glass-border);
-    background: linear-gradient(
-      145deg,
-      rgba(148, 190, 255, 0.1),
-      rgba(148, 190, 255, 0.04)
-    );
-    box-shadow: var(--shadow-neo-raised);
+    border-radius: 12px;
+    border: 2px solid rgb(var(--color-border));
+    background: rgb(var(--color-surface));
+    box-shadow: var(--shadow-offset);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
   }
-  /* Frosting lives on the ::before so .card itself does NOT create a stacking
-     context. Otherwise any absolute dropdown/tooltip inside a card gets trapped
-     and painted below the sibling cards that come later in DOM order. */
-  .card::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    pointer-events: none;
-    background: linear-gradient(135deg, var(--specular-top), transparent 40%);
-    backdrop-filter: blur(16px) saturate(160%);
-    -webkit-backdrop-filter: blur(16px) saturate(160%);
-    opacity: 0.55;
+  .card:hover {
+    transform: translate(-1px, -1px);
+    box-shadow: var(--shadow-offset-hover);
   }
-  .card > * {
-    position: relative;
-    /* NOTE: no z-index here. `position: relative; z-index: 1` would make every
-       direct child of a card its own stacking context, trapping absolute
-       dropdowns inside it and painting them below sibling cards later in the
-       DOM. Content still sits above the ::before specular overlay via DOM
-       order (pseudo-element paints first). */
+  .card:active {
+    transform: translate(1px, 1px);
+    box-shadow: var(--shadow-offset-sm);
   }
 
-  /* ---- pressed glass inputs ---- */
+  /* flat card without offset (for nested use) */
+  .card-flat {
+    border: 2px solid rgb(var(--color-border));
+    background: rgb(var(--color-surface));
+    border-radius: 12px;
+    box-shadow: var(--shadow-offset-sm);
+  }
+
+  /* ---- ink inputs — pressed offset ---- */
   .search-input {
-    border-radius: 14px;
-    border: 1px solid var(--glass-border);
-    background: var(--glass);
-    box-shadow: var(--shadow-neo-pressed);
+    border-radius: 10px;
+    border: 2px solid rgb(var(--color-border));
+    background: rgb(var(--color-surface));
+    box-shadow: var(--shadow-offset-sm);
     padding: 0.625rem 0.875rem;
     font-size: 0.875rem;
+    font-family: var(--font-plex), ui-monospace, monospace;
     color: rgb(var(--color-text));
     outline: none;
-    transition: box-shadow 0.2s ease, border-color 0.2s ease;
+    transition: box-shadow 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
   }
   .search-input::placeholder {
     color: rgb(var(--color-text-muted));
   }
   .search-input:focus {
     border-color: rgb(var(--color-primary));
-    box-shadow: var(--shadow-neo-pressed), 0 0 0 1px rgb(var(--color-primary));
+    box-shadow: var(--shadow-offset-sm), 0 0 0 2px rgba(255, 59, 48, 0.12);
   }
 
-  /* native select popups: pin option colors to the active theme so the open
-     list is always readable, independent of how the browser renders the popup
-     chrome (color-scheme above handles the frame; these pin the rows). */
   select.search-input option {
     background-color: rgb(var(--color-surface));
     color: rgb(var(--color-text));
   }
 
-  /* ---- neomorphic buttons ----
-     .btn-primary / .btn-ghost are used WITHOUT the .btn base class across
-     the app, so base styles must apply to all three selectors. */
+  /* ---- buttons — ink offset ---- */
   .btn,
   .btn-primary,
   .btn-ghost {
@@ -208,21 +181,23 @@ h4 {
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
-    border-radius: 14px;
+    border-radius: 10px;
     padding: 0.625rem 1rem;
     font-size: 0.875rem;
     font-weight: 600;
     line-height: 1.2;
-    border: 1px solid transparent;
+    border: 2px solid rgb(var(--color-border));
     cursor: pointer;
-    transition: box-shadow 0.2s ease, transform 0.2s ease, filter 0.2s ease, color 0.2s ease;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease, color 0.15s ease;
     user-select: none;
+    font-family: var(--font-plex), ui-monospace, monospace;
+    letter-spacing: 0.02em;
   }
   .btn:active:not(:disabled),
   .btn-primary:active:not(:disabled),
   .btn-ghost:active:not(:disabled) {
-    transform: translateY(1px);
-    box-shadow: var(--shadow-neo-pressed);
+    transform: translate(1px, 1px);
+    box-shadow: var(--shadow-offset-sm);
   }
   .btn:disabled,
   .btn[disabled],
@@ -231,80 +206,81 @@ h4 {
     opacity: 0.45;
     cursor: not-allowed;
     transform: none;
-    box-shadow: var(--shadow-neo-flat);
-    filter: none;
-  }
-  .btn:disabled:hover,
-  .btn[disabled]:hover,
-  .btn-primary:disabled:hover,
-  .btn-ghost:disabled:hover {
-    box-shadow: var(--shadow-neo-flat);
-    filter: none;
+    box-shadow: var(--shadow-offset-sm);
   }
 
   .btn-primary {
-    background: rgb(var(--color-primary));
-    color: #062733;
-    box-shadow: var(--shadow-neo-raised), var(--shadow-neo-glow);
+    background: rgb(var(--color-text));
+    color: rgb(var(--color-surface));
+    box-shadow: var(--shadow-offset);
   }
   .btn-primary:hover {
-    box-shadow: var(--shadow-neo-hover), var(--shadow-neo-glow);
-    filter: brightness(1.06);
-  }
-  .btn-primary:disabled:hover {
-    box-shadow: var(--shadow-neo-flat);
-    filter: none;
+    background: rgb(var(--color-primary));
+    border-color: rgb(var(--color-primary));
+    color: white;
+    box-shadow: var(--shadow-offset-hover);
+    transform: translate(-1px, -1px);
   }
 
   .btn-ghost {
-    background: var(--glass);
-    border-color: var(--glass-border);
-    color: rgb(var(--color-text-secondary));
-    box-shadow: var(--shadow-neo-flat);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    background: rgb(var(--color-surface));
+    color: rgb(var(--color-text));
+    box-shadow: var(--shadow-offset-sm);
   }
   .btn-ghost:hover {
-    box-shadow: var(--shadow-neo-hover);
-    color: rgb(var(--color-text));
-  }
-  .btn-ghost:disabled:hover {
-    box-shadow: var(--shadow-neo-flat);
-    filter: none;
+    background: rgb(var(--color-bg));
+    transform: translate(-1px, -1px);
+    box-shadow: var(--shadow-offset);
   }
 }
 
-/* text-level glow for primary stat readouts (text-shadow, not box) */
-.text-glow {
-  text-shadow: 0 0 22px rgba(34, 211, 238, 0.35);
-}
-
-/* subtle radar sweep animation for loading/empty states */
-@keyframes radar-sweep {
+/* stagger entrance */
+@keyframes rise {
   from {
-    transform: rotate(0deg);
+    opacity: 0;
+    transform: translateY(8px);
   }
   to {
-    transform: rotate(360deg);
-  }
-}
-
-.radar-sweep {
-  animation: radar-sweep 3.5s linear infinite;
-}
-
-@keyframes pulse-dot {
-  0%,
-  100% {
     opacity: 1;
-  }
-  50% {
-    opacity: 0.3;
+    transform: translateY(0);
   }
 }
 
+.animate-rise {
+  animation: rise 0.5s ease forwards;
+}
+.animate-rise-1 { animation: rise 0.5s ease 0.05s both; }
+.animate-rise-2 { animation: rise 0.5s ease 0.1s both; }
+.animate-rise-3 { animation: rise 0.5s ease 0.15s both; }
+.animate-rise-4 { animation: rise 0.5s ease 0.2s both; }
+.animate-rise-5 { animation: rise 0.5s ease 0.25s both; }
+.animate-rise-6 { animation: rise 0.5s ease 0.3s both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise, .animate-rise-1, .animate-rise-2, .animate-rise-3, .animate-rise-4 {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* subtle offset pulse for live dot */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.9); }
+}
 .pulse-dot {
   animation: pulse-dot 1.6s ease-in-out infinite;
+}
+
+/* paper sweep — 1px line draw */
+@keyframes draw-line {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+.draw-line {
+  transform-origin: left;
+  animation: draw-line 0.7s ease 0.3s both;
 }
 
 ::-webkit-scrollbar {
@@ -317,4 +293,5 @@ h4 {
 ::-webkit-scrollbar-thumb {
   background: rgb(var(--color-border));
   border-radius: 4px;
+  opacity: 0.2;
 }
