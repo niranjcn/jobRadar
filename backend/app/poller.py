@@ -330,6 +330,51 @@ async def poll_all_sources(
         total_fetched = 0
         total_new = 0
 
+        # Hybrid immediate per-company (Option C, user request: "after you check
+        # a company immediately sent me the match (else its taking alot of time)").
+        # Buffer per-source matches and flush every 5 companies or 30s, so admin
+        # gets low-latency alerts without 200 separate messages. Final
+        # numbers-only drain + failure report still happen after all 200.
+        immediate_buffer: list[dict[str, Any]] = []
+        immediate_lock = asyncio.Lock()
+        last_immediate_flush = datetime.now(UTC)
+
+        async def flush_immediate(force: bool = False) -> None:
+            nonlocal immediate_buffer, last_immediate_flush
+            async with immediate_lock:
+                if not immediate_buffer:
+                    return
+                now = datetime.now(UTC)
+                if (
+                    not force
+                    and len(immediate_buffer) < 5
+                    and (now - last_immediate_flush).total_seconds() < 30
+                ):
+                    return
+                # Copy and clear under lock, then send outside lock
+                to_send = list(immediate_buffer)
+                immediate_buffer = []
+                last_immediate_flush = now
+            # Send outside lock to avoid blocking _poll
+            try:
+                from app.telegram.notifications import (
+                    MAX_MESSAGE_LENGTH,
+                    _chunk_sections,
+                    _send_message,
+                )
+
+                lines = [f"🔔 New matches — {now:%H:%M UTC} ({len(to_send)} companies)"]
+                for entry in to_send:
+                    lines.append(
+                        f"• {entry['company']} ({entry['ats_type']}): {entry['matched']} new"
+                    )
+                text = "\n".join(lines)
+                for chunk in _chunk_sections([text], MAX_MESSAGE_LENGTH):
+                    _send_message(settings.telegram_bot_token, settings.telegram_chat_id, chunk)
+                print(f"immediate: sent {len(to_send)} companies with new matches")
+            except Exception as exc:
+                print(f"immediate: FAILED - {exc}")
+
         async def _poll(source: dict[str, Any]) -> None:
             nonlocal total_fetched, total_new
             async with semaphore:
@@ -366,6 +411,25 @@ async def poll_all_sources(
                         tally["considered"] += outcome["considered"]
                         tally["matched"] += outcome["matched"]
                         tally["enqueued"] += outcome["enqueued"]
+                        # Hybrid immediate per-company (Option C): if this company
+                        # produced new matches, buffer it for near-real-time admin
+                        # alert. Flush is debounced (5 companies or 30s).
+                        if (
+                            outcome["matched"] > 0
+                            and settings.telegram_enabled
+                            and settings.telegram_bot_token
+                            and settings.telegram_chat_id
+                        ):
+                            async with immediate_lock:
+                                immediate_buffer.append(
+                                    {
+                                        "company": source["company_name"],
+                                        "ats_type": source["ats_type"],
+                                        "matched": outcome["matched"],
+                                    }
+                                )
+                            # Try debounced flush (may send if threshold reached)
+                            await flush_immediate()
                 except Exception as exc:
                     entry["status"] = "error"
                     entry["error"] = str(exc)[:300]
@@ -377,6 +441,11 @@ async def poll_all_sources(
                 source_results.append(entry)
 
         await asyncio.gather(*(_poll(source) for source in sources))
+
+        # Ensure any remaining immediate per-company alerts are flushed before
+        # the final batch drain and failure report (user: matching first, then
+        # issue report after all 200).
+        await flush_immediate(force=True)
 
         print(
             f"matching: considered={tally['considered']}, "
