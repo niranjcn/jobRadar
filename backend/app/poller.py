@@ -484,20 +484,12 @@ async def poll_all_sources(
                     )
                     print(f"failure-report: sent for {len(failed)} failed source(s)")
                 else:
-                    # Fallback: minimal inline send if helper missing
+                    # Fallback: numbers-only (no per-site list) as requested
                     import json
 
                     import httpx
 
-                    header = f"⚠️ Poll completed — {datetime.now(UTC):%Y-%m-%d %H:%M UTC}\n{len(source_results)} sources checked, {len(source_results) - len(failed)} ok, {len(failed)} failed (run {run_id[:8]}…)"
-                    lines = [header, "", "Failed sites:"]
-                    for entry in failed[:20]:
-                        lines.append(
-                            f"• {entry.get('company', 'unknown')} ({entry.get('ats_type', '')}): {(entry.get('error') or 'unknown')[:120]}"
-                        )
-                    if len(failed) > 20:
-                        lines.append(f"… and {len(failed) - 20} more")
-                    text = "\n".join(lines)
+                    text = f"⚠️ Poll completed — {datetime.now(UTC):%Y-%m-%d %H:%M UTC}\n{len(source_results)} checked, {len(source_results) - len(failed)} ok, {len(failed)} failed (run {run_id[:8]}…)"
                     with httpx.Client(timeout=30) as client:
                         client.post(
                             f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",

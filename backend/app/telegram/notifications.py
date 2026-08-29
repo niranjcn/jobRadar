@@ -177,23 +177,18 @@ def send_poll_failure_report(
     sources: list[dict[str, Any]],
     run_id: str | None = None,
 ) -> None:
-    """Send a Telegram summary of sources that failed this poll run."""
+    """Send a Telegram summary of sources that failed this poll run.
+
+    Numbers-only as requested: no per-site links or error details, just
+    counts after all 200 are checked (matching is sent first, numbers-only).
+    """
     failed = [s for s in sources if s.get("status") == "error"]
     if not failed:
         return
     ok_count = len([s for s in sources if s.get("status") == "ok"])
     total = len(sources)
-    header = f"⚠️ Poll completed — {datetime.now(UTC):%Y-%m-%d %H:%M UTC}\n{total} sources checked, {ok_count} ok, {len(failed)} failed"
+    text = f"⚠️ Poll completed — {datetime.now(UTC):%Y-%m-%d %H:%M UTC}\n{total} checked, {ok_count} ok, {len(failed)} failed"
     if run_id:
-        header += f" (run {run_id[:8]}…)"
-    lines = [header, "", "Failed sites:"]
-    for entry in failed[:20]:
-        company = entry.get("company") or entry.get("id") or "unknown"
-        ats = entry.get("ats_type") or ""
-        err = (entry.get("error") or "unknown error")[:120]
-        lines.append(f"• {company} ({ats}): {err}")
-    if len(failed) > 20:
-        lines.append(f"… and {len(failed) - 20} more")
-    text = "\n".join(lines)
+        text += f" (run {run_id[:8]}…)"
     for chunk in _chunk_sections([text], MAX_MESSAGE_LENGTH):
         _send_message(bot_token, chat_id, chunk)
