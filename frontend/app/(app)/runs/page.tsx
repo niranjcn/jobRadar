@@ -136,7 +136,13 @@ export default function RunsPage() {
   useEffect(() => {
     load();
     loadUnhealthy();
+    // Polling strategy:
+    // - pollRuns: only when the latest run is "running" (active ingestion), every 4s — already conditional above.
+    // - unhealthySources: cheap but still hits DB; 15s is plenty, and pause when tab is hidden to cut the
+    //   thundering herd seen in web logs (multiple tabs * 4s = 10+ req/s of /api/poll/runs + /api/sources/unhealthy + CORS OPTIONS).
+    let unhealthyTick = 0;
     timer.current = setInterval(() => {
+      if (document.hidden) return;
       setRuns((prev) => {
         const latest = prev && prev[0];
         if (latest && latest.status === "running") {
@@ -144,7 +150,11 @@ export default function RunsPage() {
         }
         return prev;
       });
-      api.unhealthySources().then((res) => setUnhealthy(res.unhealthy));
+      unhealthyTick += 1;
+      // 4s * ~4 = 16s for unhealthy
+      if (unhealthyTick % 4 === 0) {
+        api.unhealthySources().then((res) => setUnhealthy(res.unhealthy));
+      }
     }, 4000);
     return () => {
       if (timer.current) clearInterval(timer.current);
