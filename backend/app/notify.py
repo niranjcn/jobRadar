@@ -122,7 +122,7 @@ def _mark_sent(supabase: Client, user_id: str, job_ids: list[str]) -> None:
             {"user_id": user_id, "job_id": job_id, "channel": "email", "sent_at": sent_at}
             for job_id in job_ids
         ],
-        on_conflict="job_id,channel",
+        on_conflict="user_id,job_id,channel",
     ).execute()
 
 

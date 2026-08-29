@@ -8,10 +8,10 @@ export default function Home() {
         <div className="mb-6 flex justify-center">
           <RadarLoading label="" />
         </div>
-        <div className="mb-4 font-mono text-xs uppercase tracking-[0.28em] text-primary">
-          Career intelligence · mission control
+        <div className="mb-3 font-mono text-xs uppercase tracking-[0.28em] text-primary">
+          Edition 28 · Warm · Career intelligence
         </div>
-        <h1 className="font-display text-5xl font-bold tracking-[0.04em]">JOBRADAR</h1>
+        <h1 className="font-fraunces text-5xl font-extrabold tracking-[-0.02em]">JOBRADAR</h1>
         <p className="mx-auto mt-4 max-w-md text-[15px] leading-relaxed text-text-secondary">
           Find jobs before others.<br />
           JobRadar continuously monitors career pages and alerts you when the

@@ -38,6 +38,14 @@ class Settings:
         telegram_chat_id: str,
         telegram_mini_app_url: str,
         ats_intervals: dict[str, int],
+        secret_key: str = "",
+        require_auth: bool = False,
+        session_ttl_hours: int = 168,
+        session_cookie_secure: bool = False,
+        billing_provider: str = "manual",
+        notify_drain_seconds: int = 30,
+        telegram_bot_username: str = "",
+        admin_chat_id: str = "",
     ) -> None:
         self.supabase_url = supabase_url
         self.supabase_key = supabase_key
@@ -54,6 +62,14 @@ class Settings:
         self.telegram_chat_id = telegram_chat_id
         self.telegram_mini_app_url = telegram_mini_app_url
         self.ats_intervals = ats_intervals
+        self.secret_key = secret_key
+        self.require_auth = require_auth
+        self.session_ttl_hours = session_ttl_hours
+        self.session_cookie_secure = session_cookie_secure
+        self.billing_provider = billing_provider
+        self.notify_drain_seconds = notify_drain_seconds
+        self.telegram_bot_username = telegram_bot_username
+        self.admin_chat_id = admin_chat_id or telegram_chat_id
 
 
 def _parse_list(value: str) -> list[str]:
@@ -97,4 +113,13 @@ def load_settings() -> Settings:
         telegram_chat_id=os.environ.get("TELEGRAM_CHAT_ID", ""),
         telegram_mini_app_url=os.environ.get("TELEGRAM_MINI_APP_URL", ""),
         ats_intervals=_load_ats_intervals(),
+        secret_key=os.environ.get("SECRET_KEY", ""),
+        require_auth=os.environ.get("JOBRADAR_REQUIRE_AUTH", "").lower() in ("1", "true", "yes"),
+        session_ttl_hours=int(os.environ.get("SESSION_TTL_HOURS", "168")),
+        session_cookie_secure=os.environ.get("SESSION_COOKIE_SECURE", "").lower()
+        in ("1", "true", "yes"),
+        billing_provider=os.environ.get("BILLING_PROVIDER", "manual"),
+        notify_drain_seconds=int(os.environ.get("NOTIFY_DRAIN_SECONDS", "30")),
+        telegram_bot_username=os.environ.get("TELEGRAM_BOT_USERNAME", "").lstrip("@"),
+        admin_chat_id=os.environ.get("ADMIN_CHAT_ID", "").strip(),
     )

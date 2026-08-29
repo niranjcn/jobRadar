@@ -143,16 +143,16 @@ def compute_match_score(
     return round((hits / categories) * 100)
 
 
-def sync_preferences(supabase: Client, preferences: dict[str, Any]) -> None:
+def sync_preferences(
+    supabase: Client, preferences: dict[str, Any], user_id: str = DEFAULT_USER_ID
+) -> None:
     """Seed env preferences into the DB, but only if no row exists yet.
 
     Once a preferences row is saved (via the API/UI), it becomes the single
     source of truth — later polls must NOT overwrite user edits with env
     defaults.
     """
-    existing = (
-        supabase.table("preferences").select("user_id").eq("user_id", DEFAULT_USER_ID).execute()
-    )
+    existing = supabase.table("preferences").select("user_id").eq("user_id", user_id).execute()
     if existing.data:
         return
     fields = {
@@ -168,7 +168,7 @@ def sync_preferences(supabase: Client, preferences: dict[str, Any]) -> None:
     supabase.table("preferences").upsert(
         [
             {
-                "user_id": DEFAULT_USER_ID,
+                "user_id": user_id,
                 **fields,
                 "updated_at": datetime.now(UTC).isoformat(),
             }
@@ -177,8 +177,8 @@ def sync_preferences(supabase: Client, preferences: dict[str, Any]) -> None:
     ).execute()
 
 
-def load_preferences(supabase: Client) -> dict[str, Any]:
-    response = supabase.table("preferences").select("*").eq("user_id", DEFAULT_USER_ID).execute()
+def load_preferences(supabase: Client, user_id: str = DEFAULT_USER_ID) -> dict[str, Any]:
+    response = supabase.table("preferences").select("*").eq("user_id", user_id).execute()
     if not response.data:
         return {}
     row = response.data[0]
@@ -198,8 +198,8 @@ def load_preferences(supabase: Client) -> dict[str, Any]:
     }
 
 
-def load_notification_settings(supabase: Client) -> dict[str, Any]:
-    prefs = load_preferences(supabase)
+def load_notification_settings(supabase: Client, user_id: str = DEFAULT_USER_ID) -> dict[str, Any]:
+    prefs = load_preferences(supabase, user_id)
     return {
         "notify_telegram": prefs.get("notify_telegram", True),
         "notify_email": prefs.get("notify_email", True),
@@ -210,8 +210,12 @@ def load_notification_settings(supabase: Client) -> dict[str, Any]:
     }
 
 
-def match_all(supabase: Client, candidates: list[tuple[str, str]] | None = None) -> dict[str, Any]:
-    preferences = load_preferences(supabase)
+def match_all(
+    supabase: Client,
+    candidates: list[tuple[str, str]] | None = None,
+    user_id: str = DEFAULT_USER_ID,
+) -> dict[str, Any]:
+    preferences = load_preferences(supabase, user_id)
     if not preferences:
         return {"result": "no preferences row yet", "matched": 0}
 
@@ -250,7 +254,7 @@ def match_all(supabase: Client, candidates: list[tuple[str, str]] | None = None)
             matched += 1
             rows.append(
                 {
-                    "user_id": DEFAULT_USER_ID,
+                    "user_id": user_id,
                     "job_id": job["id"],
                     "matched_on": reasons,
                     "match_score": compute_match_score(job, preferences, geo_settings),
@@ -263,7 +267,11 @@ def match_all(supabase: Client, candidates: list[tuple[str, str]] | None = None)
     return {"result": "ok", "considered": len(jobs), "matched": matched}
 
 
-def recompute_matches(supabase: Client, settings: Any | None = None) -> dict[str, Any]:
+def recompute_matches(
+    supabase: Client,
+    settings: Any | None = None,
+    user_id: str = DEFAULT_USER_ID,
+) -> dict[str, Any]:
     """Rebuild job_matches from scratch for the CURRENT preferences.
 
     The match itself runs inside Postgres (recompute_job_matches) because a
@@ -279,7 +287,7 @@ def recompute_matches(supabase: Client, settings: Any | None = None) -> dict[str
     from app.config import load_settings
 
     settings = settings or load_settings()
-    preferences = load_preferences(supabase)
+    preferences = load_preferences(supabase, user_id)
     if not preferences:
         return {"result": "no preferences row yet", "matched": 0}
 
@@ -300,7 +308,7 @@ def recompute_matches(supabase: Client, settings: Any | None = None) -> dict[str
         cur.execute(
             "select recompute_job_matches(%s, %s, %s, %s::jsonb, %s, %s, %s)",
             (
-                DEFAULT_USER_ID,
+                user_id,
                 preferences.get("roles") or [],
                 preferences.get("keywords") or [],
                 json.dumps(pref_locations),

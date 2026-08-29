@@ -3,14 +3,20 @@
 import Link from "next/link";
 import { RadarLoading } from "@/components/radar-loading";
 import { useCallback, useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 import { formatInterval } from "@/lib/format";
+import { useAuth } from "@/lib/auth-context";
 import type { LocationMappingResult, SourceResult } from "@/lib/types";
 
 export default function SettingsPage() {
+  const { me, refresh } = useAuth();
   const [sources, setSources] = useState<SourceResult | null>(null);
   const [geo, setGeo] = useState<LocationMappingResult | null>(null);
   const [loading, setLoading] = useState(true);
+  const [profileName, setProfileName] = useState("");
+  const [profileEmail, setProfileEmail] = useState("");
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [profileMsg, setProfileMsg] = useState<string | null>(null);
 
   const [remoteTo, setRemoteTo] = useState<string[]>([]);
   const [aliases, setAliases] = useState<[string, string][]>([]);
@@ -35,6 +41,28 @@ export default function SettingsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (me) {
+      setProfileName(me.display_name || "");
+      setProfileEmail(me.email || "");
+    }
+  }, [me]);
+
+  async function saveProfile() {
+    setProfileBusy(true);
+    setProfileMsg(null);
+    try {
+      await api.updateProfile({ display_name: profileName.trim(), email: profileEmail.trim() || undefined });
+      await refresh();
+      setProfileMsg("Saved ✓");
+      setTimeout(() => setProfileMsg(null), 2000);
+    } catch (e) {
+      setProfileMsg(e instanceof ApiError ? e.message.replace(/^\d+ \w+: /, "") : "Save failed");
+    } finally {
+      setProfileBusy(false);
+    }
+  }
 
   async function save() {
     if (!geo) return;
@@ -65,12 +93,22 @@ export default function SettingsPage() {
 
   if (loading) return <RadarLoading label="Loading settings…" />;
 
-  const frequency = (seconds: number) => String(Math.round((seconds / 3600) * 10) / 10);
-
   return (
     <div className="mx-auto max-w-3xl p-8">
       <h1 className="text-[28px] font-semibold">Settings</h1>
-      <p className="mt-1 text-sm text-text-secondary">Polling schedule, location mapping and service status</p>
+      <p className="mt-1 text-sm text-text-secondary">Profile and location mapping</p>
+
+      <section className="card mt-8 space-y-4 p-5">
+        <h2 className="text-[15px] font-semibold">Profile</h2>
+        <div className="space-y-3">
+          <input className="search-input w-full" placeholder="Display name" value={profileName} onChange={(e) => setProfileName(e.target.value)} />
+          <input className="search-input w-full" placeholder="Email" type="email" value={profileEmail} onChange={(e) => setProfileEmail(e.target.value)} />
+          <button onClick={saveProfile} disabled={profileBusy} className="btn-primary w-full">
+            {profileBusy ? "Saving…" : "Save profile"}
+          </button>
+          {profileMsg && <p className={`text-sm ${profileMsg.includes("✓") ? "text-success" : "text-danger"}`}>{profileMsg}</p>}
+        </div>
+      </section>
 
       <section className="card mt-8 space-y-4 p-5">
         <h2 className="text-[15px] font-semibold">Polling schedule (APScheduler)</h2>

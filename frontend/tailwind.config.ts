@@ -25,9 +25,11 @@ const config: Config = {
         danger: "rgb(var(--color-danger) / <alpha-value>)",
       },
       fontFamily: {
-        sans: ["var(--font-dm)", "system-ui", "-apple-system", "sans-serif"],
-        display: ["var(--font-chakra)", "var(--font-dm)", "system-ui", "sans-serif"],
-        mono: ["var(--font-jetbrains)", "ui-monospace", "SFMono-Regular", "monospace"],
+        sans: ["var(--font-inter)", "system-ui", "-apple-system", "sans-serif"],
+        display: ["var(--font-fraunces)", "var(--font-inter)", "serif"],
+        mono: ["var(--font-plex)", "var(--font-jetbrains)", "ui-monospace", "monospace"],
+        fraunces: ["var(--font-fraunces)", "serif"],
+        plex: ["var(--font-plex)", "ui-monospace", "monospace"],
       },
       borderRadius: {
         DEFAULT: "10px",
@@ -37,11 +39,16 @@ const config: Config = {
         xl: "24px",
       },
       boxShadow: {
-        "neo-raised": "var(--shadow-neo-raised)",
-        "neo-flat": "var(--shadow-neo-flat)",
-        "neo-pressed": "var(--shadow-neo-pressed)",
-        "neo-hover": "var(--shadow-neo-hover)",
-        "neo-glow": "var(--shadow-neo-glow)",
+        offset: "var(--shadow-offset)",
+        "offset-hover": "var(--shadow-offset-hover)",
+        "offset-sm": "var(--shadow-offset-sm)",
+        soft: "var(--shadow-soft)",
+        // legacy — kept for compat, now alias to offset
+        "neo-raised": "var(--shadow-offset)",
+        "neo-flat": "var(--shadow-offset-sm)",
+        "neo-pressed": "var(--shadow-offset-sm)",
+        "neo-hover": "var(--shadow-offset-hover)",
+        "neo-glow": "var(--shadow-soft)",
       },
       backdropBlur: {
         glass: "16px",

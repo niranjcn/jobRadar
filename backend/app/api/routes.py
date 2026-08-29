@@ -1,18 +1,20 @@
 """REST API for the frontend dashboard.
 
-All endpoints operate against the single default user. Auth is deliberately
-out of scope for now (single-user, self-hosted); secrets stay server-side.
+Identity is resolved per request (session cookie). With JOBRADAR_REQUIRE_AUTH
+off — the default — anonymous requests act as the owner account, preserving
+the original single-user behavior exactly.
 """
 
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.adapters import adapter_for
 from app.api.detect import detect_source
-from app.config import DEFAULT_USER_ID, load_settings
+from app.auth import UserCtx, get_current_admin, require_product_access
+from app.config import load_settings
 from app.db import get_supabase, query
 from app.geo import load_geo_index, map_location
 from app.matcher import recompute_matches
@@ -95,7 +97,7 @@ def _company_names(supabase) -> dict[str, str]:
 
 
 @router.get("/stats")
-def stats() -> dict:
+def stats(user: Annotated[UserCtx, Depends(require_product_access)]) -> dict:
     settings = _settings()
     since = (datetime.now(UTC) - timedelta(days=7)).isoformat()
 
@@ -109,7 +111,7 @@ def stats() -> dict:
           (select count(*)::int from job_matches where user_id = %s) as matches,
           (select coalesce(round(avg(match_score))::int, 0) from job_matches where user_id = %s) as avg_score
         """,
-        (since, DEFAULT_USER_ID, DEFAULT_USER_ID),
+        (since, user.id, user.id),
     )[0]
 
     return {
@@ -123,7 +125,7 @@ def stats() -> dict:
 
 
 @router.get("/matches/summary")
-def matches_summary() -> dict:
+def matches_summary(user: Annotated[UserCtx, Depends(require_product_access)]) -> dict:
     """Match counts per company for the matches page."""
     settings = _settings()
     rows = query(
@@ -137,7 +139,7 @@ def matches_summary() -> dict:
         group by s.company_name
         order by matches desc, s.company_name
         """,
-        (DEFAULT_USER_ID,),
+        (user.id,),
     )
     total = sum(row["matches"] for row in rows)
     return {"total": total, "companies": rows}
@@ -145,6 +147,7 @@ def matches_summary() -> dict:
 
 @router.get("/matches/jobs")
 def matches_jobs(
+    user: Annotated[UserCtx, Depends(require_product_access)],
     company: str = "",
     ats: str = "",
     since: str = "",
@@ -159,7 +162,7 @@ def matches_jobs(
     """
     settings = _settings()
     where = "m.user_id = %s"
-    params: list[Any] = [DEFAULT_USER_ID]
+    params: list[Any] = [user.id]
     if company:
         where += " and s.company_name = %s"
         params.append(company)
@@ -252,6 +255,7 @@ def job_filters() -> dict:
 
 @router.get("/jobs")
 def list_jobs(
+    user: Annotated[UserCtx, Depends(require_product_access)],
     q: str = "",
     ats: str = "",
     company: str = "",
@@ -289,7 +293,7 @@ def list_jobs(
         mrows = query(
             settings,
             "select job_id, matched_on, match_score from job_matches where user_id = %s and job_id = any(%s::uuid[])",
-            (DEFAULT_USER_ID, job_ids),
+            (user.id, job_ids),
         )
         for m in mrows:
             match_by_id[m["job_id"]] = m
@@ -331,7 +335,7 @@ def list_jobs(
 
 
 @router.get("/jobs/{job_id}")
-def get_job(job_id: str) -> dict:
+def get_job(job_id: str, user: Annotated[UserCtx, Depends(require_product_access)]) -> dict:
     settings = _settings()
     rows = query(
         settings,
@@ -350,7 +354,7 @@ def get_job(job_id: str) -> dict:
     matches = query(
         settings,
         "select matched_on, match_score from job_matches where user_id = %s and job_id = %s::uuid",
-        (DEFAULT_USER_ID, job_id),
+        (user.id, job_id),
     )
     match = matches[0] if matches else None
     return {
@@ -395,7 +399,7 @@ def companies() -> dict:
 
 
 @router.get("/sources")
-def sources() -> dict:
+def sources(admin: Annotated[UserCtx, Depends(get_current_admin)]) -> dict:
     settings = _settings()
     rows = query(
         settings,
@@ -447,7 +451,7 @@ def sources() -> dict:
 
 
 @router.get("/sources/unhealthy")
-def sources_unhealthy() -> dict:
+def sources_unhealthy(admin: Annotated[UserCtx, Depends(get_current_admin)]) -> dict:
     """Active sources whose status is stale/never (not healthy), with reason."""
     settings = _settings()
     supabase = _supabase()
@@ -455,7 +459,9 @@ def sources_unhealthy() -> dict:
 
 
 @router.post("/sources", status_code=201)
-async def create_source(payload: SourceCreate) -> dict:
+async def create_source(
+    payload: SourceCreate, admin: Annotated[UserCtx, Depends(get_current_admin)]
+) -> dict:
     supabase = _supabase()
     name = payload.company_name.strip()
     if not name:
@@ -495,7 +501,9 @@ async def create_source(payload: SourceCreate) -> dict:
 
 
 @router.patch("/sources/{source_id}")
-def update_source(source_id: str, payload: SourceUpdate) -> dict:
+def update_source(
+    source_id: str, payload: SourceUpdate, admin: Annotated[UserCtx, Depends(get_current_admin)]
+) -> dict:
     supabase = _supabase()
     update: dict[str, Any] = {}
     if payload.active is not None:
@@ -511,7 +519,7 @@ def update_source(source_id: str, payload: SourceUpdate) -> dict:
 
 
 @router.post("/sources/{source_id}/run")
-async def run_source(source_id: str) -> dict:
+async def run_source(source_id: str, admin: Annotated[UserCtx, Depends(get_current_admin)]) -> dict:
     settings = _settings()
     supabase = _supabase()
     response = supabase.table("sources").select("*").eq("id", source_id).execute()
@@ -539,7 +547,10 @@ class PollRunRequest(BaseModel):
 
 
 @router.post("/poll/run")
-async def run_poll(payload: PollRunRequest | None = None) -> dict:
+async def run_poll(
+    admin: Annotated[UserCtx, Depends(get_current_admin)],
+    payload: PollRunRequest | None = None,
+) -> dict:
     """Trigger a full ingestion pipeline run (manual button).
 
     Starts the poll in the background so the request returns immediately; the
@@ -588,7 +599,7 @@ async def _run_poll_background(run_id: str, ats_type: str | None) -> None:
 
 
 @router.post("/poll/run-unhealthy")
-async def run_unhealthy_poll() -> dict:
+async def run_unhealthy_poll(admin: Annotated[UserCtx, Depends(get_current_admin)]) -> dict:
     """Trigger an ingestion run limited to unhealthy (stale/never) sources."""
     import asyncio
 
@@ -636,7 +647,7 @@ async def _run_unhealthy_background(run_id: str, source_ids: list[str]) -> None:
 
 
 @router.get("/poll/runs")
-def poll_runs(limit: int = 20) -> dict:
+def poll_runs(admin: Annotated[UserCtx, Depends(get_current_admin)], limit: int = 20) -> dict:
     """Recent poll runs with per-run summary + per-source breakdown."""
     settings = _settings()
     rows = query(
@@ -661,7 +672,7 @@ def poll_runs(limit: int = 20) -> dict:
 
 
 @router.get("/schedule")
-def schedule() -> dict:
+def schedule(admin: Annotated[UserCtx, Depends(get_current_admin)]) -> dict:
     """Polling schedule per ATS: effective interval, last check, next run."""
     settings = _settings()
     supabase = _supabase()
@@ -716,7 +727,9 @@ def _scheduled_next_run(ats_type: str) -> str | None:
 
 
 @router.put("/schedule/{ats_type}")
-def update_schedule(ats_type: str, payload: ScheduleUpdate) -> dict:
+def update_schedule(
+    ats_type: str, payload: ScheduleUpdate, admin: Annotated[UserCtx, Depends(get_current_admin)]
+) -> dict:
     settings = _settings()
     supabase = _supabase()
     if ats_type not in settings.ats_intervals:
@@ -740,7 +753,7 @@ def update_schedule(ats_type: str, payload: ScheduleUpdate) -> dict:
 
 
 @router.delete("/schedule/{ats_type}")
-def delete_schedule(ats_type: str) -> dict:
+def delete_schedule(ats_type: str, admin: Annotated[UserCtx, Depends(get_current_admin)]) -> dict:
     """Revert an override back to the env-default interval."""
     settings = _settings()
     supabase = _supabase()
@@ -754,7 +767,7 @@ def delete_schedule(ats_type: str) -> dict:
 
 
 @router.get("/preferences")
-def get_preferences() -> dict:
+def get_preferences(user: Annotated[UserCtx, Depends(require_product_access)]) -> dict:
     settings = _settings()
     rows = query(
         settings,
@@ -764,7 +777,7 @@ def get_preferences() -> dict:
                telegram_scope, email_scope, notify_first_check
         from preferences where user_id = %s
         """,
-        (DEFAULT_USER_ID,),
+        (user.id,),
     )
     env = settings.preferences
     if not rows:
@@ -804,10 +817,26 @@ def get_preferences() -> dict:
 
 
 @router.put("/preferences")
-def put_preferences(payload: PreferencesUpdate) -> dict:
+def put_preferences(
+    payload: PreferencesUpdate, user: Annotated[UserCtx, Depends(require_product_access)]
+) -> dict:
+    settings = _settings()
     supabase = _supabase()
+
+    # Plan limits cap new writes only — stored data is never mutated here.
+    if user.role == "user":
+        from app.access import active_subscription
+        from app.entitlements import validate_preferences_against_limits
+
+        sub = active_subscription(settings, user.id)
+        violations = validate_preferences_against_limits(
+            payload.model_dump(), (sub or {}).get("plan_limits")
+        )
+        if violations:
+            raise HTTPException(status_code=422, detail="; ".join(violations))
+
     row = {
-        "user_id": DEFAULT_USER_ID,
+        "user_id": user.id,
         "roles": payload.roles,
         "keywords": payload.keywords,
         "locations": payload.locations,
@@ -824,7 +853,7 @@ def put_preferences(payload: PreferencesUpdate) -> dict:
     }
     supabase.table("preferences").upsert(row, on_conflict="user_id").execute()
     try:
-        recomputed = recompute_matches(supabase)
+        recomputed = recompute_matches(supabase, user_id=user.id)
         return {"ok": True, "preferences": get_preferences(), "recomputed": recomputed}
     except Exception as exc:
         print(f"preferences recompute FAILED: {exc}")
@@ -835,7 +864,9 @@ def put_preferences(payload: PreferencesUpdate) -> dict:
 
 
 @router.get("/notifications")
-def notifications(limit: int = 50) -> dict:
+def notifications(
+    user: Annotated[UserCtx, Depends(require_product_access)], limit: int = 50
+) -> dict:
     settings = _settings()
     rows = query(
         settings,
@@ -848,7 +879,7 @@ def notifications(limit: int = 50) -> dict:
         order by n.sent_at desc
         limit %s
         """,
-        (DEFAULT_USER_ID, limit),
+        (user.id, limit),
     )
     for row in rows:
         row["sent_at"] = row["sent_at"].isoformat() if row["sent_at"] else None
@@ -870,7 +901,7 @@ def geo_countries() -> dict:
 
 
 @router.get("/settings/location-mapping")
-def get_location_mapping() -> dict:
+def get_location_mapping(admin: Annotated[UserCtx, Depends(get_current_admin)]) -> dict:
     supabase = _supabase()
     settings = load_location_mapping(supabase)
     index = load_geo_index()
@@ -885,7 +916,9 @@ def get_location_mapping() -> dict:
 
 
 @router.put("/settings/location-mapping")
-def put_location_mapping(payload: LocationMappingUpdate) -> dict:
+def put_location_mapping(
+    payload: LocationMappingUpdate, admin: Annotated[UserCtx, Depends(get_current_admin)]
+) -> dict:
     supabase = _supabase()
     current = load_location_mapping(supabase)
     update = {
@@ -899,7 +932,7 @@ def put_location_mapping(payload: LocationMappingUpdate) -> dict:
     }
     save_location_mapping(supabase, update)
     try:
-        recomputed = recompute_matches(supabase)
+        recomputed = recompute_matches(supabase, user_id=admin.id)
         return {"ok": True, "settings": load_location_mapping(supabase), "recomputed": recomputed}
     except Exception as exc:
         print(f"location-mapping recompute FAILED: {exc}")

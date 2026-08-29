@@ -108,3 +108,23 @@ export function statusMeta(status: string): { label: string; dot: string } {
       return { label: "Never checked", dot: "bg-text-muted" };
   }
 }
+
+/** Countdown for coupon expiry: '11h 58m left', '42m left', or 'expired'. */
+export function timeLeft(iso: string | null | undefined, now = Date.now()): string {
+  if (!iso) return "—";
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "—";
+  const diff = then - now;
+  if (diff <= 0) return "expired";
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 60) return `${minutes}m left`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m left`;
+}
+
+export function errText(err: unknown): string {
+  if (err instanceof Error) {
+    return err.message.replace(/^\d+ \w+: /, "").slice(0, 200);
+  }
+  return String(err);
+}
