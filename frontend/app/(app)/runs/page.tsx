@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RadarLoading } from "@/components/radar-loading";
 import { api } from "@/lib/api";
-import { atsLabel, ATS_ORDER, formatDateTime, timeIST } from "@/lib/format";
+import { atsLabel, ATS_ORDER, formatDateTime, formatDuration, formatRunDuration, timeIST } from "@/lib/format";
 import type { PollRun, UnhealthySource } from "@/lib/types";
 
 const STATUS_META: Record<PollRun["status"], { label: string; className: string }> = {
@@ -15,7 +15,23 @@ const STATUS_META: Record<PollRun["status"], { label: string; className: string 
 function RunStatusCard({ run }: { run: PollRun }) {
   const meta = STATUS_META[run.status];
   const sourcesOk = (run.sources || []).filter((s) => s.status === "ok").length;
-  const sourcesErr = (run.sources || []).length - sourcesOk;
+  const sourcesErr = (run.sources || []).filter((s) => s.status === "error").length;
+  const sourcesSkipped = (run.sources || []).filter((s) => s.status === "skipped").length;
+  const totalDur = formatRunDuration(run.started_at, run.finished_at);
+  // Per-adapter time from duration_ms (Tier 1). Group by ats_type for the simple bar.
+  const byAts = (() => {
+    const m: Record<string, { count: number; totalMs: number; ok: number }> = {};
+    for (const s of run.sources || []) {
+      const a = s.ats_type || "custom";
+      if (!m[a]) m[a] = { count: 0, totalMs: 0, ok: 0 };
+      m[a].count += 1;
+      if (s.status === "ok") m[a].ok += 1;
+      if (typeof s.duration_ms === "number") m[a].totalMs += s.duration_ms;
+    }
+    return Object.entries(m)
+      .map(([ats, v]) => ({ ats, ...v }))
+      .sort((a, b) => b.totalMs - a.totalMs);
+  })();
 
   return (
     <div className="card p-5">
@@ -31,6 +47,9 @@ function RunStatusCard({ run }: { run: PollRun }) {
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
               in progress…
             </span>
+          )}
+          {totalDur !== "—" && (
+            <span className="rounded bg-elevated px-2 py-0.5 text-[11px] text-text-muted">⏱ {totalDur} total</span>
           )}
         </div>
         <span className="text-xs text-text-muted">
@@ -57,25 +76,65 @@ function RunStatusCard({ run }: { run: PollRun }) {
         />
       </div>
 
+      {byAts.length > 0 && byAts.some((a) => a.totalMs > 0) && (
+        <div className="mt-4 rounded-lg bg-elevated p-3">
+          <p className="mb-2 text-xs uppercase tracking-wide text-text-muted">Time per adapter (Tier 1 per-ATS concurrency)</p>
+          <div className="space-y-1.5">
+            {byAts.map((a) => (
+              <div key={a.ats} className="flex items-center gap-2 text-xs">
+                <span className="w-32 truncate text-text-secondary">{atsLabel(a.ats)}</span>
+                <div className="h-1.5 flex-1 overflow-hidden rounded bg-border">
+                  <div
+                    className="h-full bg-primary"
+                    style={{ width: `${Math.max(4, (a.totalMs / Math.max(1, Math.max(...byAts.map((x) => x.totalMs)))) * 100)}%` }}
+                  />
+                </div>
+                <span className="w-20 text-right font-mono text-text-muted">{formatDuration(a.totalMs)}</span>
+                <span className="w-16 text-right text-text-muted">
+                  {a.ok}/{a.count}
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className="mt-1.5 text-[11px] text-text-muted">
+            Concurrency now: light 16 (greenhouse/lever/ashby/remotive/wwr) · heavy 4-6 (workday/successfactors) · jitter ±120s
+          </p>
+        </div>
+      )}
+
       {(run.sources || []).length > 0 && (
         <div className="mt-4">
-          <p className="mb-1.5 text-xs uppercase tracking-wide text-text-muted">Per source</p>
+          <p className="mb-1.5 text-xs uppercase tracking-wide text-text-muted">
+            Per source {sourcesSkipped ? <span className="text-warning">· {sourcesSkipped} skipped (404 backoff 12h)</span> : null}
+          </p>
           <ul className="divide-y divide-border/50">
             {(run.sources || []).map((s, i) => (
               <li key={i} className="flex items-center justify-between py-1.5 text-sm">
                 <span className="flex items-center gap-2">
                   <span
                     className={`h-1.5 w-1.5 rounded-full ${
-                      s.status === "ok" ? "bg-success" : "bg-danger"
+                      s.status === "ok" ? "bg-success" : s.status === "skipped" ? "bg-warning" : "bg-danger"
                     }`}
                   />
                   <span className="text-text">{s.company}</span>
                   <span className="text-[11px] text-text-muted">{atsLabel(s.ats_type)}</span>
+                  {s.status === "skipped" && (
+                    <span className="rounded bg-warning/10 px-1.5 py-0.5 text-[10px] text-warning">skipped</span>
+                  )}
                 </span>
                 {s.status === "ok" ? (
-                  <span className="text-xs text-text-muted">
-                    {s.fetched ?? 0} fetched · {s.new ?? 0} new
-                    {s.first_check ? " · first check" : ""}
+                  <span className="flex items-center gap-2 text-xs text-text-muted">
+                    <span>
+                      {s.fetched ?? 0} fetched · {s.new ?? 0} new
+                      {s.first_check ? " · first check" : ""}
+                    </span>
+                    {typeof s.duration_ms === "number" && (
+                      <span className="font-mono text-[11px] text-text-muted">· {formatDuration(s.duration_ms)}</span>
+                    )}
+                  </span>
+                ) : s.status === "skipped" ? (
+                  <span className="max-w-[50%] truncate text-xs text-warning" title={s.reason || ""}>
+                    {s.reason || "404 backoff 12h"}
                   </span>
                 ) : (
                   <span className="max-w-[50%] truncate text-xs text-danger" title={s.error || ""}>
