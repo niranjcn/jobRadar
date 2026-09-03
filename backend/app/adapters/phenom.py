@@ -39,7 +39,7 @@ LOCALE = "us/en"
 class PhenomAdapter(JobSourceAdapter):
     ats_type = "phenom"
 
-    async def fetch_jobs(self, board_identifier: str) -> list[NormalizedJob]:
+    async def fetch_jobs(self, board_identifier: str, client=None) -> list[NormalizedJob]:
         root = board_identifier.rstrip("/")
         base_url = f"{root}/{LOCALE}/search-results"
         jobs: list[NormalizedJob] = []
