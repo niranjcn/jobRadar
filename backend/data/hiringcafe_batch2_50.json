@@ -1,0 +1,252 @@
+[
+  {
+    "company_name": "3M",
+    "ats_type": "workday",
+    "board_identifier": "https://3m.wd1.myworkdayjobs.com/search"
+  },
+  {
+    "company_name": "Aampower",
+    "ats_type": "workday",
+    "board_identifier": "https://aampower.wd1.myworkdayjobs.com/interim-dauch-career-site"
+  },
+  {
+    "company_name": "ABB",
+    "ats_type": "workday",
+    "board_identifier": "https://abb.wd3.myworkdayjobs.com/external_career_page"
+  },
+  {
+    "company_name": "Abbott",
+    "ats_type": "workday",
+    "board_identifier": "https://abbott.wd5.myworkdayjobs.com/abbottcareers"
+  },
+  {
+    "company_name": "ABC Fitness",
+    "ats_type": "workday",
+    "board_identifier": "https://abcfinancial.wd5.myworkdayjobs.com/abcfinancialservices"
+  },
+  {
+    "company_name": "Accendra",
+    "ats_type": "workday",
+    "board_identifier": "https://accendra.wd504.myworkdayjobs.com/accendracareers"
+  },
+  {
+    "company_name": "Accuray",
+    "ats_type": "workday",
+    "board_identifier": "https://accuray.wd5.myworkdayjobs.com/external"
+  },
+  {
+    "company_name": "Adtran",
+    "ats_type": "workday",
+    "board_identifier": "https://adtran.wd3.myworkdayjobs.com/adtran"
+  },
+  {
+    "company_name": "Advance Auto Parts",
+    "ats_type": "workday",
+    "board_identifier": "https://advanceauto.wd5.myworkdayjobs.com/advanceexternalcareers"
+  },
+  {
+    "company_name": "Aggreko",
+    "ats_type": "workday",
+    "board_identifier": "https://aggreko.wd3.myworkdayjobs.com/aggreko_careers_1"
+  },
+  {
+    "company_name": "Air Liquide",
+    "ats_type": "workday",
+    "board_identifier": "https://airliquidehr.wd3.myworkdayjobs.com/airliquideexternalcareer"
+  },
+  {
+    "company_name": "Airbus",
+    "ats_type": "workday",
+    "board_identifier": "https://ag.wd3.myworkdayjobs.com/airbus"
+  },
+  {
+    "company_name": "Alation",
+    "ats_type": "workday",
+    "board_identifier": "https://alation.wd503.myworkdayjobs.com/externalsite"
+  },
+  {
+    "company_name": "Alcon",
+    "ats_type": "workday",
+    "board_identifier": "https://alcon.wd5.myworkdayjobs.com/careers_alcon"
+  },
+  {
+    "company_name": "Aliaxis",
+    "ats_type": "workday",
+    "board_identifier": "https://aliaxis.wd3.myworkdayjobs.com/aliaxis"
+  },
+  {
+    "company_name": "Alkami",
+    "ats_type": "workday",
+    "board_identifier": "https://alkami.wd12.myworkdayjobs.com/alkami"
+  },
+  {
+    "company_name": "Allegion",
+    "ats_type": "workday",
+    "board_identifier": "https://allegion.wd5.myworkdayjobs.com/careers"
+  },
+  {
+    "company_name": "Allegro MicroSystems",
+    "ats_type": "workday",
+    "board_identifier": "https://allegromicro.wd5.myworkdayjobs.com/allegrocareers"
+  },
+  {
+    "company_name": "Alleima India Private Limited",
+    "ats_type": "workday",
+    "board_identifier": "https://alleima.wd3.myworkdayjobs.com/alleima-jobs"
+  },
+  {
+    "company_name": "Alliance",
+    "ats_type": "workday",
+    "board_identifier": "https://alliance.wd3.myworkdayjobs.com/nissanjobs"
+  },
+  {
+    "company_name": "AllianceBernstein",
+    "ats_type": "workday",
+    "board_identifier": "https://abglobal.wd1.myworkdayjobs.com/alliancebernsteincareers"
+  },
+  {
+    "company_name": "Applied Intuition, Inc.",
+    "ats_type": "ashby",
+    "board_identifier": "applied"
+  },
+  {
+    "company_name": "Aptura",
+    "ats_type": "ashby",
+    "board_identifier": "aptura"
+  },
+  {
+    "company_name": "Architect",
+    "ats_type": "ashby",
+    "board_identifier": "architect"
+  },
+  {
+    "company_name": "Arrive",
+    "ats_type": "ashby",
+    "board_identifier": "arrive"
+  },
+  {
+    "company_name": "Ashirvad",
+    "ats_type": "workday",
+    "board_identifier": "https://aliaxis.wd3.myworkdayjobs.com/aliaxis_indiaashirvad1"
+  },
+  {
+    "company_name": "Atlan",
+    "ats_type": "ashby",
+    "board_identifier": "atlan"
+  },
+  {
+    "company_name": "Atlys",
+    "ats_type": "ashby",
+    "board_identifier": "atlys"
+  },
+  {
+    "company_name": "AtoB",
+    "ats_type": "ashby",
+    "board_identifier": "atob"
+  },
+  {
+    "company_name": "Aven Hospitality",
+    "ats_type": "workday",
+    "board_identifier": "https://ah.wd108.myworkdayjobs.com/avenhospitalityjobs"
+  },
+  {
+    "company_name": "Avoca",
+    "ats_type": "ashby",
+    "board_identifier": "avoca"
+  },
+  {
+    "company_name": "Bespoke Labs",
+    "ats_type": "ashby",
+    "board_identifier": "bespokelabs"
+  },
+  {
+    "company_name": "Better",
+    "ats_type": "ashby",
+    "board_identifier": "better-mortgage"
+  },
+  {
+    "company_name": "billups",
+    "ats_type": "ashby",
+    "board_identifier": "billups"
+  },
+  {
+    "company_name": "Biti",
+    "ats_type": "ashby",
+    "board_identifier": "biti"
+  },
+  {
+    "company_name": "BJAK",
+    "ats_type": "ashby",
+    "board_identifier": "bjakcareer"
+  },
+  {
+    "company_name": "Bolna",
+    "ats_type": "ashby",
+    "board_identifier": "bolna"
+  },
+  {
+    "company_name": "Bread Financial",
+    "ats_type": "workday",
+    "board_identifier": "https://alliancedata.wd5.myworkdayjobs.com/breadfinancial_india"
+  },
+  {
+    "company_name": "Brooklyn Health",
+    "ats_type": "ashby",
+    "board_identifier": "brooklyn-health"
+  },
+  {
+    "company_name": "Bureau",
+    "ats_type": "ashby",
+    "board_identifier": "bureau"
+  },
+  {
+    "company_name": "Camunda",
+    "ats_type": "ashby",
+    "board_identifier": "camunda"
+  },
+  {
+    "company_name": "Cardboard",
+    "ats_type": "ashby",
+    "board_identifier": "cardboard"
+  },
+  {
+    "company_name": "Cartesia",
+    "ats_type": "ashby",
+    "board_identifier": "cartesia"
+  },
+  {
+    "company_name": "Cerebras Systems",
+    "ats_type": "ashby",
+    "board_identifier": "cerebras"
+  },
+  {
+    "company_name": "Certa",
+    "ats_type": "ashby",
+    "board_identifier": "certa"
+  },
+  {
+    "company_name": "CertifyOS",
+    "ats_type": "ashby",
+    "board_identifier": "certifyos"
+  },
+  {
+    "company_name": "Chainalysis",
+    "ats_type": "ashby",
+    "board_identifier": "chainalysis-careers"
+  },
+  {
+    "company_name": "Chili Piper",
+    "ats_type": "ashby",
+    "board_identifier": "chilipiper"
+  },
+  {
+    "company_name": "Ciroos",
+    "ats_type": "ashby",
+    "board_identifier": "ciroos"
+  },
+  {
+    "company_name": "Dauch Corporation",
+    "ats_type": "workday",
+    "board_identifier": "https://aampower.wd1.myworkdayjobs.com/aam-career-site"
+  }
+]
