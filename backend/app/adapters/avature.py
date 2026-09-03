@@ -42,7 +42,7 @@ PAGE_DELAY_SECONDS = 0.4
 class AvatureAdapter(JobSourceAdapter):
     ats_type = "avature"
 
-    async def fetch_jobs(self, board_identifier: str) -> list[NormalizedJob]:
+    async def fetch_jobs(self, board_identifier: str, client=None) -> list[NormalizedJob]:
         search_url = board_identifier.rstrip("/")
         if not search_url.endswith("/SearchJobs"):
             search_url = f"{search_url}/SearchJobs"
