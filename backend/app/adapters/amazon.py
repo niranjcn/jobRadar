@@ -29,7 +29,7 @@ MAX_OFFSET = 100_000
 class AmazonAdapter(JobSourceAdapter):
     ats_type = "amazon"
 
-    async def fetch_jobs(self, board_identifier: str) -> list[NormalizedJob]:
+    async def fetch_jobs(self, board_identifier: str, client=None) -> list[NormalizedJob]:
         jobs: list[NormalizedJob] = []
         async with RetryingClient(timeout=30.0) as client:
             offset = 0
