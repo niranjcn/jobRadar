@@ -937,7 +937,7 @@ AI agents must:
 8. Preserve existing interfaces unless there is a clear reason to change them.
 9. Update documentation when architecture changes.
 10. Never expose secrets in code, logs, or commits.
-11. Always explain in a way that is easier to understand but also ensures the reader still grasps the underlying technical concepts.
+11. **Always explain in a way that is easier to understand** — use simple language, short sentences, everyday analogies, and clear examples first, then add the technical detail. The reader should grasp *what* happens and *why* before reading code or jargon, while still keeping technical accuracy (file paths, concepts, and precise terms).
 
 ### One task at a time
 
