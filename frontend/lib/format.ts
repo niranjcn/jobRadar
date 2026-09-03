@@ -85,11 +85,31 @@ export function atsLabel(ats: string): string {
     google: "Google",
     amazon: "Amazon",
     custom: "Custom",
+    remotive: "Remotive",
+    weworkremotely: "We Work Remotely",
   };
   return map[ats] || ats;
 }
 
-export const ATS_ORDER = ["workday", "greenhouse", "lever", "ashby", "oracle", "icims", "successfactors", "phenom", "avature", "google", "amazon", "custom"];
+export const ATS_ORDER = ["workday", "greenhouse", "lever", "ashby", "oracle", "icims", "successfactors", "phenom", "avature", "google", "amazon", "remotive", "weworkremotely", "custom"];
+
+export function formatDuration(ms: number | null | undefined): string {
+  if (ms == null || Number.isNaN(ms)) return "—";
+  if (ms < 1000) return `${ms}ms`;
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(1)}s`;
+  const m = Math.floor(s / 60);
+  const rem = (s % 60).toFixed(0);
+  return `${m}m ${rem}s`;
+}
+
+export function formatRunDuration(startedAt: string | null, finishedAt: string | null): string {
+  if (!startedAt || !finishedAt) return "—";
+  const s = new Date(startedAt).getTime();
+  const f = new Date(finishedAt).getTime();
+  if (Number.isNaN(s) || Number.isNaN(f) || f < s) return "—";
+  return formatDuration(f - s);
+}
 
 /** ISO timestamp (UTC) for the start of the current day (00:00 local). */
 export function startOfTodayUTC(): string {
