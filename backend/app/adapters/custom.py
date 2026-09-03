@@ -43,7 +43,7 @@ PAGE_DELAY_SECONDS = 0.4
 class CustomAdapter(JobSourceAdapter):
     ats_type = "custom"
 
-    async def fetch_jobs(self, board_identifier: str) -> list[NormalizedJob]:
+    async def fetch_jobs(self, board_identifier: str, client=None) -> list[NormalizedJob]:
         base = board_identifier.rstrip("/")
         jobs: list[NormalizedJob] = []
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
