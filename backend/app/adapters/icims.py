@@ -27,7 +27,7 @@ JSON_API_MAX_PAGES = 3000
 class IcimsAdapter(JobSourceAdapter):
     ats_type = "icims"
 
-    async def fetch_jobs(self, board_identifier: str) -> list[NormalizedJob]:
+    async def fetch_jobs(self, board_identifier: str, client=None) -> list[NormalizedJob]:
         if board_identifier.startswith("http") and "/search-jobs" in board_identifier:
             return await self._fetch_html_jobs(board_identifier)
         if board_identifier.startswith("http") and "/api/jobs" in board_identifier:

@@ -34,14 +34,21 @@ class WorkdayAdapter(JobSourceAdapter):
         tenant, shard, site = self._parse_board(board_identifier)
         return f"https://{tenant}.{shard}.myworkdayjobs.com/wday/cxs/{tenant}/{site}/{external_path.lstrip('/')}"
 
-    async def fetch_jobs(self, board_identifier: str) -> list[NormalizedJob]:
+    async def fetch_jobs(self, board_identifier: str, client=None) -> list[NormalizedJob]:
         url = self._list_api(board_identifier)
         jobs: list[NormalizedJob] = []
         first = True
         total = 0
-        async with RetryingClient(timeout=30.0) as client:
+        # Tier 2: reuse shared client if given (keeps TCP alive across many boards), else create one.
+        _client = client
+        _needs_close = False
+        if _client is None:
+            _client = RetryingClient(timeout=30.0)
+            _needs_close = True
+            await _client.__aenter__()
+        try:
             for offset in range(0, 1_000_000, PAGE_SIZE):
-                response = await client.post(
+                response = await _client.post(
                     url, json={"limit": PAGE_SIZE, "offset": offset, "searchText": ""}
                 )
                 if response.status_code == 400:
@@ -60,6 +67,9 @@ class WorkdayAdapter(JobSourceAdapter):
                     jobs.append(self._normalize(board_identifier, p))
                 if len(jobs) >= total:
                     break
+        finally:
+            if _needs_close:
+                await _client.__aexit__(None, None, None)
         seen: set[str] = set()
         unique: list[NormalizedJob] = []
         for job in jobs:

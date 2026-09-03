@@ -9,7 +9,9 @@ from app.adapters.icims import IcimsAdapter
 from app.adapters.lever import LeverAdapter
 from app.adapters.oracle import OracleAdapter
 from app.adapters.phenom import PhenomAdapter
+from app.adapters.remotive import RemotiveAdapter
 from app.adapters.successfactors import SuccessFactorsAdapter
+from app.adapters.weworkremotely import WeworkremotelyAdapter
 from app.adapters.workday import WorkdayAdapter
 
 
@@ -36,6 +38,10 @@ def adapter_for(ats_type: str) -> JobSourceAdapter:
         return AmazonAdapter()
     if ats_type == GoogleAdapter.ats_type:
         return GoogleAdapter()
+    if ats_type == RemotiveAdapter.ats_type:
+        return RemotiveAdapter()
+    if ats_type == WeworkremotelyAdapter.ats_type:
+        return WeworkremotelyAdapter()
     if ats_type == CustomAdapter.ats_type:
         return CustomAdapter()
     raise ValueError(f"no adapter registered for ats_type={ats_type!r}")

@@ -43,9 +43,11 @@ MAX_PAGES = 100
 class GoogleAdapter(JobSourceAdapter):
     ats_type = "google"
 
-    async def fetch_jobs(self, board_identifier: str) -> list[NormalizedJob]:
+    async def fetch_jobs(self, board_identifier: str, client=None) -> list[NormalizedJob]:
         jobs: list[NormalizedJob] = []
-        async with RetryingClient(timeout=30.0) as client:
+
+        async def _fetch(client) -> None:
+            nonlocal jobs
             page = 1
             while page <= MAX_PAGES:
                 params = {"page": page}
@@ -63,6 +65,12 @@ class GoogleAdapter(JobSourceAdapter):
                 if not entries or len(entries) < returned or (total and page * PAGE_SIZE >= total):
                     break
                 page += 1
+
+        if client is not None:
+            await _fetch(client)
+        else:
+            async with RetryingClient(timeout=30.0) as _client:
+                await _fetch(_client)
         return jobs
 
     @staticmethod

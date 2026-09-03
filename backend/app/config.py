@@ -9,14 +9,34 @@ ATS_DEFAULT_SECONDS = {
     "greenhouse": 3600,
     "lever": 3600,
     "ashby": 3600,
-    "workday": 1800,
+    "workday": 3600,
     "oracle": 3600,
     "icims": 3600,
-    "successfactors": 3600,
+    "successfactors": 7200,
     "phenom": 3600,
     "avature": 21600,
     "google": 3600,
     "amazon": 3600,
+    "remotive": 3600,
+    "weworkremotely": 3600,
+}
+
+# Per-ATS concurrency for Tier 1: light boards handle 16 parallel, heavy boards stay low to avoid 429/CAPTCHA.
+ATS_CONCURRENCY = {
+    "greenhouse": 16,
+    "lever": 16,
+    "ashby": 16,
+    "remotive": 16,
+    "weworkremotely": 16,
+    "workday": 4,
+    "oracle": 6,
+    "successfactors": 4,
+    "phenom": 8,
+    "avature": 4,
+    "custom": 8,
+    "icims": 8,
+    "google": 8,
+    "amazon": 8,
 }
 
 

@@ -83,11 +83,13 @@ export interface SourceResult {
 export interface PollSourceResult {
   company: string;
   ats_type: string;
-  status: "ok" | "error";
+  status: "ok" | "error" | "skipped";
   fetched?: number;
   new?: number;
   first_check?: boolean;
   error?: string | null;
+  duration_ms?: number;
+  reason?: string | null;
 }
 
 export interface PollRun {

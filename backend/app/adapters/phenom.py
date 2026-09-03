@@ -39,11 +39,13 @@ LOCALE = "us/en"
 class PhenomAdapter(JobSourceAdapter):
     ats_type = "phenom"
 
-    async def fetch_jobs(self, board_identifier: str) -> list[NormalizedJob]:
+    async def fetch_jobs(self, board_identifier: str, client=None) -> list[NormalizedJob]:
         root = board_identifier.rstrip("/")
         base_url = f"{root}/{LOCALE}/search-results"
         jobs: list[NormalizedJob] = []
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+
+        async def _run(client) -> None:
+            nonlocal jobs
             total = None
             from_offset = 0
             empty_streak = 0
@@ -64,6 +66,12 @@ class PhenomAdapter(JobSourceAdapter):
                 from_offset += len(page_jobs)
                 if total is not None and from_offset >= total:
                     break
+
+        if client is not None:
+            await _run(client)
+        else:
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as _client:
+                await _run(_client)
         return jobs
 
     async def _fetch_page(

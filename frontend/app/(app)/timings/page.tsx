@@ -1,0 +1,174 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { RadarLoading } from "@/components/radar-loading";
+import { api } from "@/lib/api";
+import { atsLabel, formatDuration, formatRunDuration } from "@/lib/format";
+import type { PollRun } from "@/lib/types";
+
+function runDurationMs(run: PollRun): number | null {
+  if (!run.started_at || !run.finished_at) return null;
+  const s = new Date(run.started_at).getTime();
+  const f = new Date(run.finished_at).getTime();
+  if (Number.isNaN(s) || Number.isNaN(f) || f < s) return null;
+  return f - s;
+}
+
+function perAtsStats(runs: PollRun[]) {
+  const byAts: Record<string, { runs: number; totalMs: number; avgMs: number; lastMs: number | null; sources: number; ok: number }> = {};
+  for (const r of runs) {
+    if (r.status !== "completed") continue;
+    const dur = runDurationMs(r);
+    // For per-ATS scheduled runs, the ats_type is the adapter.
+    // For global runs, split by sources.
+    if (r.ats_type) {
+      const a = r.ats_type;
+      if (!byAts[a]) byAts[a] = { runs: 0, totalMs: 0, avgMs: 0, lastMs: null, sources: 0, ok: 0 };
+      byAts[a].runs += 1;
+      if (dur != null) {
+        byAts[a].totalMs += dur;
+        byAts[a].lastMs = dur;
+      }
+      const ok = (r.sources || []).filter((s) => s.status === "ok").length;
+      byAts[a].ok += ok;
+      byAts[a].sources += (r.sources || []).length;
+    } else {
+      // Global: distribute to each ats via sources duration_ms if available, else fallback to run total
+      const perAts: Record<string, number> = {};
+      for (const s of r.sources || []) {
+        const a = s.ats_type || "custom";
+        perAts[a] = (perAts[a] || 0) + (s.duration_ms || 0);
+      }
+      const hasPerSource = Object.values(perAts).some((v) => v > 0);
+      if (hasPerSource) {
+        for (const [a, ms] of Object.entries(perAts)) {
+          if (!byAts[a]) byAts[a] = { runs: 0, totalMs: 0, avgMs: 0, lastMs: null, sources: 0, ok: 0 };
+          byAts[a].runs += 1;
+          byAts[a].totalMs += ms;
+          byAts[a].lastMs = ms;
+          byAts[a].sources += (r.sources || []).filter((s) => s.ats_type === a).length;
+          byAts[a].ok += (r.sources || []).filter((s) => s.ats_type === a && s.status === "ok").length;
+        }
+      } else if (dur != null) {
+        // No per-source timing yet (old runs) — count as mixed
+        const a = "mixed";
+        if (!byAts[a]) byAts[a] = { runs: 0, totalMs: 0, avgMs: 0, lastMs: null, sources: 0, ok: 0 };
+        byAts[a].runs += 1;
+        byAts[a].totalMs += dur;
+        byAts[a].lastMs = dur;
+      }
+    }
+  }
+  for (const v of Object.values(byAts)) v.avgMs = v.runs ? v.totalMs / v.runs : 0;
+  return Object.entries(byAts)
+    .map(([ats, v]) => ({ ats, ...v }))
+    .sort((a, b) => b.avgMs - a.avgMs);
+}
+
+export default function TimingsPage() {
+  const [runs, setRuns] = useState<PollRun[] | null>(null);
+
+  const load = useCallback(() => {
+    api.pollRuns(50).then((res) => setRuns(res.runs));
+  }, []);
+
+  useEffect(() => {
+    load();
+    const id = setInterval(() => {
+      if (document.hidden) return;
+      load();
+    }, 15000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  const stats = useMemo(() => (runs ? perAtsStats(runs) : []), [runs]);
+  const maxAvg = Math.max(1, ...stats.map((s) => s.avgMs));
+
+  if (!runs) return <div className="mx-auto max-w-5xl p-8"><RadarLoading label="Loading poll timings…" /></div>;
+
+  return (
+    <div className="mx-auto max-w-5xl p-8">
+      <h1 className="text-[28px] font-semibold">Poll Timings</h1>
+      <p className="mt-1 text-sm text-text-secondary">
+        Time taken per adapter after each run. Total = <span className="font-mono">finished_at - started_at</span>.
+        Per-adapter = sum of <span className="font-mono">sources[].duration_ms</span> (Tier 1, from this deploy).
+        {runs.length ? ` · Last ${runs.length} runs` : ""}
+      </p>
+
+      <div className="mt-2 rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs text-text-secondary">
+        <span className="font-semibold text-text">Tier 1 live:</span> concurrency light 16 (greenhouse/lever/ashby/remotive/wwr) · heavy 4-6 (workday 4, successfactors 4, oracle 6) · jitter ±120s · 404 backoff 12h · intervals: workday 1h (was 30m), successfactors 2h (was 1h)
+      </div>
+
+      <div className="mt-8 card overflow-hidden">
+        <div className="grid grid-cols-12 gap-2 border-b border-border bg-elevated px-4 py-2 text-[11px] uppercase tracking-wide text-text-muted">
+          <span className="col-span-3">Adapter</span>
+          <span className="col-span-2 text-right">Avg per run</span>
+          <span className="col-span-2 text-right">Last run</span>
+          <span className="col-span-2 text-right">Runs</span>
+          <span className="col-span-3 text-right">Sources ok/total</span>
+        </div>
+        {stats.length === 0 ? (
+          <div className="p-8 text-center text-sm text-text-muted">No completed runs with timing yet. Trigger a poll.</div>
+        ) : (
+          stats.map((s) => (
+            <div key={s.ats} className="grid grid-cols-12 items-center gap-2 border-b border-border/50 px-4 py-3 last:border-0">
+              <span className="col-span-3 text-sm font-medium">{atsLabel(s.ats)}</span>
+              <span className="col-span-2 text-right font-mono text-sm">{formatDuration(Math.round(s.avgMs))}</span>
+              <span className="col-span-2 text-right font-mono text-xs text-text-muted">{s.lastMs != null ? formatDuration(s.lastMs) : "—"}</span>
+              <span className="col-span-2 text-right text-sm">{s.runs}</span>
+              <span className="col-span-3 flex items-center justify-end gap-2 text-sm">
+                <span className="text-text-muted">{s.ok}/{s.sources}</span>
+                <div className="hidden h-1.5 w-16 overflow-hidden rounded bg-border sm:block">
+                  <div className="h-full bg-primary" style={{ width: `${Math.max(4, (s.avgMs / maxAvg) * 100)}%` }} />
+                </div>
+              </span>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="mt-8">
+        <h2 className="text-[15px] font-semibold">Recent runs — total + per-adapter split</h2>
+        <div className="mt-3 space-y-3">
+          {runs.slice(0, 20).map((r) => {
+            const total = formatRunDuration(r.started_at, r.finished_at);
+            const byAts: Record<string, number> = {};
+            for (const s of r.sources || []) {
+              const a = s.ats_type || "custom";
+              byAts[a] = (byAts[a] || 0) + (s.duration_ms || 0);
+            }
+            const hasPerSource = Object.values(byAts).some((v) => v > 0);
+            return (
+              <div key={r.id} className="card p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm font-medium">
+                    {r.triggered_by === "manual" ? "Manual" : "Scheduled"} {r.ats_type ? `· ${atsLabel(r.ats_type)}` : "· All"} · <span className={r.status === "completed" ? "text-success" : r.status === "failed" ? "text-danger" : "text-accent"}>{r.status}</span>
+                  </span>
+                  <span className="font-mono text-xs text-text-muted">total {total} · {r.jobs_fetched} fetched · {r.jobs_new} new</span>
+                </div>
+                {hasPerSource ? (
+                  <div className="mt-3 space-y-1">
+                    {Object.entries(byAts)
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([ats, ms]) => (
+                        <div key={ats} className="flex items-center gap-2 text-xs">
+                          <span className="w-28 truncate text-text-secondary">{atsLabel(ats)}</span>
+                          <div className="h-1 flex-1 overflow-hidden rounded bg-border">
+                            <div className="h-full bg-primary/70" style={{ width: `${Math.max(2, (ms / Math.max(1, Math.max(...Object.values(byAts)))) * 100)}%` }} />
+                          </div>
+                          <span className="w-16 text-right font-mono text-text-muted">{formatDuration(ms)}</span>
+                          <span className="w-12 text-right text-text-muted">{Object.values(byAts).length ? (r.sources || []).filter((s) => s.ats_type === ats && s.status === "ok").length : 0}/{ (r.sources || []).filter((s) => s.ats_type === ats).length }</span>
+                        </div>
+                      ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs text-text-muted">Per-adapter timing appears from next run (Tier 1 stores `duration_ms`). Total time above is from `started_at`/`finished_at`.</p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}

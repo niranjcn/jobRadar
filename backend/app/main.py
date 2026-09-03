@@ -95,9 +95,12 @@ def _build_scheduler() -> AsyncIOScheduler:
     intervals = effective_intervals(settings.ats_intervals, load_interval_overrides(supabase))
     _scheduler = AsyncIOScheduler(timezone="Asia/Kolkata")
     for ats, seconds in intervals.items():
+        # Tier 1: jitter ±120s so 14 ATS jobs don't all fire at :00 and hit DB at same instant.
+        _trigger = CronTrigger.from_crontab(_interval_seconds_to_cron(seconds))
+        _trigger.jitter = 120
         _scheduler.add_job(
             _run_safe,
-            CronTrigger.from_crontab(_interval_seconds_to_cron(seconds)),
+            _trigger,
             args=[ats],
             id=f"poll-{ats}",
             name=f"poll {ats}",

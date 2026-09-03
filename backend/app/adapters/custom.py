@@ -43,10 +43,12 @@ PAGE_DELAY_SECONDS = 0.4
 class CustomAdapter(JobSourceAdapter):
     ats_type = "custom"
 
-    async def fetch_jobs(self, board_identifier: str) -> list[NormalizedJob]:
+    async def fetch_jobs(self, board_identifier: str, client=None) -> list[NormalizedJob]:
         base = board_identifier.rstrip("/")
         jobs: list[NormalizedJob] = []
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+
+        async def _run(client) -> None:
+            nonlocal jobs
             total: int | None = None
             offset = 0
             for page in range(MAX_PAGES):
@@ -69,6 +71,12 @@ class CustomAdapter(JobSourceAdapter):
                 if page_size < PAGE_SIZE:
                     break
                 await asyncio.sleep(PAGE_DELAY_SECONDS)
+
+        if client is not None:
+            await _run(client)
+        else:
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as _client:
+                await _run(_client)
         return jobs
 
     async def _fetch_page(self, client: httpx.AsyncClient, base: str, offset: int) -> str:

@@ -8,12 +8,17 @@ BOARDS_API_BASE = "https://boards-api.greenhouse.io/v1/boards"
 class GreenhouseAdapter(JobSourceAdapter):
     ats_type = "greenhouse"
 
-    async def fetch_jobs(self, board_identifier: str) -> list[NormalizedJob]:
+    async def fetch_jobs(self, board_identifier: str, client=None) -> list[NormalizedJob]:
         url = f"{BOARDS_API_BASE}/{board_identifier}/jobs"
-        async with RetryingClient(timeout=30.0) as client:
+        if client is not None:
             response = await client.get(url)
             response.raise_for_status()
             payload = response.json()
+        else:
+            async with RetryingClient(timeout=30.0) as _client:
+                response = await _client.get(url)
+                response.raise_for_status()
+                payload = response.json()
         return [self._normalize(job) for job in payload.get("jobs", [])]
 
     @staticmethod

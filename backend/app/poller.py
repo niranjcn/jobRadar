@@ -4,9 +4,11 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import httpx
 from supabase import Client
 
 from app.adapters import adapter_for
+from app.adapters.http import RetryingClient
 from app.config import load_settings
 from app.db import get_supabase, query
 from app.geo import map_location
@@ -15,9 +17,12 @@ from app.models import NormalizedJob
 from app.notification_queue import drain_due_notifications, load_audience, match_and_enqueue
 from app.settings_store import load_location_mapping
 
-SOURCE_CONCURRENCY = 8
+SOURCE_CONCURRENCY = 8  # fallback when ats_type not in ATS_CONCURRENCY
 MAX_POSTING_AGE_DAYS = 90
 SOURCES_FILE = Path(__file__).resolve().parent.parent / "sources.json"
+
+# Backoff for recently 404'd boards — skip re-poll for 12h to save egress and avoid hammering dead boards.
+NOT_FOUND_BACKOFF_SECONDS = 12 * 3600
 
 
 def load_source_config() -> list[dict[str, Any]]:
@@ -106,6 +111,29 @@ def fetch_existing_job_ids(supabase: Client, source_id: str) -> set[str]:
     return {row["external_job_id"] for row in rows}
 
 
+def fetch_existing_job_ids_batch(supabase: Client, source_ids: list[str]) -> dict[str, set[str]]:
+    """Batch version: one query for many sources (Tier 2).
+
+    One `SELECT ... WHERE source_id = ANY(...)` replaces N per-source queries (200 queries -> 1).
+    Returns dict source_id -> set[external_job_id]. Missing sources get empty set.
+    """
+    if not source_ids:
+        return {}
+    rows = query(
+        load_settings(),
+        "select source_id, external_job_id from jobs where source_id = any(%s::uuid[])",
+        (source_ids,),
+    )
+    out: dict[str, set[str]] = {sid: set() for sid in source_ids}
+    for row in rows:
+        sid = str(row["source_id"])
+        # query returns uuid objects that become strings via json_safe, but be safe
+        if sid not in out:
+            out[sid] = set()
+        out[sid].add(row["external_job_id"])
+    return out
+
+
 def upsert_jobs(supabase: Client, rows: list[dict[str, Any]]) -> None:
     if not rows:
         return
@@ -177,8 +205,13 @@ async def poll_source(
     source: dict[str, Any],
     adapter,
     max_posting_age_days: int = MAX_POSTING_AGE_DAYS,
+    *,
+    client=None,
+    existing_ids: set[str] | None = None,
 ) -> dict[str, Any]:
-    jobs = await adapter.fetch_jobs(source["board_identifier"])
+    """Poll one source. Tier 2: if `client` (shared RetryingClient) is given, reuse it to keep TCP alive.
+    If `existing_ids` is given, skip the per-source SELECT and use the batch result."""
+    jobs = await adapter.fetch_jobs(source["board_identifier"], client=client)
     first_check = source.get("last_checked_at") is None
     geo_settings = load_location_mapping(supabase)
     for job in jobs:
@@ -188,7 +221,9 @@ async def poll_source(
             job.is_remote = mapped["is_remote"]
     jobs = [j for j in jobs if _is_within_age(j, max_posting_age_days)]
     rows = dedupe_rows([job.to_row(source_id=source["id"]) for job in jobs])
-    existing = fetch_existing_job_ids(supabase, source["id"])
+    existing = (
+        existing_ids if existing_ids is not None else fetch_existing_job_ids(supabase, source["id"])
+    )
     new_rows = [row for row in rows if row["external_job_id"] not in existing]
     for row in rows:
         if row["external_job_id"] in existing:
@@ -326,181 +361,146 @@ async def poll_all_sources(
 
         tally = {"considered": 0, "matched": 0, "enqueued": 0}
         source_results: list[dict[str, Any]] = []
-        semaphore = asyncio.Semaphore(SOURCE_CONCURRENCY)
+        # Tier 1: per-ATS concurrency — light boards (greenhouse/lever/ashby 16) run faster,
+        # heavy boards (workday 4, successfactors 4) stay low to avoid 429/CAPTCHA.
+        # For a mixed global poll (ats_type=None), use semaphores per ATS so a heavy ATS never starves light ones.
+        try:
+            from app.config import ATS_CONCURRENCY as _ATS_CC
+        except Exception:
+            _ATS_CC = {}
+        # One semaphore per ATS type; fallback to SOURCE_CONCURRENCY for unknown types.
+        _sems: dict[str, asyncio.Semaphore] = {}
+
+        def _sem_for(ats: str) -> asyncio.Semaphore:
+            if ats not in _sems:
+                _sems[ats] = asyncio.Semaphore(int(_ATS_CC.get(ats, SOURCE_CONCURRENCY)))
+            return _sems[ats]
+
+        # Tier 1: skip recently 404'd boards for 12h to save egress and avoid hammering dead boards.
+        # This is the "404 backoff" — a board that returned 404 and was checked <12h ago is skipped.
+        # It stays `active=true` so it can recover without manual re-activation, but we don't waste time on it every hour.
+        _now = datetime.now(UTC)
+        _filtered_sources: list[dict[str, Any]] = []
+        _skipped: list[dict[str, Any]] = []
+        for _s in sources:
+            _err = _s.get("last_error") or ""
+            _last = _s.get("last_checked_at")
+            if _last is None:
+                _filtered_sources.append(_s)
+                continue
+            if isinstance(_last, str):
+                try:
+                    _last = datetime.fromisoformat(_last)
+                except ValueError:
+                    _filtered_sources.append(_s)
+                    continue
+            if "404" in _err and (_now - _last).total_seconds() < NOT_FOUND_BACKOFF_SECONDS:
+                _skipped.append(
+                    {
+                        "company": _s["company_name"],
+                        "ats_type": _s["ats_type"],
+                        "status": "skipped",
+                        "reason": "404 backoff 12h",
+                    }
+                )
+            else:
+                _filtered_sources.append(_s)
+        if _skipped:
+            print(f"poll: skipping {_skipped.__len__()} recently 404'd boards for 12h backoff")
+            # Record skipped as source_results so the timing page shows them as skipped, not missing.
+            source_results.extend(_skipped)
+        sources = _filtered_sources
+
+        # Tier 2: batch existing_ids after 404 filtering — one query for all remaining sources.
+        _existing_map: dict[str, set[str]] = {}
+        if sources:
+            try:
+                _existing_map = fetch_existing_job_ids_batch(supabase, [s["id"] for s in sources])
+            except Exception as e:
+                print(f"batch existing_ids failed, falling back to per-source: {e}")
+                _existing_map = {}
+
         total_fetched = 0
         total_new = 0
 
-        # Hybrid immediate per-company (Option C, user request: "after you check
-        # a company immediately sent me the match (else its taking alot of time)").
-        # Buffer per-source matches and flush every 5 companies or 30s, so admin
-        # gets low-latency alerts without 200 separate messages. Final
-        # numbers-only drain + failure report still happen after all 200.
-        immediate_buffer: list[dict[str, Any]] = []
-        immediate_lock = asyncio.Lock()
-        last_immediate_flush = datetime.now(UTC)
+        # Tier 2: one shared HTTP client for this poll — reuses TCP/TLS across all boards.
+        async with RetryingClient(
+            timeout=30.0, limits=httpx.Limits(max_keepalive_connections=20, max_connections=40)
+        ) as _shared_client:
 
-        async def flush_immediate(force: bool = False) -> None:
-            nonlocal immediate_buffer, last_immediate_flush
-            async with immediate_lock:
-                if not immediate_buffer:
-                    return
-                now = datetime.now(UTC)
-                if (
-                    not force
-                    and len(immediate_buffer) < 5
-                    and (now - last_immediate_flush).total_seconds() < 30
-                ):
-                    return
-                # Copy and clear under lock, then send outside lock
-                to_send = list(immediate_buffer)
-                immediate_buffer = []
-                last_immediate_flush = now
-            # Send outside lock to avoid blocking _poll
-            try:
-                from app.telegram.notifications import (
-                    MAX_MESSAGE_LENGTH,
-                    _chunk_sections,
-                    _send_message,
-                )
-
-                lines = [f"🔔 New matches — {now:%H:%M UTC} ({len(to_send)} companies)"]
-                for entry in to_send:
-                    lines.append(
-                        f"• {entry['company']} ({entry['ats_type']}): {entry['matched']} new"
-                    )
-                text = "\n".join(lines)
-                for chunk in _chunk_sections([text], MAX_MESSAGE_LENGTH):
-                    _send_message(settings.telegram_bot_token, settings.telegram_chat_id, chunk)
-                print(f"immediate: sent {len(to_send)} companies with new matches")
-            except Exception as exc:
-                print(f"immediate: FAILED - {exc}")
-
-        async def _poll(source: dict[str, Any]) -> None:
-            nonlocal total_fetched, total_new
-            async with semaphore:
-                entry: dict[str, Any] = {
-                    "company": source["company_name"],
-                    "ats_type": source["ats_type"],
-                    "status": "ok",
-                }
-                try:
-                    adapter = adapter_for(source["ats_type"])
-                    result = await poll_source(
-                        supabase, source, adapter, settings.max_posting_age_days
-                    )
-                    entry["fetched"] = result["fetched"]
-                    entry["new"] = result["new"]
-                    entry["first_check"] = result["first_check"]
-                    total_fetched += result["fetched"]
-                    total_new += result["new"]
-                    print(f"{result['company']}: fetched {result['fetched']}, new {result['new']}")
-                    # Match + enqueue IMMEDIATELY for this source — a slow board
-                    # elsewhere no longer delays these alerts (per-source pipeline).
-                    suppress = result["first_check"] and not notify_first_check
-                    new_ids = [] if suppress else list(result["new_ids"])
-                    if new_ids:
-                        outcome = match_and_enqueue(
-                            supabase,
-                            settings,
-                            company_by_source=company_by_source,
-                            audience=audience,
-                            geo_settings=geo_settings,
-                            source_id=result["source_id"],
-                            external_ids=new_ids,
-                        )
-                        tally["considered"] += outcome["considered"]
-                        tally["matched"] += outcome["matched"]
-                        tally["enqueued"] += outcome["enqueued"]
-                        # Hybrid immediate per-company (Option C): if this company
-                        # produced new matches, buffer it for near-real-time admin
-                        # alert. Flush is debounced (5 companies or 30s).
-                        if (
-                            outcome["matched"] > 0
-                            and settings.telegram_enabled
-                            and settings.telegram_bot_token
-                            and settings.telegram_chat_id
-                        ):
-                            async with immediate_lock:
-                                immediate_buffer.append(
-                                    {
-                                        "company": source["company_name"],
-                                        "ats_type": source["ats_type"],
-                                        "matched": outcome["matched"],
-                                    }
-                                )
-                            # Try debounced flush (may send if threshold reached)
-                            await flush_immediate()
-                except Exception as exc:
-                    entry["status"] = "error"
-                    entry["error"] = str(exc)[:300]
-                    print(f"{source['company_name']}: FAILED - {exc}")
+            async def _poll(source: dict[str, Any]) -> None:
+                nonlocal total_fetched, total_new
+                ats = source.get("ats_type") or "custom"
+                sem = _sem_for(ats)
+                async with sem:
+                    entry: dict[str, Any] = {
+                        "company": source["company_name"],
+                        "ats_type": ats,
+                        "status": "ok",
+                    }
+                    t0 = asyncio.get_event_loop().time()
                     try:
-                        mark_error(supabase, source, exc)
-                    except Exception as mark_err:
-                        print(f"{source['company_name']}: could not record error - {mark_err}")
-                source_results.append(entry)
+                        adapter = adapter_for(ats)
+                        result = await poll_source(
+                            supabase,
+                            source,
+                            adapter,
+                            settings.max_posting_age_days,
+                            client=_shared_client,
+                            existing_ids=_existing_map.get(source["id"]),
+                        )
+                        entry["fetched"] = result["fetched"]
+                        entry["new"] = result["new"]
+                        entry["first_check"] = result["first_check"]
+                        total_fetched += result["fetched"]
+                        total_new += result["new"]
+                        print(
+                            f"{result['company']}: fetched {result['fetched']}, new {result['new']}"
+                        )
+                        # Match + enqueue IMMEDIATELY for this source — a slow board
+                        # elsewhere no longer delays these alerts (per-source pipeline).
+                        suppress = result["first_check"] and not notify_first_check
+                        new_ids = [] if suppress else list(result["new_ids"])
+                        if new_ids:
+                            outcome = match_and_enqueue(
+                                supabase,
+                                settings,
+                                company_by_source=company_by_source,
+                                audience=audience,
+                                geo_settings=geo_settings,
+                                source_id=result["source_id"],
+                                external_ids=new_ids,
+                            )
+                            tally["considered"] += outcome["considered"]
+                            tally["matched"] += outcome["matched"]
+                            tally["enqueued"] += outcome["enqueued"]
+                    except Exception as exc:
+                        entry["status"] = "error"
+                        entry["error"] = str(exc)[:300]
+                        print(f"{source['company_name']}: FAILED - {exc}")
+                        try:
+                            mark_error(supabase, source, exc)
+                        except Exception as mark_err:
+                            print(f"{source['company_name']}: could not record error - {mark_err}")
+                    finally:
+                        # Duration per source in milliseconds — used by /poll/timings page.
+                        entry["duration_ms"] = int((asyncio.get_event_loop().time() - t0) * 1000)
+                    source_results.append(entry)
 
-        await asyncio.gather(*(_poll(source) for source in sources))
-
-        # Ensure any remaining immediate per-company alerts are flushed before
-        # the final batch drain and failure report (user: matching first, then
-        # issue report after all 200).
-        await flush_immediate(force=True)
+            await asyncio.gather(*(_poll(source) for source in sources))
 
         print(
             f"matching: considered={tally['considered']}, "
             f"matched={tally['matched']}, enqueued={tally['enqueued']}"
         )
 
-        # Flush everything already due right now — accounts with delay 0 get
-        # their alerts here. Delayed accounts are released by the scheduler's
-        # drain ticker when scheduled_for passes.
+        # Batch drain after all 200 are checked — matching is sent first,
+        # numbers-only, and only when there are new matches (early-return
+        # when pending==0 in notification_queue). No failure report, as
+        # requested: only new matching job alerts like before.
         drained = drain_due_notifications(settings, supabase)
         telegram_sent = drained["sent_telegram"]
         email_sent = drained["sent_email"]
-
-        # Failure report: after all checks, summarize which sites failed (if any).
-        # Separate from job-match alerts (which only fire when pending > 0).
-        try:
-            failed = [s for s in source_results if s.get("status") == "error"]
-            if (
-                failed
-                and settings.telegram_enabled
-                and settings.telegram_bot_token
-                and settings.telegram_chat_id
-            ):
-                # Reuse the same helper as the legacy poller (main branch).
-                # Import locally to avoid circular import at module load.
-                try:
-                    from app.telegram.notifications import send_poll_failure_report
-                except ImportError:
-                    send_poll_failure_report = None  # type: ignore
-                if send_poll_failure_report is not None:
-                    send_poll_failure_report(
-                        bot_token=settings.telegram_bot_token,
-                        chat_id=settings.telegram_chat_id,
-                        sources=source_results,
-                        run_id=run_id,
-                    )
-                    print(f"failure-report: sent for {len(failed)} failed source(s)")
-                else:
-                    # Fallback: numbers-only (no per-site list) as requested
-                    import json
-
-                    import httpx
-
-                    text = f"⚠️ Poll completed — {datetime.now(UTC):%Y-%m-%d %H:%M UTC}\n{len(source_results)} checked, {len(source_results) - len(failed)} ok, {len(failed)} failed (run {run_id[:8]}…)"
-                    with httpx.Client(timeout=30) as client:
-                        client.post(
-                            f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
-                            content=json.dumps(
-                                {"chat_id": settings.telegram_chat_id, "text": text}
-                            ),
-                            headers={"Content-Type": "application/json"},
-                        )
-                    print(f"failure-report: sent (fallback) for {len(failed)} failed source(s)")
-        except Exception as exc:
-            print(f"failure-report: FAILED - {exc}")
 
         finish_poll_run(
             supabase,
