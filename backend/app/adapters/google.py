@@ -43,7 +43,7 @@ MAX_PAGES = 100
 class GoogleAdapter(JobSourceAdapter):
     ats_type = "google"
 
-    async def fetch_jobs(self, board_identifier: str) -> list[NormalizedJob]:
+    async def fetch_jobs(self, board_identifier: str, client=None) -> list[NormalizedJob]:
         jobs: list[NormalizedJob] = []
         async with RetryingClient(timeout=30.0) as client:
             page = 1
