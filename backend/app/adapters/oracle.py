@@ -60,7 +60,7 @@ class OracleAdapter(JobSourceAdapter):
     def _rest_base(self) -> str:
         return "/careersection/rest/jobboard/searchjobs"
 
-    async def fetch_jobs(self, board_identifier: str) -> list[NormalizedJob]:
+    async def fetch_jobs(self, board_identifier: str, client=None) -> list[NormalizedJob]:
         if _is_fusion(board_identifier):
             return await self._fetch_fusion_jobs(board_identifier)
         return await self._fetch_taleo_jobs(board_identifier)
