@@ -221,7 +221,9 @@ async def poll_source(
             job.is_remote = mapped["is_remote"]
     jobs = [j for j in jobs if _is_within_age(j, max_posting_age_days)]
     rows = dedupe_rows([job.to_row(source_id=source["id"]) for job in jobs])
-    existing = existing_ids if existing_ids is not None else fetch_existing_job_ids(supabase, source["id"])
+    existing = (
+        existing_ids if existing_ids is not None else fetch_existing_job_ids(supabase, source["id"])
+    )
     new_rows = [row for row in rows if row["external_job_id"] not in existing]
     for row in rows:
         if row["external_job_id"] in existing:
@@ -381,7 +383,7 @@ async def poll_all_sources(
         _filtered_sources: list[dict[str, Any]] = []
         _skipped: list[dict[str, Any]] = []
         for _s in sources:
-            _err = (_s.get("last_error") or "")
+            _err = _s.get("last_error") or ""
             _last = _s.get("last_checked_at")
             if _last is None:
                 _filtered_sources.append(_s)
@@ -393,7 +395,14 @@ async def poll_all_sources(
                     _filtered_sources.append(_s)
                     continue
             if "404" in _err and (_now - _last).total_seconds() < NOT_FOUND_BACKOFF_SECONDS:
-                _skipped.append({"company": _s["company_name"], "ats_type": _s["ats_type"], "status": "skipped", "reason": "404 backoff 12h"})
+                _skipped.append(
+                    {
+                        "company": _s["company_name"],
+                        "ats_type": _s["ats_type"],
+                        "status": "skipped",
+                        "reason": "404 backoff 12h",
+                    }
+                )
             else:
                 _filtered_sources.append(_s)
         if _skipped:
@@ -445,7 +454,9 @@ async def poll_all_sources(
                         entry["first_check"] = result["first_check"]
                         total_fetched += result["fetched"]
                         total_new += result["new"]
-                        print(f"{result['company']}: fetched {result['fetched']}, new {result['new']}")
+                        print(
+                            f"{result['company']}: fetched {result['fetched']}, new {result['new']}"
+                        )
                         # Match + enqueue IMMEDIATELY for this source — a slow board
                         # elsewhere no longer delays these alerts (per-source pipeline).
                         suppress = result["first_check"] and not notify_first_check

@@ -67,7 +67,9 @@ class RemotiveAdapter(JobSourceAdapter):
         return NormalizedJob(
             external_job_id=str(job.get("id")),
             title=(job.get("title") or "").strip(),
-            location=job.get("candidate_required_location") or job.get("candidate_required_location") or "Remote",
+            location=job.get("candidate_required_location")
+            or job.get("candidate_required_location")
+            or "Remote",
             url=job.get("url"),
             description=job.get("description") or "",
             raw_payload=job,

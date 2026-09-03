@@ -47,7 +47,9 @@ class AvatureAdapter(JobSourceAdapter):
         if not search_url.endswith("/SearchJobs"):
             search_url = f"{search_url}/SearchJobs"
         jobs: list[NormalizedJob] = []
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+
+        async def _run(client) -> None:
+            nonlocal jobs
             offset_param = None
             per_page_param = None
             offset = 0
@@ -74,6 +76,12 @@ class AvatureAdapter(JobSourceAdapter):
                 if len(rows) < 6:
                     break
                 await asyncio.sleep(PAGE_DELAY_SECONDS)
+
+        if client is not None:
+            await _run(client)
+        else:
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as _client:
+                await _run(_client)
         return jobs
 
     async def _fetch_page(

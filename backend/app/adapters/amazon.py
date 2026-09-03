@@ -31,7 +31,9 @@ class AmazonAdapter(JobSourceAdapter):
 
     async def fetch_jobs(self, board_identifier: str, client=None) -> list[NormalizedJob]:
         jobs: list[NormalizedJob] = []
-        async with RetryingClient(timeout=30.0) as client:
+
+        async def _fetch(client) -> None:
+            nonlocal jobs
             offset = 0
             while offset <= MAX_OFFSET:
                 params: dict[str, str | int] = {
@@ -51,6 +53,12 @@ class AmazonAdapter(JobSourceAdapter):
                 offset += PAGE_SIZE
                 if len(entries) < PAGE_SIZE or (total and offset >= total):
                     break
+
+        if client is not None:
+            await _fetch(client)
+        else:
+            async with RetryingClient(timeout=30.0) as _client:
+                await _fetch(_client)
         return jobs
 
     @staticmethod
