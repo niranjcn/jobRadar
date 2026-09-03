@@ -14,13 +14,20 @@ RETRY_BACKOFF_SECONDS = 2.0
 class LeverAdapter(JobSourceAdapter):
     ats_type = "lever"
 
-    async def fetch_jobs(self, board_identifier: str) -> list[NormalizedJob]:
+    async def fetch_jobs(self, board_identifier: str, client=None) -> list[NormalizedJob]:
         url = f"{POSTINGS_API_BASE}/{board_identifier}?mode=json"
         last_error: Exception | None = None
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        # Tier 2: reuse shared client if given (keeps connection alive); otherwise create one.
+        _client = client
+        _needs_close = False
+        if _client is None:
+            _client = httpx.AsyncClient(timeout=30.0)
+            _needs_close = True
+            await _client.__aenter__()
+        try:
             for attempt in range(1, MAX_RETRIES + 1):
                 try:
-                    response = await client.get(url)
+                    response = await _client.get(url)
                     if response.status_code == 200:
                         payload = response.json()
                         return [self._normalize(job) for job in payload]
@@ -35,7 +42,10 @@ class LeverAdapter(JobSourceAdapter):
                     last_error = exc
                 if attempt < MAX_RETRIES:
                     await asyncio.sleep(RETRY_BACKOFF_SECONDS * attempt)
-        raise last_error or RuntimeError("lever fetch failed with no error")
+            raise last_error or RuntimeError("lever fetch failed with no error")
+        finally:
+            if _needs_close:
+                await _client.__aexit__(None, None, None)
 
     @staticmethod
     def _normalize(posting: dict) -> NormalizedJob:
