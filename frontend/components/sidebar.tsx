@@ -26,6 +26,7 @@ const SYSTEM_NAV = [
   { href: "/sources", label: "Sources", icon: "◈" },
   { href: "/schedule", label: "Schedule", icon: "⏱" },
   { href: "/runs", label: "Runs", icon: "▶" },
+  { href: "/timings", label: "Timings", icon: "◷" },
   { href: "/settings", label: "Settings", icon: "⚙" },
 ];
 
