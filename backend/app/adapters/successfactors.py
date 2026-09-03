@@ -30,7 +30,7 @@ LOCALE = "en_US"
 class SuccessFactorsAdapter(JobSourceAdapter):
     ats_type = "successfactors"
 
-    async def fetch_jobs(self, board_identifier: str) -> list[NormalizedJob]:
+    async def fetch_jobs(self, board_identifier: str, client=None) -> list[NormalizedJob]:
         if "/search-jobs" in board_identifier:
             return await self._fetch_html_jobs(board_identifier)
         if "/services/recruiting/v1/jobs" in board_identifier:
