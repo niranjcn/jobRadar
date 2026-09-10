@@ -18,7 +18,10 @@ export default function Home() {
           right opportunity appears.
         </p>
         <div className="mt-8 flex justify-center gap-3">
-          <Link href="/dashboard" className="btn-primary">
+          <Link href="/browse" className="btn-primary">
+            Browse Jobs
+          </Link>
+          <Link href="/dashboard" className="btn-ghost">
             Get Started
           </Link>
           <Link href="/sources" className="btn-ghost">
