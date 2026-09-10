@@ -17,6 +17,7 @@ import type {
   PollRunsResult,
   Preferences,
   Preset,
+  PublicCompany,
   Role,
   ScheduleResult,
   SourceResult,
@@ -74,6 +75,7 @@ export const api = {
     company?: string;
     country?: string;
     since?: string;
+    remote_only?: boolean;
     limit?: number;
     offset?: number;
   }) => {
@@ -83,11 +85,38 @@ export const api = {
     if (params?.company) search.set("company", params.company);
     if (params?.country) search.set("country", params.country);
     if (params?.since) search.set("since", params.since);
+    if (params?.remote_only) search.set("remote_only", "true");
     if (params?.limit) search.set("limit", String(params.limit));
     if (params?.offset) search.set("offset", String(params.offset));
     const qs = search.toString();
     return request<JobsResponse>(`/api/jobs${qs ? `?${qs}` : ""}`);
   },
+  publicJobs: (params?: {
+    q?: string;
+    ats?: string;
+    company?: string;
+    country?: string;
+    since?: string;
+    remote_only?: boolean;
+    mode?: string;
+    limit?: number;
+    offset?: number;
+  }) => {
+    const search = new URLSearchParams();
+    if (params?.q) search.set("q", params.q);
+    if (params?.ats) search.set("ats", params.ats);
+    if (params?.company) search.set("company", params.company);
+    if (params?.country) search.set("country", params.country);
+    if (params?.since) search.set("since", params.since);
+    if (params?.remote_only) search.set("remote_only", "true");
+    if (params?.mode) search.set("mode", params.mode);
+    if (params?.limit) search.set("limit", String(params.limit));
+    if (params?.offset) search.set("offset", String(params.offset));
+    const qs = search.toString();
+    return request<JobsResponse>(`/api/public/jobs${qs ? `?${qs}` : ""}`);
+  },
+  publicJob: (id: string) => request<Job>(`/api/public/jobs/${id}`),
+  publicCompanies: () => request<{ companies: PublicCompany[] }>("/api/public/companies"),
   jobFilters: () => request<JobFilters>("/api/jobs/filters"),
   job: (id: string) => request<Job>(`/api/jobs/${id}`),
   companies: () => request<{ companies: Company[] }>("/api/companies"),
@@ -97,12 +126,13 @@ export const api = {
     url?: string;
     ats_type?: string;
     board_identifier?: string;
+    domain?: string;
   }) =>
-    request<{ id: string; company_name: string; ats_type: string; board_identifier: string }>(
+    request<{ id: string; company_name: string; ats_type: string; board_identifier: string; domain?: string | null }>(
       "/api/sources",
       { method: "POST", body: JSON.stringify(payload) },
     ),
-  updateSource: (id: string, payload: { active?: boolean; board_identifier?: string }) =>
+  updateSource: (id: string, payload: { active?: boolean; board_identifier?: string; domain?: string }) =>
     request<{ ok: boolean }>(`/api/sources/${id}`, {
       method: "PATCH",
       body: JSON.stringify(payload),
