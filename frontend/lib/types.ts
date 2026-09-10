@@ -18,6 +18,7 @@ export interface Job {
   first_seen_at: string | null;
   company: string;
   ats_type: string;
+  domain?: string | null;
   countries: string[];
   is_remote: boolean;
   match_score: number | null;
@@ -35,6 +36,7 @@ export interface Company {
   id: string;
   company_name: string;
   ats_type: string;
+  domain?: string | null;
   last_checked_at: string | null;
   active: boolean;
   job_count: number;
@@ -44,6 +46,7 @@ export interface Source {
   id: string;
   company_name: string;
   ats_type: string;
+  domain?: string | null;
   board_identifier: string;
   last_checked_at: string | null;
   active: boolean;
@@ -66,6 +69,7 @@ export interface ScheduleEntry {
   interval_seconds: number;
   overridden: boolean;
   env_interval_seconds: number;
+  concurrency: number;
   last_checked_at: string | null;
   next_run_at: string | null;
   source_count: number;
@@ -120,6 +124,7 @@ export interface Notification {
   sent_at: string;
   title: string | null;
   company_name: string | null;
+  domain?: string | null;
 }
 
 export interface Preferences {
@@ -139,6 +144,7 @@ export interface Preferences {
 
 export interface CompanyMatchSummary {
   company: string;
+  domain?: string | null;
   matches: number;
 }
 
@@ -182,6 +188,14 @@ export interface JobFilters {
   companies: string[];
   countries: string[];
   ats_types: string[];
+}
+
+export interface PublicCompany {
+  company_name: string;
+  domain?: string | null;
+  ats_type: string;
+  job_count: number;
+  latest_job_at: string | null;
 }
 
 // ---------- access / subscription ----------

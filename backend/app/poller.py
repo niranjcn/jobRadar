@@ -10,7 +10,7 @@ from supabase import Client
 from app.adapters import adapter_for
 from app.adapters.http import RetryingClient
 from app.config import load_settings
-from app.db import get_supabase, query
+from app.db import close_async_pool, get_supabase, open_async_pool, query_async
 from app.geo import map_location
 from app.matcher import load_notification_settings, sync_preferences
 from app.models import NormalizedJob
@@ -23,6 +23,13 @@ SOURCES_FILE = Path(__file__).resolve().parent.parent / "sources.json"
 
 # Backoff for recently 404'd boards — skip re-poll for 12h to save egress and avoid hammering dead boards.
 NOT_FOUND_BACKOFF_SECONDS = 12 * 3600
+
+# Quiet-board backoff: a healthy board with this many consecutive no-new runs is
+# polled every QUIET_SKIP_MULTIPLE-th interval on scheduled per-ATS runs (it
+# only delays discovery, never misses: any new job resets the counter, manual
+# and global runs always poll everything).
+QUIET_RUNS_THRESHOLD = 5
+QUIET_SKIP_MULTIPLE = 3
 
 
 def load_source_config() -> list[dict[str, Any]]:
@@ -38,6 +45,7 @@ def sync_sources(supabase: Client) -> None:
                     "company_name": entry["company_name"],
                     "ats_type": entry["ats_type"],
                     "board_identifier": entry["board_identifier"],
+                    "domain": (entry.get("domain") or "").strip().lower() or None,
                     "active": entry.get("active", True),
                 }
             ],
@@ -48,6 +56,21 @@ def sync_sources(supabase: Client) -> None:
 def fetch_sources(supabase: Client) -> list[dict[str, Any]]:
     response = supabase.table("sources").select("*").eq("active", True).execute()
     return response.data
+
+
+def stale_after_seconds(source: dict[str, Any], interval: int) -> int:
+    """How long without a check before a source counts as stale.
+
+    Quiet boards (QUIET_RUNS_THRESHOLD+ consecutive no-new runs) are only
+    polled every QUIET_SKIP_MULTIPLE-th interval by design, so judging them
+    by the normal 2x-interval bar would flag healthy-but-quiet boards as
+    stale forever. They get 2x their own (slower) cadence instead. Boards
+    whose last check errored keep the strict bar — errors deserve attention.
+    """
+    quiet = int(source.get("quiet_runs") or 0) >= QUIET_RUNS_THRESHOLD
+    if quiet and not source.get("last_error"):
+        return interval * QUIET_SKIP_MULTIPLE * 2
+    return interval * 2
 
 
 def source_status(source: dict[str, Any], interval: int, now: datetime) -> tuple[str, str | None]:
@@ -61,7 +84,7 @@ def source_status(source: dict[str, Any], interval: int, now: datetime) -> tuple
             last = datetime.fromisoformat(last)
         except ValueError:
             return "stale", "last_checked_at unparseable"
-    if now - last > timedelta(seconds=interval * 2):
+    if now - last > timedelta(seconds=stale_after_seconds(source, interval)):
         if last_error:
             return "stale", f"last check failed: {last_error}"
         return (
@@ -97,13 +120,13 @@ def unhealthy_sources(supabase: Client, intervals: dict[str, int]) -> list[dict[
     return result
 
 
-def fetch_existing_job_ids(supabase: Client, source_id: str) -> set[str]:
+async def fetch_existing_job_ids(supabase: Client, source_id: str) -> set[str]:
     """External job IDs already stored for a source.
 
-    Uses a single pooled SQL query instead of paginating 1000-row REST pages
+    Uses a single pooled async SQL query instead of paginating 1000-row REST pages
     (a 20k-job source used to cost 20 sequential HTTP round-trips per poll).
     """
-    rows = query(
+    rows = await query_async(
         load_settings(),
         "select external_job_id from jobs where source_id = %s",
         (source_id,),
@@ -111,15 +134,17 @@ def fetch_existing_job_ids(supabase: Client, source_id: str) -> set[str]:
     return {row["external_job_id"] for row in rows}
 
 
-def fetch_existing_job_ids_batch(supabase: Client, source_ids: list[str]) -> dict[str, set[str]]:
-    """Batch version: one query for many sources (Tier 2).
+async def fetch_existing_job_ids_batch(
+    supabase: Client, source_ids: list[str]
+) -> dict[str, set[str]]:
+    """Batch version: one async query for many sources (Tier 2).
 
     One `SELECT ... WHERE source_id = ANY(...)` replaces N per-source queries (200 queries -> 1).
     Returns dict source_id -> set[external_job_id]. Missing sources get empty set.
     """
     if not source_ids:
         return {}
-    rows = query(
+    rows = await query_async(
         load_settings(),
         "select source_id, external_job_id from jobs where source_id = any(%s::uuid[])",
         (source_ids,),
@@ -140,10 +165,60 @@ def upsert_jobs(supabase: Client, rows: list[dict[str, Any]]) -> None:
     supabase.table("jobs").upsert(rows, on_conflict="source_id,external_job_id").execute()
 
 
-def mark_checked(supabase: Client, source_id: str) -> None:
+def mark_checked(supabase: Client, source_id: str, quiet_runs: int = 0) -> None:
     supabase.table("sources").update(
-        {"last_checked_at": datetime.now(UTC).isoformat(), "last_error": None}
+        {
+            "last_checked_at": datetime.now(UTC).isoformat(),
+            "last_error": None,
+            "quiet_runs": quiet_runs,
+        }
     ).eq("id", source_id).execute()
+
+
+def next_quiet_runs(source: dict[str, Any], first_check: bool, new_count: int) -> int:
+    """Consecutive no-new counter for quiet-board backoff.
+
+    Resets on first checks and on any new job; otherwise increments. Error runs
+    never reach here (mark_error path), so failures don't count as quiet.
+    """
+    if first_check or new_count > 0:
+        return 0
+    return int(source.get("quiet_runs") or 0) + 1
+
+
+def quiet_due(
+    source: dict[str, Any],
+    interval: int,
+    now: datetime,
+    *,
+    triggered_by: str,
+    ats_type: str | None,
+) -> tuple[bool, str | None]:
+    """Whether a source is due on this run (quiet-board backoff).
+
+    Returns (True, None) when due, (False, reason) when skipped. Only scheduled
+    per-ATS runs skip; manual and global (ats_type=None) runs always poll
+    everything, so nothing is ever missed — quiet boards just check less often.
+    """
+    if triggered_by != "scheduled" or not ats_type:
+        return True, None
+    quiet = int(source.get("quiet_runs") or 0)
+    if quiet < QUIET_RUNS_THRESHOLD:
+        return True, None
+    last = source.get("last_checked_at")
+    if last is None:
+        return True, None
+    if isinstance(last, str):
+        try:
+            last = datetime.fromisoformat(last)
+        except ValueError:
+            return True, None
+    if (now - last).total_seconds() < interval * QUIET_SKIP_MULTIPLE:
+        return False, (
+            f"quiet board: {quiet} consecutive no-new runs, "
+            f"checking every {QUIET_SKIP_MULTIPLE}rd interval"
+        )
+    return True, None
 
 
 def mark_error(supabase: Client, source: dict[str, Any], exc: Exception) -> None:
@@ -208,12 +283,16 @@ async def poll_source(
     *,
     client=None,
     existing_ids: set[str] | None = None,
+    geo_settings: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Poll one source. Tier 2: if `client` (shared RetryingClient) is given, reuse it to keep TCP alive.
-    If `existing_ids` is given, skip the per-source SELECT and use the batch result."""
+    If `existing_ids` is given, skip the per-source SELECT and use the batch result.
+    If `geo_settings` is given, reuse it instead of re-reading the location
+    mapping from the DB (one fewer query per source per poll)."""
     jobs = await adapter.fetch_jobs(source["board_identifier"], client=client)
     first_check = source.get("last_checked_at") is None
-    geo_settings = load_location_mapping(supabase)
+    if geo_settings is None:
+        geo_settings = load_location_mapping(supabase)
     for job in jobs:
         if job.location:
             mapped = map_location(job.location, geo_settings)
@@ -222,14 +301,16 @@ async def poll_source(
     jobs = [j for j in jobs if _is_within_age(j, max_posting_age_days)]
     rows = dedupe_rows([job.to_row(source_id=source["id"]) for job in jobs])
     existing = (
-        existing_ids if existing_ids is not None else fetch_existing_job_ids(supabase, source["id"])
+        existing_ids
+        if existing_ids is not None
+        else await fetch_existing_job_ids(supabase, source["id"])
     )
     new_rows = [row for row in rows if row["external_job_id"] not in existing]
     for row in rows:
         if row["external_job_id"] in existing:
             row.pop("description", None)
     upsert_jobs(supabase, rows)
-    mark_checked(supabase, source["id"])
+    mark_checked(supabase, source["id"], next_quiet_runs(source, first_check, len(new_rows)))
     return {
         "company": source["company_name"],
         "source_id": source["id"],
@@ -338,6 +419,9 @@ async def poll_all_sources(
         run_id = create_poll_run(supabase, triggered_by=triggered_by, ats_type=ats_type)
 
     try:
+        # Tier 3 / Step C: open the shared async pool for this run's event loop.
+        # Always closed in the finally below, on every exit path.
+        await open_async_pool(settings)
         sync_sources(supabase)
         prune_old_jobs(supabase, settings.job_retention_days)
         sources = fetch_sources(supabase)
@@ -361,13 +445,18 @@ async def poll_all_sources(
 
         tally = {"considered": 0, "matched": 0, "enqueued": 0}
         source_results: list[dict[str, Any]] = []
-        # Tier 1: per-ATS concurrency — light boards (greenhouse/lever/ashby 16) run faster,
-        # heavy boards (workday 4, successfactors 4) stay low to avoid 429/CAPTCHA.
-        # For a mixed global poll (ats_type=None), use semaphores per ATS so a heavy ATS never starves light ones.
-        try:
-            from app.config import ATS_CONCURRENCY as _ATS_CC
-        except Exception:
-            _ATS_CC = {}
+        # Tier 1: per-ATS concurrency from settings (env-overridable via
+        # POLL_CONCURRENCY_{ATS}; heavy boards run 10-way since rate limits are
+        # per-host and the client backs off on 429). For a mixed global poll
+        # (ats_type=None), use semaphores per ATS so a heavy ATS never starves light ones.
+        _ATS_CC = dict(getattr(settings, "ats_concurrency", None) or {})
+        if not _ATS_CC:
+            try:
+                from app.config import ATS_CONCURRENCY as _ATS_DEFAULTS
+
+                _ATS_CC = dict(_ATS_DEFAULTS)
+            except Exception:
+                _ATS_CC = {}
         # One semaphore per ATS type; fallback to SOURCE_CONCURRENCY for unknown types.
         _sems: dict[str, asyncio.Semaphore] = {}
 
@@ -411,11 +500,41 @@ async def poll_all_sources(
             source_results.extend(_skipped)
         sources = _filtered_sources
 
-        # Tier 2: batch existing_ids after 404 filtering — one query for all remaining sources.
+        # Quiet-board backoff: healthy boards with 5+ consecutive no-new runs are
+        # polled every 3rd interval on scheduled per-ATS runs. Manual and global
+        # runs always poll everything (see quiet_due).
+        _quiet_skipped: list[dict[str, Any]] = []
+        if triggered_by == "scheduled" and ats_type:
+            _interval = settings.ats_intervals.get(ats_type, 3600)
+            _still_due: list[dict[str, Any]] = []
+            for _s in sources:
+                _due, _reason = quiet_due(
+                    _s, _interval, _now, triggered_by=triggered_by, ats_type=ats_type
+                )
+                if _due:
+                    _still_due.append(_s)
+                else:
+                    _quiet_skipped.append(
+                        {
+                            "company": _s["company_name"],
+                            "ats_type": _s["ats_type"],
+                            "status": "skipped",
+                            "reason": _reason,
+                        }
+                    )
+            if _quiet_skipped:
+                print(f"poll: skipping {_quiet_skipped.__len__()} quiet boards for this run")
+                source_results.extend(_quiet_skipped)
+            sources = _still_due
+
+        # Tier 2: batch existing_ids after 404 filtering — one async query for
+        # all remaining sources.
         _existing_map: dict[str, set[str]] = {}
         if sources:
             try:
-                _existing_map = fetch_existing_job_ids_batch(supabase, [s["id"] for s in sources])
+                _existing_map = await fetch_existing_job_ids_batch(
+                    supabase, [s["id"] for s in sources]
+                )
             except Exception as e:
                 print(f"batch existing_ids failed, falling back to per-source: {e}")
                 _existing_map = {}
@@ -424,8 +543,9 @@ async def poll_all_sources(
         total_new = 0
 
         # Tier 2: one shared HTTP client for this poll — reuses TCP/TLS across all boards.
+        # Limits sized for 10-way per-ATS concurrency with overlapping ATS runs.
         async with RetryingClient(
-            timeout=30.0, limits=httpx.Limits(max_keepalive_connections=20, max_connections=40)
+            timeout=30.0, limits=httpx.Limits(max_keepalive_connections=50, max_connections=100)
         ) as _shared_client:
 
             async def _poll(source: dict[str, Any]) -> None:
@@ -448,6 +568,7 @@ async def poll_all_sources(
                             settings.max_posting_age_days,
                             client=_shared_client,
                             existing_ids=_existing_map.get(source["id"]),
+                            geo_settings=geo_settings,
                         )
                         entry["fetched"] = result["fetched"]
                         entry["new"] = result["new"]
@@ -531,3 +652,8 @@ async def poll_all_sources(
         except Exception:
             pass
         return {"run_id": run_id, "status": "failed", "error": str(exc)[:500]}
+    finally:
+        try:
+            await close_async_pool()
+        except Exception as exc:
+            print(f"poll run {run_id}: async pool close failed: {exc}")

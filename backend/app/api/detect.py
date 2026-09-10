@@ -21,6 +21,9 @@ def slugify(name: str) -> str:
 
 def _detect_from_url(url: str) -> dict | None:
     host = urlparse(url).hostname or ""
+    if "emiratesgroupcareers.com" in host:
+        root = f"{urlparse(url).scheme or 'https'}://{host}".rstrip("/")
+        return {"ats_type": "emirates", "board_identifier": root}
     if "myworkdayjobs.com" in host:
         return {"ats_type": "workday", "board_identifier": url.rstrip("/")}
     if "taleo.net" in host or "/careersection" in url:

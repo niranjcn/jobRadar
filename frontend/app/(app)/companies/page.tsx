@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { CompanyLogo } from "@/components/company-logo";
 import { RadarLoading } from "@/components/radar-loading";
 import { api } from "@/lib/api";
 import { atsLabel, timeAgo } from "@/lib/format";
@@ -67,7 +68,12 @@ export default function CompaniesPage() {
                 <tbody>
                   {visible.map((c) => (
                     <tr key={c.id} className="border-b border-border/50 last:border-0 hover:bg-elevated">
-                      <td className="px-4 py-3 font-medium text-text">{c.company_name}</td>
+                      <td className="px-4 py-3 font-medium text-text">
+                        <span className="flex items-center gap-2.5">
+                          <CompanyLogo name={c.company_name} domain={c.domain} size="sm" />
+                          {c.company_name}
+                        </span>
+                      </td>
                       <td className="px-4 py-3 text-text-secondary">{atsLabel(c.ats_type)}</td>
                       <td className="px-4 py-3 text-text-secondary">{c.job_count}</td>
                       <td className="px-4 py-3 text-text-muted">{timeAgo(c.last_checked_at)}</td>

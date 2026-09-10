@@ -90,6 +90,9 @@ export default function SchedulePage() {
                         {entry.source_count} source{entry.source_count === 1 ? "" : "s"}
                       </span>
                     )}
+                    <span className="rounded bg-elevated px-1.5 py-0.5 font-mono text-[11px] text-text-muted">
+                      ×{entry.concurrency ?? 8}
+                    </span>
                     {entry.overridden && (
                       <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[11px] text-accent">custom</span>
                     )}

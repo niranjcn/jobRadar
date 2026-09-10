@@ -3,6 +3,7 @@ from app.adapters.ashby import AshbyAdapter
 from app.adapters.avature import AvatureAdapter
 from app.adapters.base import JobSourceAdapter
 from app.adapters.custom import CustomAdapter
+from app.adapters.emirates import EmiratesAdapter
 from app.adapters.google import GoogleAdapter
 from app.adapters.greenhouse import GreenhouseAdapter
 from app.adapters.icims import IcimsAdapter
@@ -44,4 +45,6 @@ def adapter_for(ats_type: str) -> JobSourceAdapter:
         return WeworkremotelyAdapter()
     if ats_type == CustomAdapter.ats_type:
         return CustomAdapter()
+    if ats_type == EmiratesAdapter.ats_type:
+        return EmiratesAdapter()
     raise ValueError(f"no adapter registered for ats_type={ats_type!r}")

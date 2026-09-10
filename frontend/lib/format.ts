@@ -82,6 +82,7 @@ export function atsLabel(ats: string): string {
     successfactors: "SAP SuccessFactors",
     phenom: "Phenom",
     avature: "Avature",
+    emirates: "Emirates",
     google: "Google",
     amazon: "Amazon",
     custom: "Custom",
@@ -91,7 +92,7 @@ export function atsLabel(ats: string): string {
   return map[ats] || ats;
 }
 
-export const ATS_ORDER = ["workday", "greenhouse", "lever", "ashby", "oracle", "icims", "successfactors", "phenom", "avature", "google", "amazon", "remotive", "weworkremotely", "custom"];
+export const ATS_ORDER = ["workday", "greenhouse", "lever", "ashby", "oracle", "icims", "successfactors", "phenom", "avature", "emirates", "google", "amazon", "remotive", "weworkremotely", "custom"];
 
 export function formatDuration(ms: number | null | undefined): string {
   if (ms == null || Number.isNaN(ms)) return "—";

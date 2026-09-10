@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Emirates Group adapter (`emirates` ATS type) using the official public JSON
+  API at `emiratesgroupcareers.com/api/v1/jobs`; source auto-detection for
+  `emiratesgroupcareers.com` URLs; `Emirates Group` added to `sources.json`.
+- Public jobs API (`/api/public/jobs`, `/api/public/jobs/filters`,
+  `/api/public/jobs/{id}`) with keyword, company, country, source, posted-date,
+  and remote-only filters — no login required.
+- Public `/browse` jobs page (plus `/browse/[id]` detail) with every available
+  filter; filters persist across refresh via URL query params + localStorage.
 - GitHub Actions CI (ruff lint + format, backend unit tests, frontend tests).
 - Pull request and issue templates; `CONTRIBUTING.md` and `CHANGELOG.md`.
 

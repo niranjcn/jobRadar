@@ -26,6 +26,31 @@ describe("api client", () => {
     expect(String(url)).toContain("limit=10");
   });
 
+  it("builds query string for public jobs with all filters", async () => {
+    mockFetch({ jobs: [], total: 0, limit: 20, offset: 0 });
+    await api.publicJobs({
+      q: "engineer",
+      ats: "emirates",
+      company: "Emirates Group",
+      country: "AE",
+      since: "2026-01-01T00:00:00.000Z",
+      remote_only: true,
+      limit: 20,
+    });
+    const [url] = (globalThis.fetch as any).mock.calls[0];
+    expect(String(url)).toContain("/api/public/jobs?");
+    expect(String(url)).toContain("q=engineer");
+    expect(String(url)).toContain("ats=emirates");
+    expect(String(url)).toContain("remote_only=true");
+  });
+
+  it("fetches a single public job", async () => {
+    mockFetch({ id: "1", title: "Engineer" });
+    await api.publicJob("1");
+    const [url] = (globalThis.fetch as any).mock.calls[0];
+    expect(String(url)).toContain("/api/public/jobs/1");
+  });
+
   it("calls stats with no query", async () => {
     mockFetch({ jobs_total: 10, jobs_new_7d: 2, companies: 3, matches: 1, avg_match_score: 80 });
     await api.stats();

@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Avatar, CountryBadges, MatchBadge } from "@/components/job-card";
+import { CountryBadges, MatchBadge } from "@/components/job-card";
+import { CompanyLogo } from "@/components/company-logo";
 import { RadarLoading } from "@/components/radar-loading";
 import { api } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
@@ -82,7 +83,7 @@ export default function JobDetailPage() {
 
       <div className="mt-6 flex items-start justify-between gap-6">
         <div className="flex items-center gap-4">
-          <Avatar name={job.company} size="lg" />
+          <CompanyLogo name={job.company} domain={job.domain} size="lg" />
           <div>
             <p className="text-sm text-text-secondary">{job.company}</p>
             <h1 className="mt-0.5 text-2xl font-semibold">{job.title}</h1>

@@ -15,25 +15,30 @@ ATS_DEFAULT_SECONDS = {
     "successfactors": 7200,
     "phenom": 3600,
     "avature": 21600,
+    "emirates": 3600,
     "google": 3600,
     "amazon": 3600,
     "remotive": 3600,
     "weworkremotely": 3600,
 }
 
-# Per-ATS concurrency for Tier 1: light boards handle 16 parallel, heavy boards stay low to avoid 429/CAPTCHA.
+# Per-ATS concurrency for Tier 1: light boards handle 16 parallel. Heavy boards
+# run 10-way: rate limits are per-host (each company is a different tenant
+# host) and the retrying client backs off on 429, so cross-board concurrency is
+# safe. Tune per ATS without code changes via POLL_CONCURRENCY_{ATS} env vars.
 ATS_CONCURRENCY = {
     "greenhouse": 16,
     "lever": 16,
     "ashby": 16,
     "remotive": 16,
     "weworkremotely": 16,
-    "workday": 4,
-    "oracle": 6,
-    "successfactors": 4,
+    "workday": 10,
+    "oracle": 10,
+    "successfactors": 10,
     "phenom": 8,
-    "avature": 4,
+    "avature": 10,
     "custom": 8,
+    "emirates": 8,
     "icims": 8,
     "google": 8,
     "amazon": 8,
@@ -58,6 +63,7 @@ class Settings:
         telegram_chat_id: str,
         telegram_mini_app_url: str,
         ats_intervals: dict[str, int],
+        ats_concurrency: dict[str, int] | None = None,
         secret_key: str = "",
         require_auth: bool = False,
         session_ttl_hours: int = 168,
@@ -82,6 +88,7 @@ class Settings:
         self.telegram_chat_id = telegram_chat_id
         self.telegram_mini_app_url = telegram_mini_app_url
         self.ats_intervals = ats_intervals
+        self.ats_concurrency = ats_concurrency or dict(ATS_CONCURRENCY)
         self.secret_key = secret_key
         self.require_auth = require_auth
         self.session_ttl_hours = session_ttl_hours
@@ -105,7 +112,20 @@ def _load_ats_intervals() -> dict[str, int]:
     return intervals
 
 
-def load_settings() -> Settings:
+def _load_ats_concurrency() -> dict[str, int]:
+    """Per-ATS fetch concurrency, overridable via POLL_CONCURRENCY_{ATS} env vars."""
+    concurrency: dict[str, int] = {}
+    for ats, slots in ATS_CONCURRENCY.items():
+        try:
+            concurrency[ats] = max(
+                1, int(os.environ.get(f"POLL_CONCURRENCY_{ats.upper()}", str(slots)))
+            )
+        except ValueError:
+            concurrency[ats] = slots
+    return concurrency
+
+
+def _build_settings() -> Settings:
     load_dotenv()
     missing = [name for name in REQUIRED_ENV if name not in os.environ]
     if missing:
@@ -133,6 +153,7 @@ def load_settings() -> Settings:
         telegram_chat_id=os.environ.get("TELEGRAM_CHAT_ID", ""),
         telegram_mini_app_url=os.environ.get("TELEGRAM_MINI_APP_URL", ""),
         ats_intervals=_load_ats_intervals(),
+        ats_concurrency=_load_ats_concurrency(),
         secret_key=os.environ.get("SECRET_KEY", ""),
         require_auth=os.environ.get("JOBRADAR_REQUIRE_AUTH", "").lower() in ("1", "true", "yes"),
         session_ttl_hours=int(os.environ.get("SESSION_TTL_HOURS", "168")),
@@ -143,3 +164,26 @@ def load_settings() -> Settings:
         telegram_bot_username=os.environ.get("TELEGRAM_BOT_USERNAME", "").lstrip("@"),
         admin_chat_id=os.environ.get("ADMIN_CHAT_ID", "").strip(),
     )
+
+
+_settings_cache: Settings | None = None
+
+
+def load_settings() -> Settings:
+    """Load settings from the environment (memoized per process).
+
+    Env parsing + `.env` file I/O used to run on every call (~50 call sites,
+    several per request and one per source per poll). The environment is static
+    for the life of a process, so the first build is cached and reused.
+    Call `reset_settings_cache()` in tests or after changing the environment.
+    """
+    global _settings_cache
+    if _settings_cache is None:
+        _settings_cache = _build_settings()
+    return _settings_cache
+
+
+def reset_settings_cache() -> None:
+    """Drop the memoized settings so the next `load_settings()` rebuilds."""
+    global _settings_cache
+    _settings_cache = None

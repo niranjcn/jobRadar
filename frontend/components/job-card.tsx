@@ -1,6 +1,7 @@
 import { avatarColor, initials, timeAgo } from "@/lib/format";
 import type { Job } from "@/lib/types";
 import Link from "next/link";
+import { CompanyLogo } from "@/components/company-logo";
 
 export function Avatar({ name, size = "md" }: { name: string; size?: "md" | "lg" }) {
   const cls = size === "lg" ? "h-12 w-12 text-sm" : "h-9 w-9 text-xs";
@@ -43,16 +44,16 @@ export function CountryBadges({ countries, isRemote }: { countries: string[]; is
   );
 }
 
-export function JobCard({ job, index = 0 }: { job: Job; index?: number }) {
+export function JobCard({ job, index = 0, hrefPrefix = "/jobs" }: { job: Job; index?: number; hrefPrefix?: string }) {
   return (
     <Link
-      href={`/jobs/${job.id}`}
+      href={`${hrefPrefix}/${job.id}`}
       className="card group block p-4 animate-rise hover:translate-y-[-2px] hover:shadow-offset-hover"
       style={{ animationDelay: `${150 + index * 60}ms`, animationFillMode: "both" }}
     >
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-3">
-          <Avatar name={job.company} />
+          <CompanyLogo name={job.company} domain={job.domain} />
           <div>
             <h3 className="font-fraunces text-[15px] font-bold leading-snug tracking-[-0.01em] text-text group-hover:text-primary">
               {job.title}
