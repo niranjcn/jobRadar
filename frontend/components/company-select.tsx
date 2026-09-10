@@ -1,17 +1,20 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { CompanyLogo } from "@/components/company-logo";
 
 export function CompanySelect({
   companies,
   value,
   onChange,
   disabled,
+  domains,
 }: {
   companies: string[];
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
+  domains?: Record<string, string | null>;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -104,7 +107,10 @@ export function CompanySelect({
                   i === highlight ? "bg-elevated text-text" : "text-text-secondary"
                 }`}
               >
-                <span>{c}</span>
+                <span className="flex items-center gap-2">
+                  <CompanyLogo name={c} domain={domains?.[c]} size="sm" />
+                  <span>{c}</span>
+                </span>
                 {c === value && <span className="text-xs text-primary">✓</span>}
               </button>
             ))

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CompanySelect } from "@/components/company-select";
+import { domainsFromJobs } from "@/components/company-logo";
 import { JobCard } from "@/components/job-card";
 import { RadarLoading } from "@/components/radar-loading";
 import { api } from "@/lib/api";
@@ -48,6 +49,7 @@ export default function JobsPage() {
   }, [load]);
 
   const pageCount = useMemo(() => Math.max(1, Math.ceil(total / PAGE_SIZE)), [total]);
+  const companyDomains = useMemo(() => domainsFromJobs(jobs), [jobs]);
 
   function resetPage(fn: (v: string) => void, v: string) {
     setPage(0);
@@ -73,6 +75,7 @@ export default function JobsPage() {
               companies={companyOptions}
               value={company}
               onChange={(v) => resetPage(setCompany, v)}
+              domains={companyDomains}
             />
           </div>
           <select value={country} onChange={(e) => resetPage(setCountry, e.target.value)} className="search-input w-36">

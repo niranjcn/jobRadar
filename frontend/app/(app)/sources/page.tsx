@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { CompanyLogo } from "@/components/company-logo";
 import { RadarLoading } from "@/components/radar-loading";
 import { api } from "@/lib/api";
 import { atsLabel, ATS_ORDER, formatInterval, statusMeta, timeAgo } from "@/lib/format";
@@ -12,6 +13,7 @@ export default function SourcesPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [company, setCompany] = useState("");
   const [url, setUrl] = useState("");
+  const [domain, setDomain] = useState("");
   const [manual, setManual] = useState(false);
   const [ats, setAts] = useState("");
   const [board, setBoard] = useState("");
@@ -37,8 +39,10 @@ export default function SourcesPage() {
         url?: string;
         ats_type?: string;
         board_identifier?: string;
+        domain?: string;
       } = { company_name: company };
       if (url) payload.url = url;
+      if (domain.trim()) payload.domain = domain;
       if (manual) {
         payload.ats_type = ats;
         payload.board_identifier = board;
@@ -47,6 +51,7 @@ export default function SourcesPage() {
       setMsg({ ok: true, text: `${created.company_name} added as ${atsLabel(created.ats_type)} (${created.board_identifier})` });
       setCompany("");
       setUrl("");
+      setDomain("");
       setShowAdd(false);
       await load();
     } catch (err) {
@@ -134,6 +139,17 @@ export default function SourcesPage() {
               className="search-input mt-1 w-full"
             />
           </div>
+          <div>
+            <label className="text-xs font-medium uppercase tracking-wide text-text-muted">
+              Company domain (optional — for the logo)
+            </label>
+            <input
+              value={domain}
+              onChange={(e) => setDomain(e.target.value)}
+              placeholder="e.g. adobe.com"
+              className="search-input mt-1 w-full"
+            />
+          </div>
           <label className="flex items-center gap-2 text-sm text-text-secondary">
             <input type="checkbox" checked={manual} onChange={(e) => setManual(e.target.checked)} />
             Enter ATS details manually
@@ -196,6 +212,7 @@ export default function SourcesPage() {
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
                               <span className={`h-2 w-2 rounded-full ${meta.dot}`} />
+                              <CompanyLogo name={s.company_name} domain={s.domain} size="sm" />
                               <span className={`font-medium ${s.active ? "text-text" : "text-text-muted"}`}>
                                 {s.company_name}
                               </span>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { CompanyLogo } from "@/components/company-logo";
 import { RadarLoading } from "@/components/radar-loading";
 import { api } from "@/lib/api";
 import type { Notification, Preferences } from "@/lib/types";
@@ -92,9 +93,12 @@ function ChannelCard({
           <ul className="space-y-1">
             {preview.map((n) => (
               <li key={n.id} className="flex items-center justify-between text-sm">
-                <span className="truncate text-text-secondary">
-                  {n.title || "—"}
-                  <span className="text-text-muted"> · {n.company_name || "unknown"}</span>
+                <span className="flex min-w-0 items-center gap-2 truncate text-text-secondary">
+                  <CompanyLogo name={n.company_name || "?"} domain={n.domain} size="sm" />
+                  <span className="truncate">
+                    {n.title || "—"}
+                    <span className="text-text-muted"> · {n.company_name || "unknown"}</span>
+                  </span>
                 </span>
                 <span className="ml-3 shrink-0 text-xs text-text-muted">
                   {new Date(n.sent_at).toLocaleString()}

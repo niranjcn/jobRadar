@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { CompanyLogo } from "@/components/company-logo";
 import { JobCard } from "@/components/job-card";
 import { RadarLoading } from "@/components/radar-loading";
 import { api } from "@/lib/api";
@@ -97,11 +98,14 @@ export default function MatchesPage() {
                       selectedCompany === entry.company ? "ring-2 ring-primary" : "hover:border-primary/60"
                     }`}
                   >
-                    <div>
-                      <p className="text-sm font-semibold text-text">{entry.company}</p>
-                      <p className="text-xs text-text-muted">
-                        {entry.matches} match{entry.matches === 1 ? "" : "es"}
-                      </p>
+                    <div className="flex items-center gap-3">
+                      <CompanyLogo name={entry.company} domain={entry.domain} />
+                      <div>
+                        <p className="text-sm font-semibold text-text">{entry.company}</p>
+                        <p className="text-xs text-text-muted">
+                          {entry.matches} match{entry.matches === 1 ? "" : "es"}
+                        </p>
+                      </div>
                     </div>
                     <span className="text-xl font-semibold text-success">{entry.matches}</span>
                   </button>
