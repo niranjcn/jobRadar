@@ -1604,6 +1604,8 @@ def test_ats_concurrency_defaults_and_env_override(monkeypatch):
         assert settings.ats_concurrency["lever"] == ATS_CONCURRENCY["lever"]
     finally:
         reset_settings_cache()
+    monkeypatch.delenv("POLL_CONCURRENCY_WORKDAY", raising=False)
+    monkeypatch.delenv("POLL_CONCURRENCY_GREENHOUSE", raising=False)
     assert load_settings().ats_concurrency["workday"] == 10
     reset_settings_cache()
 
