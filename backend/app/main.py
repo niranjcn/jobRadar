@@ -14,6 +14,7 @@ from app.api.access_routes import router as access_router
 from app.api.admin_routes import router as admin_router
 from app.api.auth_routes import router as auth_router
 from app.api.miniapp import router as miniapp_router
+from app.api.public_routes import router as public_router
 from app.api.routes import router
 from app.config import load_settings
 from app.db import get_supabase, query
@@ -254,6 +255,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="jobRadar", lifespan=lifespan)
 
 app.include_router(router)
+app.include_router(public_router)
 app.include_router(auth_router)
 app.include_router(access_router)
 app.include_router(admin_router)
