@@ -19,7 +19,13 @@ from app.db import get_supabase, query
 from app.geo import load_geo_index, map_location
 from app.matcher import recompute_matches
 from app.poller import create_poll_run as poller_create_run
-from app.poller import poll_all_sources, poll_source, run_pipeline_in_thread, unhealthy_sources
+from app.poller import (
+    poll_all_sources,
+    poll_source,
+    run_pipeline_in_thread,
+    stale_after_seconds,
+    unhealthy_sources,
+)
 from app.schedule_store import (
     effective_intervals,
     last_checked_by_ats,
@@ -44,16 +50,31 @@ def _supabase():
 # ---------- schemas ----------
 
 
+def _domain_for(domain: str = "", url: str = "") -> str | None:
+    """Company domain for logo resolution: explicit value wins, else URL host."""
+    if (domain or "").strip():
+        return domain.strip().lower()
+    try:
+        from urllib.parse import urlparse
+
+        host = (urlparse(url or "").hostname or "").strip().lower()
+        return host or None
+    except Exception:
+        return None
+
+
 class SourceCreate(BaseModel):
     company_name: str
     url: str = ""
     ats_type: str = ""
     board_identifier: str = ""
+    domain: str = ""
 
 
 class SourceUpdate(BaseModel):
     active: bool | None = None
     board_identifier: str | None = None
+    domain: str | None = None
 
 
 class PreferencesUpdate(BaseModel):
@@ -131,12 +152,12 @@ def matches_summary(user: Annotated[UserCtx, Depends(require_product_access)]) -
     rows = query(
         settings,
         """
-        select s.company_name as company, count(*)::int as matches
+        select s.company_name as company, s.domain, count(*)::int as matches
         from job_matches m
         join jobs j on j.id = m.job_id
         join sources s on s.id = j.source_id
         where m.user_id = %s
-        group by s.company_name
+        group by s.company_name, s.domain
         order by matches desc, s.company_name
         """,
         (user.id,),
@@ -178,7 +199,7 @@ def matches_jobs(
         f"""
         select j.id, j.source_id, j.external_job_id, j.title, j.location, j.url,
                j.first_seen_at, j.countries, j.is_remote,
-               s.company_name, s.ats_type, m.match_score, m.matched_on
+               s.company_name, s.ats_type, s.domain, m.match_score, m.matched_on
         from job_matches m
         join jobs j on j.id = m.job_id
         join sources s on s.id = j.source_id
@@ -201,6 +222,7 @@ def matches_jobs(
             "first_seen_at": row["first_seen_at"].isoformat() if row["first_seen_at"] else None,
             "company": row["company_name"],
             "ats_type": row["ats_type"],
+            "domain": row.get("domain"),
             "countries": row["countries"] or [],
             "is_remote": row["is_remote"] or False,
             "match_score": row["match_score"],
@@ -261,22 +283,24 @@ def list_jobs(
     company: str = "",
     country: str = "",
     since: str = "",
+    remote_only: bool = False,
     limit: int = 50,
     offset: int = 0,
 ) -> dict:
     settings = _settings()
 
     since_cond = "" if not since else " and j.first_seen_at >= %s::timestamptz"
+    remote_cond = " and j.is_remote = true" if remote_only else ""
     sql = f"""
         select j.id, j.source_id, j.external_job_id, j.title, j.location, j.url,
                j.first_seen_at, j.countries, j.is_remote,
-               s.company_name, s.ats_type
+               s.company_name, s.ats_type, s.domain
         from jobs j join sources s on s.id = j.source_id
         where (%s = '' or s.company_name ilike '%%' || %s || '%%')
           and (%s = '' or s.ats_type = %s)
           and (%s = '' or lower(j.title) ilike lower('%%' || %s || '%%'))
           and (%s = '' or %s = any(j.countries))
-          {since_cond}
+          {since_cond}{remote_cond}
         order by j.first_seen_at desc
         limit %s offset %s
     """
@@ -311,22 +335,25 @@ def list_jobs(
                 "url": row["url"],
                 "description": None,
                 "first_seen_at": row["first_seen_at"].isoformat() if row["first_seen_at"] else None,
-                "company": row["company_name"],
-                "ats_type": row["ats_type"],
-                "countries": row["countries"] or [],
-                "is_remote": row["is_remote"] or False,
-                "match_score": match["match_score"] if match else None,
-                "matched_on": match["matched_on"] if match else [],
+            "company": row["company_name"],
+            "ats_type": row["ats_type"],
+            "domain": row.get("domain"),
+            "countries": row["countries"] or [],
+            "is_remote": row["is_remote"] or False,
+            "match_score": match["match_score"] if match else None,
+            "matched_on": match["matched_on"] if match else [],
             }
         )
 
     total_sql = (
         "select count(*)::int as c from jobs j join sources s on s.id = j.source_id "
         "where (%s = '' or s.company_name ilike '%%' || %s || '%%') and (%s = '' or s.ats_type = %s) "
+        "and (%s = '' or lower(j.title) ilike lower('%%' || %s || '%%')) "
         "and (%s = '' or %s = any(j.countries))"
         + (" and j.first_seen_at >= %s::timestamptz" if since else "")
+        + (" and j.is_remote = true" if remote_only else "")
     )
-    total_params: list[Any] = [company, company, ats, ats, country.upper(), country.upper()]
+    total_params: list[Any] = [company, company, ats, ats, q, q, country.upper(), country.upper()]
     if since:
         total_params.append(since)
     total = query(settings, total_sql, total_params)[0]["c"]
@@ -342,7 +369,7 @@ def get_job(job_id: str, user: Annotated[UserCtx, Depends(require_product_access
         """
         select j.id, j.source_id, j.external_job_id, j.title, j.location, j.url,
                j.description, j.first_seen_at, j.countries, j.is_remote,
-               s.company_name, s.ats_type
+               s.company_name, s.ats_type, s.domain
         from jobs j join sources s on s.id = j.source_id
         where j.id = %s::uuid
         """,
@@ -368,6 +395,7 @@ def get_job(job_id: str, user: Annotated[UserCtx, Depends(require_product_access
         "first_seen_at": row["first_seen_at"].isoformat() if row["first_seen_at"] else None,
         "company": row["company_name"],
         "ats_type": row["ats_type"],
+        "domain": row.get("domain"),
         "countries": row["countries"] or [],
         "is_remote": row["is_remote"] or False,
         "match_score": match["match_score"] if match else None,
@@ -384,7 +412,7 @@ def companies() -> dict:
     rows = query(
         settings,
         """
-        select s.id, s.company_name, s.ats_type, s.last_checked_at, s.active,
+        select s.id, s.company_name, s.ats_type, s.domain, s.last_checked_at, s.active,
                count(j.id)::int as job_count
         from sources s left join jobs j on j.source_id = s.id
         group by s.id
@@ -404,8 +432,8 @@ def sources(admin: Annotated[UserCtx, Depends(get_current_admin)]) -> dict:
     rows = query(
         settings,
         """
-        select s.id, s.company_name, s.ats_type, s.board_identifier, s.last_checked_at,
-               s.last_error, s.active, count(j.id)::int as job_count
+        select s.id, s.company_name, s.ats_type, s.domain, s.board_identifier, s.last_checked_at,
+               s.last_error, s.active, s.quiet_runs, count(j.id)::int as job_count
         from sources s left join jobs j on j.source_id = s.id
         group by s.id
         order by s.company_name
@@ -422,7 +450,7 @@ def sources(admin: Annotated[UserCtx, Depends(get_current_admin)]) -> dict:
         if last is None:
             status = "never"
             reason = "never checked yet"
-        elif now - last > timedelta(seconds=interval * 2):
+        elif now - last > timedelta(seconds=stale_after_seconds(row, interval)):
             status = "stale"
             if last_error:
                 reason = f"last check failed: {last_error}"
@@ -485,6 +513,7 @@ async def create_source(
                 "company_name": name,
                 "ats_type": ats,
                 "board_identifier": board,
+                "domain": _domain_for(payload.domain, payload.url),
                 "active": True,
             },
             on_conflict="company_name",
@@ -497,6 +526,7 @@ async def create_source(
         "company_name": row["company_name"],
         "ats_type": row["ats_type"],
         "board_identifier": row["board_identifier"],
+        "domain": row.get("domain"),
     }
 
 
@@ -510,6 +540,8 @@ def update_source(
         update["active"] = payload.active
     if payload.board_identifier:
         update["board_identifier"] = payload.board_identifier
+    if payload.domain is not None:
+        update["domain"] = payload.domain.strip().lower() or None
     if not update:
         raise HTTPException(status_code=422, detail="nothing to update")
     response = supabase.table("sources").update(update).eq("id", source_id).execute()
@@ -527,8 +559,16 @@ async def run_source(source_id: str, admin: Annotated[UserCtx, Depends(get_curre
         raise HTTPException(status_code=404, detail="source not found")
     source = response.data[0]
     adapter = adapter_for(source["ats_type"])
+    from app.settings_store import load_location_mapping
+
     result = await run_pipeline_in_thread(
-        poll_source(supabase, source, adapter, settings.max_posting_age_days)
+        poll_source(
+            supabase,
+            source,
+            adapter,
+            settings.max_posting_age_days,
+            geo_settings=load_location_mapping(supabase),
+        )
     )
     return {
         "ok": True,
@@ -690,6 +730,11 @@ def schedule(admin: Annotated[UserCtx, Depends(get_current_admin)]) -> dict:
         "oracle",
         "icims",
         "successfactors",
+        "phenom",
+        "avature",
+        "emirates",
+        "google",
+        "amazon",
         "custom",
         "remotive",
         "weworkremotely",
@@ -705,6 +750,7 @@ def schedule(admin: Annotated[UserCtx, Depends(get_current_admin)]) -> dict:
                 "interval_seconds": interval,
                 "overridden": ats in overrides,
                 "env_interval_seconds": env_intervals.get(ats, interval),
+                "concurrency": settings.ats_concurrency.get(ats, 8),
                 "last_checked_at": last_checked.get(ats),
                 "next_run_at": _scheduled_next_run(ats)
                 or next_run_at(interval, last_checked.get(ats)),
@@ -873,7 +919,7 @@ def notifications(
     rows = query(
         settings,
         """
-        select n.id, n.job_id, n.channel, n.sent_at, j.title, s.company_name
+        select n.id, n.job_id, n.channel, n.sent_at, j.title, s.company_name, s.domain
         from notifications_sent n
         left join jobs j on j.id = n.job_id
         left join sources s on s.id = j.source_id
