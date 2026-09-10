@@ -99,6 +99,7 @@ class EmiratesAdapter(JobSourceAdapter):
 
     @staticmethod
     def _normalize(job: dict, root: str) -> NormalizedJob:
+        root = (root or "").rstrip("/")
         job_id = str(job.get("reqid") or job.get("reqno") or "").strip()
         title = str(job.get("title") or "").strip()
         location = _location(job)
