@@ -1,10 +1,11 @@
 # Backend Optimization Plan
 
-> Status: Steps A & B implemented (see §5). File is a working plan, not tracked in git.
+> Status: Steps A, B, C & D implemented (see §5). File is a working plan, not tracked in git.
 
 ## 0. Current state (verified)
 
-- **Unit tests:** 98/98 pass (`tests/test_unit.py`)
+- **Unit tests:** 98/98 pass (`tests/test_unit.py`) + Tier 3 additions (settings memoization,
+  `query_async` fake-pool, `poll_source` geo-reuse) — run in CI
 - **API tests:** 18/19 pass — the 1 failure is the known flaky live-Supabase timeout (`test_location_mapping_roundtrip`, passes in isolation)
 - **Lint/format:** clean with pinned `ruff==0.16.3`
 - **App import:** `from app.main import app` OK, 30 routes registered
@@ -149,13 +150,79 @@ running (previously they were frozen for the whole poll).
   `app/poller.py` and passed to both the Telegram and email senders (`jobs=`)
   instead of each path refetching the same candidates.
 
-### Step C — Async DB access (PENDING)
+### Step C — Async DB access (DONE, Tier 3)
 
-Add `psycopg_pool.AsyncConnectionPool` + async `query_async()`; use in the hot
-paths. Step A already removed the event-loop stalls, so this is optional until
-profiling shows DB latency itself is a bottleneck.
+`app/db.py` gained a loop-keyed shared `AsyncConnectionPool` with explicit
+lifecycle (`open_async_pool` / `close_async_pool`) plus `query_async()`, an
+async mirror of `query()` (same `json_safe` rows). `poll_all_sources` opens the
+pool at run start and closes it in a `finally` (every exit path); the existing
+`existing_ids` lookups (`fetch_existing_job_ids[_batch]`) are now `async` and
+use it, so the worker-loop no longer blocks on those round-trips. Callers
+without lifecycle (single-source runs, scripts) fall back to a short-lived
+pool inside `query_async()`. Sync `query()` kept for API reads; Supabase REST
+writes unchanged.
 
-### Step D — Caching (PENDING)
+Loop-keying matters: each pipeline run executes on a fresh event loop
+(`run_pipeline_in_thread`), so a pool bound to a dead loop is discarded and
+reopened instead of reused. Verified live: two consecutive `emirates` polls
+`completed` (64 fetched, correct new/total dedup via the async batch lookup).
 
-Memoize `load_settings()` and pass geo/location settings through a poll run
-instead of re-reading per source.
+### Step D — Caching (DONE, Tier 3)
+
+- `load_settings()` (`app/config.py`) is memoized per process with
+  `reset_settings_cache()` for tests. No caller mutates the returned object
+  (verified), env is static per process.
+- `poll_source` accepts `geo_settings=` and `poll_all_sources` / manual
+  `POST /sources/{id}/run` pass the run's already-loaded mapping — the
+  per-source `app_settings` re-read (~280 queries/run) is gone. Verified live:
+  a `poll_source` run touches only `jobs` + `sources` tables.
+
+### HiringCafe Batch 1 — already live, no action (Tier 3 audit)
+
+`backend/data/hiringcafe_batch1_50.json` (greenhouse 20 + ashby 15 + lever 15)
+is fully merged into `sources.json` and healthy in production: 50/50 present,
+50/50 active, 0 errors, 1,986 jobs. Next expansion (Phase 2, +250) stays gated
+on error rate <5%.
+
+### Tier 3b — 10-way concurrency uplift (DONE)
+
+Heavy boards raised to 10 parallel fetches (`workday`, `oracle`,
+`successfactors`, `avature`; light boards stay 16), overridable per ATS via
+`POLL_CONCURRENCY_{ATS}` env (`Settings.ats_concurrency`, surfaced as
+`concurrency` in `GET /api/schedule` + schedule page badge). Shared HTTP
+limits 40/20 → 100/50; DB pools 10 → 20. Rationale: limits are per-host (each
+company a different tenant) and the client backs off on 429.
+
+Measured live (345 active sources): full `workday` poll (87 boards) **538s vs
+900s 24h baseline (−40%), 87/87 ok, 0 errors**. Global sweep now ~10–11 min —
+well inside the 30-min budget with headroom for Phase 2 (+250 light boards).
+Latency-bound boards (`avature` 6/page, `successfactors` 10/page pagination)
+don't gain from concurrency; they need bigger page sizes (future work).
+
+### Quiet-board backoff (DONE — replaces unsafe early-stop)
+
+Proposal "stop paginating at old dates" was **rejected by measurement**:
+`successfactors` page 1 contains a Feb-2025 posting among Apr-2026 ones
+(`sortBy: recent` ≠ posted-date order), and Workday exposes only coarse
+relative buckets ("Posted 3 Days Ago"). Page-size increases also rejected
+(Workday `limit>20` → 400, SF `pageSize` ignored at 10/page, Avature capped
+at 6/rows). Early-stop on unordered boards would silently miss new jobs.
+
+Safe alternative implemented: `sources.quiet_runs` (migration 032) counts
+consecutive no-new runs per source (reset on first check / any new job;
+failures don't count). Scheduled per-ATS runs skip boards with 5+ quiet runs
+until 3 intervals old (discovery delay ≤3h); manual and global runs always
+poll everything. Skips are recorded in `poll_runs.sources` with reason.
+Measured: 23/87 Workday boards had 0 new in 40 runs — steady state skips ~26%
+of boards per run. Live-verified with 3 seeded boards (skipped with reason),
+seeds reset after.
+
+### Early-stop ideas — tried, measured, reverted
+
+Date-based ("stop at old postings") and ID-based ("stop at known jobs") early
+termination were both rejected by measurement and fully reverted (no code
+remains): SF page 1 holds a Feb-2025 posting among Apr-2026 ones, page-size
+increases are refused by all servers (Workday 400s, SF ignores, Avature caps
+at 6), and a one-run shadow simulation caught Workday hiding 18 and Avature 67
+new jobs behind all-known pages. Early stop of any granularity is unsafe on
+these boards. Savings stand on 10-way concurrency + quiet-board backoff.
