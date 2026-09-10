@@ -211,9 +211,7 @@ def public_companies() -> dict:
                 "domain": row.get("domain"),
                 "ats_type": row["ats_type"],
                 "job_count": row["job_count"],
-                "latest_job_at": row["latest_job_at"].isoformat()
-                if row["latest_job_at"]
-                else None,
+                "latest_job_at": row["latest_job_at"].isoformat() if row["latest_job_at"] else None,
             }
             for row in rows
         ]

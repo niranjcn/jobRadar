@@ -1791,7 +1791,12 @@ def test_quiet_boards_not_stale():
     """Quiet boards (checked every 3rd interval by design) are not stale at 3h."""
     from datetime import UTC, datetime, timedelta
 
-    from app.poller import QUIET_RUNS_THRESHOLD, QUIET_SKIP_MULTIPLE, source_status, stale_after_seconds
+    from app.poller import (
+        QUIET_RUNS_THRESHOLD,
+        QUIET_SKIP_MULTIPLE,
+        source_status,
+        stale_after_seconds,
+    )
 
     now = datetime.now(UTC)
     three_hours_ago = (now - timedelta(hours=3)).isoformat()

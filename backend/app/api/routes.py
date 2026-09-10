@@ -335,13 +335,13 @@ def list_jobs(
                 "url": row["url"],
                 "description": None,
                 "first_seen_at": row["first_seen_at"].isoformat() if row["first_seen_at"] else None,
-            "company": row["company_name"],
-            "ats_type": row["ats_type"],
-            "domain": row.get("domain"),
-            "countries": row["countries"] or [],
-            "is_remote": row["is_remote"] or False,
-            "match_score": match["match_score"] if match else None,
-            "matched_on": match["matched_on"] if match else [],
+                "company": row["company_name"],
+                "ats_type": row["ats_type"],
+                "domain": row.get("domain"),
+                "countries": row["countries"] or [],
+                "is_remote": row["is_remote"] or False,
+                "match_score": match["match_score"] if match else None,
+                "matched_on": match["matched_on"] if match else [],
             }
         )
 
