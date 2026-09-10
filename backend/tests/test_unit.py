@@ -1492,3 +1492,327 @@ def test_bot_inline_query_empty_when_no_term():
     assert len(answered) == 1
     payload = json.loads(answered[0][1])
     assert payload["results"] and payload["results"][0]["id"] == "placeholder"
+
+
+def _load_emirates_jobs():
+    with open(FIXTURES / "emirates" / "emirates_jobs.json", encoding="utf-8") as f:
+        return json.load(f)["data"]
+
+
+def test_emirates_parse_jobs():
+    """Emirates JSON entries must parse into jobs with stable reqid, title, url."""
+    from app.adapters.emirates import EmiratesAdapter
+
+    entries = _load_emirates_jobs()
+    assert len(entries) >= 3, "fixture must contain job entries"
+    job = EmiratesAdapter._normalize(entries[0], "https://www.emiratesgroupcareers.com")
+    assert job.external_job_id == "267"
+    assert job.title == "Cabin Crew Opportunities"
+    assert job.location == "Emirates Group Headquarters"
+    assert job.url == "https://www.emiratesgroupcareers.com/search-and-apply/267"
+    assert job.countries == ["United Arab Emirates"]
+    assert job.posted_at is not None
+
+
+def test_emirates_empty_location_falls_back_to_city_country():
+    """Jobs with an empty location string must fall back to city/state/country."""
+    from app.adapters.emirates import EmiratesAdapter
+
+    entries = _load_emirates_jobs()
+    it_job = next(e for e in entries if e["reqid"] == "23987")
+    job = EmiratesAdapter._normalize(it_job, "https://www.emiratesgroupcareers.com")
+    assert job.external_job_id == "23987"
+    assert job.location is not None and "Dubai" in job.location
+    assert "United Arab Emirates" in job.location
+
+
+def test_emirates_missing_fields():
+    from app.adapters.emirates import EmiratesAdapter
+
+    job = EmiratesAdapter._normalize({}, "https://www.emiratesgroupcareers.com")
+    assert job.external_job_id == ""
+    assert job.title == ""
+    assert job.location is None
+
+    job = EmiratesAdapter._normalize(
+        {"reqid": "123", "title": "  Engineer  ", "country": "India"},
+        "https://www.emiratesgroupcareers.com/",
+    )
+    assert job.external_job_id == "123"
+    assert job.title == "Engineer"
+    assert job.location == "India"
+    assert job.url == "https://www.emiratesgroupcareers.com/search-and-apply/123"
+
+
+def test_emirates_posted_date_parsing():
+    from app.adapters.emirates import _parse_posted
+
+    assert _parse_posted(1748390400000) is not None
+    assert _parse_posted(None) is None
+    assert _parse_posted("not-a-date") is None
+
+
+def test_emirates_adapter_registered():
+    from app.adapters import adapter_for
+    from app.adapters.emirates import EmiratesAdapter
+
+    assert EmiratesAdapter.ats_type == "emirates"
+    assert isinstance(adapter_for("emirates"), EmiratesAdapter)
+
+
+def test_detect_emirates_url():
+    assert _detect_from_url("https://www.emiratesgroupcareers.com/search-and-apply/") == {
+        "ats_type": "emirates",
+        "board_identifier": "https://www.emiratesgroupcareers.com",
+    }
+
+
+def test_load_settings_memoized():
+    """Step D: repeated load_settings() must return the same object (no re-parse)."""
+    from app.config import load_settings, reset_settings_cache
+
+    reset_settings_cache()
+    try:
+        first = load_settings()
+        second = load_settings()
+        assert first is second
+    finally:
+        reset_settings_cache()
+    third = load_settings()
+    assert third is not first
+    assert third.supabase_url == first.supabase_url
+    reset_settings_cache()
+
+
+def test_ats_concurrency_defaults_and_env_override(monkeypatch):
+    """Tier 3: heavy boards run 10-way by default; POLL_CONCURRENCY_{ATS} overrides."""
+    from app.config import ATS_CONCURRENCY, load_settings, reset_settings_cache
+
+    assert ATS_CONCURRENCY["workday"] == 10
+    assert ATS_CONCURRENCY["successfactors"] == 10
+    assert ATS_CONCURRENCY["avature"] == 10
+    assert ATS_CONCURRENCY["oracle"] == 10
+    assert ATS_CONCURRENCY["greenhouse"] == 16
+
+    monkeypatch.setenv("POLL_CONCURRENCY_WORKDAY", "4")
+    monkeypatch.setenv("POLL_CONCURRENCY_GREENHOUSE", "20")
+    reset_settings_cache()
+    try:
+        settings = load_settings()
+        assert settings.ats_concurrency["workday"] == 4
+        assert settings.ats_concurrency["greenhouse"] == 20
+        assert settings.ats_concurrency["lever"] == ATS_CONCURRENCY["lever"]
+    finally:
+        reset_settings_cache()
+    assert load_settings().ats_concurrency["workday"] == 10
+    reset_settings_cache()
+
+
+def test_query_async_with_fake_pool():
+    """Step C: query_async must return json-safe rows via the shared async pool."""
+    import asyncio
+    import uuid
+
+    import app.db as db
+
+    uid = uuid.uuid4()
+
+    class FakeCursor:
+        description = (type("Col", (), {"name": "id"})(),)
+        executed = None
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def execute(self, sql, params):
+            FakeCursor.executed = (sql, params)
+
+        async def fetchall(self):
+            return [(uid,)]
+
+    class FakeConn:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        def cursor(self):
+            return FakeCursor()
+
+    class FakePool:
+        def connection(self, timeout=None):
+            return FakeConn()
+
+    async def run():
+        previous = db._apool
+        db._apool = FakePool()
+        try:
+            return await db.query_async(object(), "select id from t where x = %s", ("y",))
+        finally:
+            db._apool = previous
+
+    rows = asyncio.run(run())
+    assert rows == [{"id": str(uid)}]
+    assert FakeCursor.executed[0].startswith("select id")
+
+
+def test_close_async_pool_noop_without_pool():
+    """Step C: closing when no pool is open must not raise."""
+    import asyncio
+
+    import app.db as db
+
+    async def run():
+        assert db._apool is None
+        await db.close_async_pool()
+        assert db._apool is None
+
+    asyncio.run(run())
+
+
+def test_poll_source_reuses_geo_settings():
+    """Step D: a passed geo_settings must be reused (no app_settings DB read)."""
+    import asyncio
+
+    from app.geo import DEFAULT_SETTINGS
+    from app.models import NormalizedJob
+    from app.poller import poll_source
+
+    accessed_tables: list[str] = []
+
+    class FakeResponse:
+        data: tuple = ()
+
+    class FakeTable:
+        def __init__(self, name: str):
+            self._name = name
+
+        def select(self, *args, **kwargs):
+            return self
+
+        def update(self, *args, **kwargs):
+            return self
+
+        def upsert(self, *args, **kwargs):
+            return self
+
+        def eq(self, *args, **kwargs):
+            return self
+
+        def execute(self):
+            return FakeResponse()
+
+    class FakeSupabase:
+        def table(self, name: str):
+            accessed_tables.append(name)
+            return FakeTable(name)
+
+    class FakeAdapter:
+        async def fetch_jobs(self, board_identifier: str, client=None):
+            return [
+                NormalizedJob(
+                    external_job_id="1",
+                    title="Engineer",
+                    location="Bengaluru, India",
+                    url="https://example.com/jobs/1",
+                    raw_payload={},
+                )
+            ]
+
+    async def run():
+        return await poll_source(
+            FakeSupabase(),
+            {"id": "source-1", "company_name": "Acme", "board_identifier": "acme"},
+            FakeAdapter(),
+            90,
+            existing_ids=set(),
+            geo_settings={**DEFAULT_SETTINGS},
+        )
+
+    result = asyncio.run(run())
+    assert result["company"] == "Acme"
+    assert result["fetched"] == 1
+    assert result["new"] == 1
+    assert "app_settings" not in accessed_tables
+
+
+def test_quiet_runs_counter():
+    """Quiet counter resets on first check / new jobs, else increments."""
+    from app.poller import next_quiet_runs
+
+    assert next_quiet_runs({"quiet_runs": 7}, True, 0) == 0
+    assert next_quiet_runs({"quiet_runs": 7}, False, 3) == 0
+    assert next_quiet_runs({"quiet_runs": 7}, False, 0) == 8
+    assert next_quiet_runs({}, False, 0) == 1
+    assert next_quiet_runs({"quiet_runs": None}, False, 0) == 1
+
+
+def test_quiet_due_predicate():
+    """Quiet backoff skips only scheduled per-ATS runs for quiet, recently-checked boards."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.poller import QUIET_RUNS_THRESHOLD, QUIET_SKIP_MULTIPLE, quiet_due
+
+    now = datetime.now(UTC)
+    quiet = {"company_name": "Q", "quiet_runs": QUIET_RUNS_THRESHOLD + 2}
+    fresh = {**quiet, "last_checked_at": (now - timedelta(minutes=30)).isoformat()}
+    stale = {**quiet, "last_checked_at": (now - timedelta(hours=5)).isoformat()}
+
+    # Scheduled per-ATS run: fresh quiet board skipped, stale one due.
+    due, reason = quiet_due(fresh, 3600, now, triggered_by="scheduled", ats_type="workday")
+    assert due is False and "quiet board" in (reason or "")
+    due, _ = quiet_due(stale, 3600, now, triggered_by="scheduled", ats_type="workday")
+    assert due is True
+
+    # Boundary: exactly MULTIPLE intervals old is due (every Nth check runs).
+    edge = {
+        **quiet,
+        "last_checked_at": (now - timedelta(seconds=3600 * QUIET_SKIP_MULTIPLE)).isoformat(),
+    }
+    due, _ = quiet_due(edge, 3600, now, triggered_by="scheduled", ats_type="workday")
+    assert due is True
+
+    # Loud boards, never-checked boards, manual and global runs are always due.
+    loud = {"company_name": "L", "quiet_runs": 0, "last_checked_at": fresh["last_checked_at"]}
+    assert quiet_due(loud, 3600, now, triggered_by="scheduled", ats_type="workday")[0] is True
+    assert (
+        quiet_due({"quiet_runs": 99}, 3600, now, triggered_by="scheduled", ats_type="workday")[0]
+        is True
+    )
+    assert quiet_due(fresh, 3600, now, triggered_by="manual", ats_type="workday")[0] is True
+    assert quiet_due(fresh, 3600, now, triggered_by="scheduled", ats_type=None)[0] is True
+
+
+def test_quiet_boards_not_stale():
+    """Quiet boards (checked every 3rd interval by design) are not stale at 3h."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.poller import QUIET_RUNS_THRESHOLD, QUIET_SKIP_MULTIPLE, source_status, stale_after_seconds
+
+    now = datetime.now(UTC)
+    three_hours_ago = (now - timedelta(hours=3)).isoformat()
+
+    loud = {"company_name": "L", "quiet_runs": 0, "last_checked_at": three_hours_ago}
+    assert stale_after_seconds(loud, 3600) == 7200
+    assert source_status(loud, 3600, now)[0] == "stale"
+
+    quiet = {
+        "company_name": "Q",
+        "quiet_runs": QUIET_RUNS_THRESHOLD + 2,
+        "last_checked_at": three_hours_ago,
+    }
+    assert stale_after_seconds(quiet, 3600) == 3600 * QUIET_SKIP_MULTIPLE * 2
+    assert source_status(quiet, 3600, now)[0] == "healthy"
+
+    # Way past even the quiet cadence -> stale again.
+    ancient = {**quiet, "last_checked_at": (now - timedelta(hours=7)).isoformat()}
+    assert source_status(ancient, 3600, now)[0] == "stale"
+
+    # Errors keep the strict bar even for quiet boards.
+    errored = {**quiet, "last_error": "boom"}
+    assert stale_after_seconds(errored, 3600) == 7200
+    assert source_status(errored, 3600, now)[0] == "stale"

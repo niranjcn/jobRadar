@@ -44,6 +44,7 @@ describe("format helpers", () => {
     expect(atsLabel("workday")).toBe("Workday");
     expect(atsLabel("google")).toBe("Google");
     expect(atsLabel("amazon")).toBe("Amazon");
+    expect(atsLabel("emirates")).toBe("Emirates");
     expect(atsLabel("unknown")).toBe("unknown");
   });
 
