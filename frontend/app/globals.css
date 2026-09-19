@@ -84,31 +84,25 @@
   --grid-line: rgba(10, 10, 10, 0.06);
 }
 
+html {
+  background: #0A090D;
+}
 html,
 body {
   color: rgb(var(--color-text));
+  background: #0A090D;
 }
 
 body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  background-color: rgb(var(--color-bg));
-  background-image: radial-gradient(var(--paper-dot) 1px, transparent 1px);
-  background-size: 14px 14px;
-  background-attachment: fixed;
-  transition: background 0.3s ease, color 0.3s ease;
+  background-color: #0A090D;
+  background-image: none;
+  transition: none;
 }
 
-/* subtle paper grain overlay */
 body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  opacity: 0.35;
-  background-image: radial-gradient(var(--paper-dot) 1px, transparent 1px);
-  background-size: 14px 14px;
-  z-index: 0;
+  display: none;
 }
 
 /* headings — editorial serif */
@@ -283,15 +277,18 @@ h4 {
   animation: draw-line 0.7s ease 0.3s both;
 }
 
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+*::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgb(var(--color-border));
-  border-radius: 4px;
-  opacity: 0.2;
+  background: transparent;
 }
