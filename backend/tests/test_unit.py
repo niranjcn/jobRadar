@@ -1567,10 +1567,14 @@ def test_detect_emirates_url():
     }
 
 
-def test_load_settings_memoized():
+def test_load_settings_memoized(monkeypatch):
     """Step D: repeated load_settings() must return the same object (no re-parse)."""
     from app.config import load_settings, reset_settings_cache
 
+    # Hermetic: CI has no .env file (gitignored), so stamp dummy required vars.
+    monkeypatch.setenv("SUPABASE_URL", "https://test.supabase.co")
+    monkeypatch.setenv("SUPABASE_KEY", "test-key")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost:5432/test")
     reset_settings_cache()
     try:
         first = load_settings()
@@ -1596,6 +1600,10 @@ def test_ats_concurrency_defaults_and_env_override(monkeypatch):
 
     monkeypatch.setenv("POLL_CONCURRENCY_WORKDAY", "4")
     monkeypatch.setenv("POLL_CONCURRENCY_GREENHOUSE", "20")
+    # Hermetic: CI has no .env file (gitignored), so stamp dummy required vars.
+    monkeypatch.setenv("SUPABASE_URL", "https://test.supabase.co")
+    monkeypatch.setenv("SUPABASE_KEY", "test-key")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost:5432/test")
     reset_settings_cache()
     try:
         settings = load_settings()
@@ -1731,10 +1739,14 @@ def test_poll_source_reuses_geo_settings(monkeypatch):
             ]
 
     statements: list[str] = []
+    sentinel = object()
+    # Hermetic: poll_source resolves settings internally; CI has no .env file.
+    monkeypatch.setattr(poller_module, "load_settings", lambda: sentinel)
 
     def fake_query(settings, sql, params=()):
         statements.append(sql)
         if sql.startswith("INSERT INTO jobs"):
+            assert settings is sentinel
             return [{"external_job_id": "1", "is_new": True}]
         return []
 
