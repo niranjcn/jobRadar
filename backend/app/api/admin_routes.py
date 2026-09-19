@@ -303,10 +303,12 @@ def create_coupon(
 @router.get("/coupons")
 def list_coupons(state: str = "", limit: int = 50) -> dict:
     settings = load_settings()
+    # claimed_at is the canonical "used" marker (claimed_by can be nulled by
+    # ON DELETE SET NULL when a claimant is purged — see 037).
     where = {
-        "open": "where claimed_by is null and expires_at > now()",
-        "claimed": "where claimed_by is not null",
-        "expired": "where claimed_by is null and expires_at <= now()",
+        "open": "where claimed_at is null and expires_at > now()",
+        "claimed": "where claimed_at is not null",
+        "expired": "where claimed_at is null and expires_at <= now()",
     }.get(state, "")
     rows = query(
         settings,
@@ -335,7 +337,7 @@ def void_coupon(coupon_id: str) -> dict:
     settings = load_settings()
     rows = query(
         settings,
-        "delete from coupon_codes where id = %s::uuid and claimed_by is null returning id",
+        "delete from coupon_codes where id = %s::uuid and claimed_at is null returning id",
         (coupon_id,),
     )
     if not rows:
@@ -489,6 +491,498 @@ def billing_events(limit: int = 50) -> dict:
     return {"events": rows}
 
 
+@router.get("/egress")
+def egress_overview(days: int = 30) -> dict:
+    """Database egress / storage monitor for admin.
+
+    Returns everything needed to watch egress pressure at a glance:
+    total DB size, per-table breakdown (data/index/toast/rows), daily
+    ingest & estimated bytes, top egress contributors (sources), recent
+    poll footprints, bloat/vacuum hints, retention reclaim estimate,
+    and actionable warnings. All queries are best-effort — a failing
+    subsystem returns zeros rather than breaking the whole page.
+    """
+    settings = load_settings()
+    days = max(7, min(days, 90))
+    now_iso = datetime.now(UTC).isoformat()
+
+    # --- database size ---
+    db_size_bytes = 0
+    try:
+        r = query(settings, "select pg_database_size(current_database())::bigint as sz")
+        db_size_bytes = int(r[0]["sz"]) if r else 0
+    except Exception:
+        db_size_bytes = 0
+
+    # --- per-table breakdown ---
+    tables: list[dict[str, Any]] = []
+    try:
+        rows = query(
+            settings,
+            """
+            select c.relname as name,
+                   pg_total_relation_size(c.oid)::bigint        as total_bytes,
+                   pg_relation_size(c.oid)::bigint              as table_bytes,
+                   pg_indexes_size(c.oid)::bigint               as index_bytes,
+                   coalesce(s.n_live_tup, 0)::bigint            as live_rows,
+                   coalesce(s.n_dead_tup, 0)::bigint            as dead_rows,
+                   s.last_vacuum, s.last_autovacuum
+            from pg_class c
+            join pg_namespace nsp on nsp.oid = c.relnamespace
+            left join pg_stat_user_tables s
+              on s.relname = c.relname and s.schemaname = nsp.nspname
+            where c.relkind = 'r' and nsp.nspname = 'public'
+            order by pg_total_relation_size(c.oid) desc
+            """,
+        )
+        for row in rows:
+            total = int(row.get("total_bytes") or 0)
+            tbl = int(row.get("table_bytes") or 0)
+            idx = int(row.get("index_bytes") or 0)
+            toast = max(0, total - tbl - idx)
+            live = int(row.get("live_rows") or 0)
+            avg_row = int(total / live) if live else 0
+            # isoformat datetimes if present
+            for k in ("last_vacuum", "last_autovacuum"):
+                v = row.get(k)
+                if isinstance(v, datetime):
+                    row[k] = v.isoformat()
+                elif v is not None:
+                    row[k] = str(v)
+            tables.append(
+                {
+                    "name": row["name"],
+                    "total_bytes": total,
+                    "table_bytes": tbl,
+                    "index_bytes": idx,
+                    "toast_bytes": toast,
+                    "live_rows": live,
+                    "dead_rows": int(row.get("dead_rows") or 0),
+                    "avg_row_bytes": avg_row,
+                    "last_vacuum": row.get("last_vacuum"),
+                    "last_autovacuum": row.get("last_autovacuum"),
+                }
+            )
+    except Exception as exc:
+        print(f"egress: table breakdown failed: {exc}")
+
+    # convenience: jobs table stats for avg row math
+    jobs_table = next((t for t in tables if t["name"] == "jobs"), None)
+    avg_job_bytes = int(jobs_table["avg_row_bytes"]) if jobs_table and jobs_table["live_rows"] else 512
+
+    # --- totals / counts ---
+    totals: dict[str, Any] = {}
+    try:
+        r = query(
+            settings,
+            """
+            select
+              (select count(*)::int from jobs) as jobs_total,
+              (select count(*)::int from sources) as sources_total,
+              (select count(*)::int from sources where active) as active_sources,
+              (select count(*)::int from jobs where first_seen_at >= now() - interval '24 hours') as jobs_24h,
+              (select count(*)::int from jobs where first_seen_at >= now() - interval '7 days') as jobs_7d,
+              (select count(*)::int from jobs where first_seen_at >= now() - interval '30 days') as jobs_30d,
+              (select count(*)::int from notifications_sent) as notif_total,
+              (select count(*)::int from notification_queue) as queue_total,
+              (select count(*)::int from poll_runs where started_at >= now() - interval '24 hours') as runs_24h
+            """,
+        )[0]
+        totals = dict(r)
+        totals["avg_job_bytes"] = avg_job_bytes
+        totals["db_size_bytes"] = db_size_bytes
+        # estimated bytes
+        totals["bytes_24h_est"] = totals.get("jobs_24h", 0) * avg_job_bytes
+        totals["bytes_7d_est"] = totals.get("jobs_7d", 0) * avg_job_bytes
+        totals["bytes_30d_est"] = totals.get("jobs_30d", 0) * avg_job_bytes
+        # 30d daily avg -> monthly projection
+        daily_avg_jobs = (totals.get("jobs_30d", 0) / 30) if totals.get("jobs_30d") else (totals.get("jobs_7d", 0) / 7 if totals.get("jobs_7d") else 0)
+        totals["proj_monthly_jobs"] = int(daily_avg_jobs * 30)
+        totals["proj_monthly_bytes"] = int(daily_avg_jobs * 30 * avg_job_bytes)
+    except Exception as exc:
+        print(f"egress: totals failed: {exc}")
+        totals = {
+            "jobs_total": 0,
+            "sources_total": 0,
+            "active_sources": 0,
+            "jobs_24h": 0,
+            "jobs_7d": 0,
+            "jobs_30d": 0,
+            "avg_job_bytes": avg_job_bytes,
+            "db_size_bytes": db_size_bytes,
+            "bytes_24h_est": 0,
+            "bytes_7d_est": 0,
+            "bytes_30d_est": 0,
+            "proj_monthly_jobs": 0,
+            "proj_monthly_bytes": 0,
+        }
+
+    # --- daily ingest trend (egress proxy) ---
+    daily: list[dict[str, Any]] = []
+    try:
+        rows = query(
+            settings,
+            """
+            select to_char(day, 'YYYY-MM-DD') as date,
+                   (select count(*)::int from jobs where date_trunc('day', first_seen_at) = day) as jobs,
+                   (select count(*)::int from job_matches where date_trunc('day', created_at) = day) as matches,
+                   (select count(*)::int from notifications_sent where date_trunc('day', sent_at) = day) as alerts
+            from generate_series(
+                date_trunc('day', now()) - (%s || ' days')::interval,
+                date_trunc('day', now()), '1 day') as day
+            order by 1
+            """,
+            (days - 1,),
+        )
+        for r in rows:
+            j = int(r.get("jobs") or 0)
+            daily.append(
+                {
+                    "date": r["date"],
+                    "jobs": j,
+                    "matches": int(r.get("matches") or 0),
+                    "alerts": int(r.get("alerts") or 0),
+                    "bytes_est": j * avg_job_bytes,
+                }
+            )
+    except Exception as exc:
+        print(f"egress: daily failed: {exc}")
+
+    # --- top egress contributors (sources by job volume) ---
+    top_sources: list[dict[str, Any]] = []
+    try:
+        rows = query(
+            settings,
+            """
+            select s.company_name, s.ats_type, count(j.id)::int as job_count
+            from sources s left join jobs j on j.source_id = s.id
+            group by s.company_name, s.ats_type
+            having count(j.id) > 0
+            order by job_count desc
+            limit 15
+            """,
+        )
+        total_jobs = sum(int(r["job_count"]) for r in rows) or 1
+        for r in rows:
+            jc = int(r["job_count"])
+            top_sources.append(
+                {
+                    "company": r["company_name"],
+                    "ats_type": r["ats_type"],
+                    "job_count": jc,
+                    "bytes_est": jc * avg_job_bytes,
+                    "share_pct": round((jc / total_jobs) * 100, 1),
+                }
+            )
+    except Exception as exc:
+        print(f"egress: top sources failed: {exc}")
+
+    # --- recent poll runs (egress footprint per run) ---
+    recent_runs: list[dict[str, Any]] = []
+    try:
+        rows = query(
+            settings,
+            """
+            select id, triggered_by, ats_type, status, started_at, finished_at,
+                   jobs_fetched, jobs_new, sources, error,
+                   extract(epoch from (finished_at - started_at))*1000 as dur_ms
+            from poll_runs
+            order by started_at desc
+            limit 12
+            """,
+        )
+        for r in rows:
+            for k in ("started_at", "finished_at"):
+                if isinstance(r.get(k), datetime):
+                    r[k] = r[k].isoformat()
+                elif r.get(k) is not None:
+                    r[k] = str(r[k])
+            fetched = int(r.get("jobs_fetched") or 0)
+            new = int(r.get("jobs_new") or 0)
+            recent_runs.append(
+                {
+                    "id": str(r.get("id")),
+                    "triggered_by": r.get("triggered_by"),
+                    "ats_type": r.get("ats_type"),
+                    "status": r.get("status"),
+                    "started_at": r.get("started_at"),
+                    "finished_at": r.get("finished_at"),
+                    "jobs_fetched": fetched,
+                    "jobs_new": new,
+                    "bytes_est": new * avg_job_bytes,
+                    "duration_ms": int(r.get("dur_ms") or 0) if r.get("dur_ms") else None,
+                    "sources_count": len(r.get("sources") or []) if isinstance(r.get("sources"), list) else None,
+                    "error": r.get("error"),
+                }
+            )
+    except Exception as exc:
+        print(f"egress: recent runs failed: {exc}")
+
+    # --- cache / connection health (best-effort) ---
+    cache: dict[str, Any] = {}
+    try:
+        r = query(
+            settings,
+            """
+            select
+              sum(blks_hit)::bigint as hits,
+              sum(blks_read)::bigint as reads
+            from pg_stat_database where datname = current_database()
+            """,
+        )[0]
+        hits = int(r.get("hits") or 0)
+        reads = int(r.get("reads") or 0)
+        total = hits + reads
+        cache = {
+            "blks_hit": hits,
+            "blks_read": reads,
+            "hit_ratio": round((hits / total) * 100, 1) if total else None,
+        }
+    except Exception:
+        cache = {}
+
+    # --- retention reclaim estimate ---
+    retention: dict[str, Any] = {}
+    try:
+        ret_days = int(settings.job_retention_days or 30)
+        r = query(
+            settings,
+            "select count(*)::int as cnt from jobs where first_seen_at < now() - (%s || ' days')::interval",
+            (ret_days,),
+        )[0]
+        cnt = int(r.get("cnt") or 0)
+        retention = {
+            "retention_days": ret_days,
+            "reclaimable_jobs": cnt,
+            "reclaimable_bytes_est": cnt * avg_job_bytes,
+        }
+    except Exception:
+        retention = {"retention_days": 30, "reclaimable_jobs": 0, "reclaimable_bytes_est": 0}
+
+    # --- warnings ---
+    warnings: list[dict[str, Any]] = []
+    # Supabase tiers: free 500 MB, pro 8 GB (reference only)
+    FREE_LIMIT = 500 * 1024 * 1024
+    PRO_LIMIT = 8 * 1024 * 1024 * 1024
+    free_pct = (db_size_bytes / FREE_LIMIT * 100) if FREE_LIMIT else 0
+    pro_pct = (db_size_bytes / PRO_LIMIT * 100) if PRO_LIMIT else 0
+    if db_size_bytes and free_pct >= 90:
+        warnings.append(
+            {
+                "level": "critical",
+                "title": "Database near free-tier limit",
+                "detail": f"{free_pct:.1f}% of 500 MB used. Upgrade to Pro (8 GB) or reduce retention before writes fail.",
+            }
+        )
+    elif free_pct >= 70:
+        warnings.append(
+            {
+                "level": "warn",
+                "title": "Database over 70% of free tier",
+                "detail": f"{free_pct:.1f}% of 500 MB. At current ingest (~{totals.get('proj_monthly_bytes',0)//(1024*1024)} MB/mo) you have limited headroom.",
+            }
+        )
+    # bloat
+    high_bloat = [t for t in tables if t["dead_rows"] > max(5000, t["live_rows"] * 0.15)]
+    if high_bloat:
+        names = ", ".join(t["name"] for t in high_bloat[:3])
+        warnings.append(
+            {
+                "level": "warn",
+                "title": "Tables with dead tuples",
+                "detail": f"{len(high_bloat)} table(s) have high dead rows (e.g. {names}). Consider VACUUM or schedule autovacuum tuning.",
+            }
+        )
+    # growth velocity
+    proj = totals.get("proj_monthly_bytes", 0)
+    if proj and db_size_bytes and (db_size_bytes + proj) > FREE_LIMIT * 0.95 and free_pct < 90:
+        warnings.append(
+            {
+                "level": "warn",
+                "title": "Projected to hit limit this month",
+                "detail": f"At ~{proj//1024} KB/mo, DB would reach {(db_size_bytes+proj)/FREE_LIMIT*100:.1f}% of 500 MB in 30 days.",
+            }
+        )
+    # retention
+    if retention.get("reclaimable_jobs", 0) > 5000:
+        warnings.append(
+            {
+                "level": "info",
+                "title": "Retention cleanup available",
+                "detail": f"{retention['reclaimable_jobs']} jobs older than {retention['retention_days']}d (~{retention['reclaimable_bytes_est']//1024} KB) would be removed by the retention job.",
+            }
+        )
+    # jobs dominating
+    if jobs_table and db_size_bytes and (jobs_table["total_bytes"] / db_size_bytes) > 0.65:
+        warnings.append(
+            {
+                "level": "info",
+                "title": "Jobs table dominates storage",
+                "detail": f"Jobs is {(jobs_table['total_bytes']/db_size_bytes*100):.1f}% of DB. Descriptions are already stripped; further savings need lower retention or fewer sources.",
+            }
+        )
+    # cache hit
+    if cache.get("hit_ratio") is not None and cache["hit_ratio"] < 85:
+        warnings.append(
+            {
+                "level": "info",
+                "title": "Low cache hit ratio",
+                "detail": f"Buffer hit ratio {cache['hit_ratio']}% (<85%). Queries are hitting disk — consider indexes or larger cache.",
+            }
+        )
+
+    return {
+        "generated_at": now_iso,
+        "days": days,
+        "database": {
+            "size_bytes": db_size_bytes,
+            "free_limit_bytes": FREE_LIMIT,
+            "pro_limit_bytes": PRO_LIMIT,
+            "free_pct": round(free_pct, 1),
+            "pro_pct": round(pro_pct, 3),
+        },
+        "tables": tables,
+        "totals": totals,
+        "daily": daily,
+        "top_sources": top_sources,
+        "recent_runs": recent_runs,
+        "cache": cache,
+        "retention": retention,
+        "warnings": warnings,
+    }
+
+
+@router.get("/schema")
+def admin_schema() -> dict:
+    """Live DB schema + analysis for the visual schema page.
+
+    Returns tables with columns, PK/FK, indexes, sizes, row counts and a pre-computed
+    issues list (missing FKs, inconsistent deletes, naming, etc.) so the frontend
+    is a pure renderer and never fails to show something.
+    """
+    settings = load_settings()
+    # --- tables ---
+    tables = query(settings, "select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE' order by table_name")
+    table_names = [r["table_name"] for r in tables]
+    # columns (only base tables — avoid views like v_job_source)
+    cols = query(settings, "select table_name, column_name, data_type, udt_name, is_nullable, column_default from information_schema.columns where table_schema='public' and table_name = any(%s) order by table_name, ordinal_position", (table_names,))
+    cols_by_table: dict[str, list[dict[str, Any]]] = {t: [] for t in table_names}
+    for c in cols:
+        if c["table_name"] in cols_by_table:
+            cols_by_table[c["table_name"]].append(c)
+    # constraints
+    fks = query(settings, """
+        select tc.table_name, tc.constraint_name, kcu.column_name, ccu.table_name as foreign_table, ccu.column_name as foreign_column, rc.delete_rule
+        from information_schema.table_constraints tc
+        join information_schema.key_column_usage kcu on tc.constraint_name=kcu.constraint_name and tc.table_schema=kcu.table_schema
+        left join information_schema.constraint_column_usage ccu on ccu.constraint_name=tc.constraint_name and ccu.table_schema=tc.table_schema
+        left join information_schema.referential_constraints rc on rc.constraint_name=tc.constraint_name and rc.constraint_schema=tc.table_schema
+        where tc.table_schema='public' and tc.constraint_type='FOREIGN KEY'
+        order by tc.table_name
+    """)
+    fks_by_table: dict[str, list[dict[str, Any]]] = {t: [] for t in table_names}
+    for fk in fks:
+        if fk["table_name"] in fks_by_table:
+            fks_by_table[fk["table_name"]].append(fk)
+    # pks
+    pks = query(settings, """
+        select tc.table_name, kcu.column_name
+        from information_schema.table_constraints tc
+        join information_schema.key_column_usage kcu on tc.constraint_name=kcu.constraint_name
+        where tc.table_schema='public' and tc.constraint_type='PRIMARY KEY'
+    """)
+    pks_by_table: dict[str, set[str]] = {t: set() for t in table_names}
+    for pk in pks:
+        if pk["table_name"] in pks_by_table:
+            pks_by_table[pk["table_name"]].add(pk["column_name"])
+    # uniques
+    uniques = query(settings, """
+        select tc.table_name, tc.constraint_name, kcu.column_name
+        from information_schema.table_constraints tc
+        join information_schema.key_column_usage kcu on tc.constraint_name=kcu.constraint_name
+        where tc.table_schema='public' and tc.constraint_type='UNIQUE'
+        order by tc.table_name
+    """)
+    uniques_by_table: dict[str, list[str]] = {t: [] for t in table_names}
+    for u in uniques:
+        if u["table_name"] in uniques_by_table:
+            uniques_by_table[u["table_name"]].append(u["column_name"])
+    # indexes
+    idxs = query(settings, "select tablename as table_name, indexname, indexdef from pg_indexes where schemaname='public' order by tablename")
+    idx_by_table: dict[str, list[dict[str, Any]]] = {t: [] for t in table_names}
+    for idx in idxs:
+        if idx["table_name"] in idx_by_table:
+            idx_by_table[idx["table_name"]].append(idx)
+    # sizes + row counts (best-effort, never fail page)
+    sizes: dict[str, dict[str, Any]] = {}
+    for t in table_names:
+        try:
+            r = query(settings, "select pg_total_relation_size(%s::regclass)::bigint as total_bytes, pg_relation_size(%s::regclass)::bigint as data_bytes", (f"public.{t}", f"public.{t}"))
+            total = int(r[0]["total_bytes"]) if r else 0
+            data = int(r[0]["data_bytes"]) if r else 0
+            # estimated rows via n_live_tup, plus exact count for small tables (<100k est)
+            est = query(settings, "select coalesce(n_live_tup,0)::bigint as est from pg_stat_user_tables where relname=%s", (t,))
+            est_rows = int(est[0]["est"]) if est and est[0]["est"] is not None else 0
+            exact = None
+            if est_rows < 100000:
+                try:
+                    c = query(settings, f"select count(*)::int as c from {t} limit 100000")
+                    # Use count(*) without limit for exact when small
+                    c2 = query(settings, f"select count(*)::bigint as c from public.{t}")
+                    exact = int(c2[0]["c"]) if c2 else None
+                except Exception:
+                    exact = None
+            sizes[t] = {"total_bytes": total, "data_bytes": data, "est_rows": est_rows, "exact_rows": exact}
+        except Exception:
+            sizes[t] = {"total_bytes": 0, "data_bytes": 0, "est_rows": 0, "exact_rows": None}
+    # --- analysis (MNC checklist) ---
+    issues: list[dict[str, Any]] = []
+    # 1. Missing FKs that logically should exist
+    has_job_fk = any(fk["column_name"] == "job_id" for fk in fks_by_table.get("job_matches", []))
+    if not has_job_fk:
+        issues.append({"level": "high", "table": "job_matches", "title": "Missing FK job_matches.job_id → jobs.id", "detail": "Orphan job_matches can survive job deletion (jobs ON DELETE CASCADE does not clean them). Add FK with ON DELETE CASCADE."})
+    has_nq_job_fk = any(fk["column_name"] == "job_id" for fk in fks_by_table.get("notification_queue", []))
+    if not has_nq_job_fk:
+        issues.append({"level": "high", "table": "notification_queue", "title": "Missing FK notification_queue.job_id → jobs.id", "detail": "Queue rows can orphan when jobs are pruned (retention). Add FK ON DELETE CASCADE like jobs_source_id_fkey."})
+    # 2. FK delete rule inconsistency
+    for tbl in ("preferences", "subscriptions", "coupon_codes"):
+        for fk in fks_by_table.get(tbl, []):
+            if fk["delete_rule"] == "NO ACTION":
+                issues.append({"level": "medium", "table": tbl, "title": f"FK {fk['constraint_name']} NO ACTION", "detail": f"{fk['column_name']} → {fk['foreign_table']}.{fk['foreign_column']} is NO ACTION; deleting a user leaves orphan {tbl}. Prefer ON DELETE CASCADE (or SET NULL where nullable like coupon_codes.claimed_by)."})
+    # 3. Missing FK indexes (Postgres does not auto-index FK columns)
+    # Check: job_matches.job_id already has index, notification_queue job_id has no index
+    nq_indexes = [idx["indexdef"] for idx in idx_by_table.get("notification_queue", [])]
+    if not any("job_id" in d for d in nq_indexes):
+        issues.append({"level": "medium", "table": "notification_queue", "title": "No index on notification_queue.job_id", "detail": "FK without index → slow deletes and JOINs on jobs prune. Add btree(job_id)."})
+    # 4. Naming / standard
+    for t in table_names:
+        if any(c["column_name"].endswith("_at") and c["data_type"] != "timestamp with time zone" for c in cols_by_table[t]):
+            issues.append({"level": "low", "table": t, "title": "Timestamp without timestamptz", "detail": f"{t} has _at column not timestamptz — use timestamptz for UTC."})
+    # 5. Users email nullable + unique allows multiple NULLs — intentional for telegram-only accounts, but note
+    issues.append({"level": "info", "table": "users", "title": "users.email nullable + unique (intentional)", "detail": "Allows telegram-only accounts (email NULL). Postgres unique allows many NULLs — correct for this design, not a bug."})
+    # 6. Text vs varchar, no length checks
+    for t in table_names:
+        for c in cols_by_table[t]:
+            if c["data_type"] == "text" and c["column_name"] in ("email", "display_name", "code"):
+                pass  # intentional, validated in app layer
+    # 7. Row count vs size sanity
+    # 8. Missing updated_at trigger (app sets updated_at manually in queries — okay but note)
+    issues.append({"level": "info", "table": "app_settings", "title": "No updated_at trigger", "detail": "updated_at is set by app code (query ... updated_at=now()), not a DB trigger — works but manual."})
+    # Build payload
+    payload_tables = []
+    for t in table_names:
+        payload_tables.append({
+            "name": t,
+            "columns": cols_by_table[t],
+            "pks": sorted(list(pks_by_table[t])),
+            "fks": fks_by_table[t],
+            "uniques": uniques_by_table[t],
+            "indexes": idx_by_table[t],
+            "size": sizes[t],
+        })
+    return {"generated_at": datetime.now(UTC).isoformat(), "tables": payload_tables, "issues": issues, "counts": {"tables": len(table_names), "total_bytes": sum(s["total_bytes"] for s in sizes.values())}}
+
+
 @router.get("/stats")
 def admin_stats() -> dict:
     settings = load_settings()
@@ -501,7 +995,7 @@ def admin_stats() -> dict:
           (select count(*)::int from users where access_locked) as locked,
           (select count(*)::int from users where status = 'disabled') as disabled,
           (select count(*)::int from subscriptions where status = 'active') as active_subs,
-          (select count(*)::int from coupon_codes where claimed_by is null and expires_at > now()) as coupons_open,
+          (select count(*)::int from coupon_codes where claimed_at is null and expires_at > now()) as coupons_open,
           (select coalesce(sum(price_cents),0)::int from subscriptions s
              join plans p on p.code = s.plan_code
             where s.status = 'active' and p.interval = 'month') as mrr_cents,

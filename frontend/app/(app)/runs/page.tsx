@@ -2,18 +2,26 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RadarLoading } from "@/components/radar-loading";
+import { PageHeader, StatusPill } from "@/components/ink/ui";
+import styles from "@/components/ink/ink.module.css";
 import { api } from "@/lib/api";
 import { atsLabel, ATS_ORDER, formatDateTime, formatDuration, formatRunDuration, timeIST } from "@/lib/format";
 import type { PollRun, UnhealthySource } from "@/lib/types";
 
-const STATUS_META: Record<PollRun["status"], { label: string; className: string }> = {
-  running: { label: "Running", className: "bg-accent/15 text-accent" },
-  completed: { label: "Completed", className: "bg-success/15 text-success" },
-  failed: { label: "Failed", className: "bg-danger/15 text-danger" },
+const STATUS_TONE: Record<PollRun["status"], "info" | "ok" | "bad"> = {
+  running: "info",
+  completed: "ok",
+  failed: "bad",
+};
+
+const STATUS_LABEL: Record<PollRun["status"], string> = {
+  running: "Running",
+  completed: "Success",
+  failed: "Failed",
 };
 
 function RunStatusCard({ run }: { run: PollRun }) {
-  const meta = STATUS_META[run.status];
+  const tone = STATUS_TONE[run.status];
   const sourcesOk = (run.sources || []).filter((s) => s.status === "ok").length;
   const sourcesErr = (run.sources || []).filter((s) => s.status === "error").length;
   const sourcesSkipped = (run.sources || []).filter((s) => s.status === "skipped").length;
@@ -41,7 +49,7 @@ function RunStatusCard({ run }: { run: PollRun }) {
             {run.triggered_by === "manual" ? "Manual poll" : "Scheduled poll"}
             {run.ats_type ? ` · ${atsLabel(run.ats_type)}` : " · All sources"}
           </h2>
-          <span className={`rounded px-2 py-0.5 text-[11px] ${meta.className}`}>{meta.label}</span>
+          <StatusPill tone={tone}>{STATUS_LABEL[run.status]}</StatusPill>
           {run.status === "running" && (
             <span className="flex items-center gap-1.5 text-[11px] text-accent">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
@@ -169,7 +177,7 @@ function MiniStat({
           : "text-text";
   return (
     <div className="rounded-lg bg-elevated p-3">
-      <div className={`font-serif text-2xl font-semibold ${color}`}>{value}</div>
+      <div className={`text-2xl font-semibold ${color}`} style={{ fontVariantNumeric: "tabular-nums" }}>{value}</div>
       <div className="mt-0.5 text-[11px] text-text-muted">{label}</div>
     </div>
   );
@@ -262,14 +270,14 @@ export default function RunsPage() {
   const isRunning = latest && latest.status === "running";
 
   return (
-    <div className="mx-auto max-w-4xl p-8">
-      <h1 className="text-[28px] font-semibold">Poll Runs</h1>
-      <p className="mt-1 text-sm text-text-secondary">
-        Trigger a poll manually or watch the latest scheduled run. After every poll completes, new
-        jobs are matched against your preferences and alerts are sent for new matches.
-      </p>
+    <div className={styles.content}>
+      <PageHeader
+        eyebrow="System"
+        title="Runs"
+        desc="Review JobQuest background jobs and processing history. After every poll completes, new jobs are matched and alerts are sent."
+      />
 
-      <div className="mt-8 flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3" style={{ marginBottom: 18 }}>
         <select
           value={ats}
           onChange={(e) => setAts(e.target.value)}
@@ -349,18 +357,13 @@ export default function RunsPage() {
                 <h3 className="mb-2 text-sm font-semibold text-text-secondary">Earlier runs</h3>
                 <div className="card divide-y divide-border/50">
                   {runs.slice(1).map((run) => {
-                    const meta = STATUS_META[run.status];
                     return (
                       <div
                         key={run.id}
                         className="flex flex-wrap items-center justify-between gap-2 px-5 py-3 text-sm"
                       >
                         <span className="flex items-center gap-2">
-                          <span
-                            className={`rounded px-1.5 py-0.5 text-[10px] ${meta.className}`}
-                          >
-                            {meta.label}
-                          </span>
+                          <StatusPill tone={STATUS_TONE[run.status]}>{STATUS_LABEL[run.status]}</StatusPill>
                           <span className="text-text-secondary">
                             {run.triggered_by === "manual" ? "Manual" : "Scheduled"}
                             {run.ats_type ? ` · ${atsLabel(run.ats_type)}` : " · All"}

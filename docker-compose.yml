@@ -1,7 +1,7 @@
 services:
   postgres:
     image: postgres:15-alpine
-    container_name: jobradar-postgres
+    container_name: jobquest-postgres
     environment:
       POSTGRES_DB: postgres
       POSTGRES_USER: postgres
@@ -23,7 +23,7 @@ services:
 
   postgrest:
     image: postgrest/postgrest:v12.2.0
-    container_name: jobradar-postgrest
+    container_name: jobquest-postgrest
     depends_on:
       postgres:
         condition: service_healthy
@@ -39,7 +39,7 @@ services:
 
   poll:
     build: ./backend
-    container_name: jobradar-poll
+    container_name: jobquest-poll
     command: python run_poll.py
     volumes:
       # Bind-mount the source so the poll always runs the latest code —
@@ -57,7 +57,7 @@ services:
 
   web:
     build: ./backend
-    container_name: jobradar-web
+    container_name: jobquest-web
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/app
     ports:
       - "${PORT:-8000}:8000"
@@ -83,7 +83,7 @@ services:
     build:
       context: ./frontend
       target: deps
-    container_name: jobradar-frontend
+    container_name: jobquest-frontend
     command: npm run dev
     ports:
       - "3000:3000"

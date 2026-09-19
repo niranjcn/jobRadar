@@ -4079,5 +4079,5 @@ Each subsection below is one HiringCafe `source` value. Per `AGENTS.md` §5 each
 
 - `remaining = deduped[company_name.lower() not in sources.json[company_name.lower()]]` (name-overlaps excluded; board-token duplicates not collapsed in this report).
 - When adding READY boards, dedupe by `(ats_type, board_identifier.lower())` first: HiringCafe lists the same board under name variants (e.g. `Tide` / `Careers at Tide` → `tide`). Keep one (shortest name) and skip the rest, plus any board already tracked — otherwise the same board gets polled twice under two `source_id`s.
-- HiringCafe `source` → jobRadar `ats_type`: `grnhse→greenhouse`, `lever/eu_lever→lever`, `ashby→ashby`, `workday→workday`, `successfactors→successfactors`, `oraclecloud/oraclepeoplesoft/taleo_*→oracle`, `icims/icims2→icims`, `avature→avature`, `phenompeople→phenom`. All else → no adapter.
+- HiringCafe `source` → jobQuest `ats_type`: `grnhse→greenhouse`, `lever/eu_lever→lever`, `ashby→ashby`, `workday→workday`, `successfactors→successfactors`, `oraclecloud/oraclepeoplesoft/taleo_*→oracle`, `icims/icims2→icims`, `avature→avature`, `phenompeople→phenom`. All else → no adapter.
 - Regenerate: re-run the generator against `backend/data/hiringcafe_companies_deduped.json` + `backend/sources.json`.

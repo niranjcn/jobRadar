@@ -343,6 +343,36 @@ def load_geo_index() -> dict[str, dict[str, str]]:
         return json.load(f)
 
 
+def country_stored_variants(values: list[str]) -> list[str]:
+    """Every stored spelling a selected country value can take.
+
+    The jobs table mixes ISO codes ("IN") and full names ("India"), so any
+    country comparison must accept both forms. Unknown values pass through
+    uppercased. Pure.
+    """
+    try:
+        names = load_geo_index().get("countries") or {}
+    except Exception:
+        names = {}
+    code_to_name = {str(code).upper(): str(name) for name, code in names.items()}
+    variants: list[str] = []
+    for raw in values:
+        text = (raw or "").strip()
+        if not text:
+            continue
+        candidates = {text.upper(), text.title()}
+        code = names.get(text.lower())
+        if code:
+            candidates.add(str(code).upper())
+        full_name = code_to_name.get(text.upper())
+        if full_name:
+            candidates.add(str(full_name).title())
+        for candidate in candidates:
+            if candidate not in variants:
+                variants.append(candidate)
+    return variants
+
+
 def _country_hints(index: dict[str, dict[str, str]], settings: dict[str, Any]) -> tuple[dict, dict]:
     custom = {
         str(k).lower(): str(v).upper() for k, v in (settings.get("custom_aliases") or {}).items()

@@ -33,7 +33,7 @@ const jetbrains = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "JobRadar",
+  title: "JobQuest",
   description: "Your radar for the job market.",
 };
 

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Modal } from "@/components/admin-modal";
+import { Avatar, DataTable, EmptyState, LoadingState, PageHeader, Stat, StatusPill } from "@/components/ink/ui";
+import styles from "@/components/ink/ink.module.css";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { dateIST, errText, timeAgo } from "@/lib/format";
@@ -16,24 +18,19 @@ const KNOWN_CAPS = [
   { cap: "admin", label: "Admin" },
 ];
 
-function RoleBadge({ role }: { role: string }) {
-  const styles =
-    role === "admin"
-      ? "bg-primary/20 text-primary border-primary/40"
-      : role === "privileged"
-        ? "bg-success/15 text-success border-success/30"
-        : "bg-elevated text-text-muted border-border";
-  return (
-    <span className={`rounded border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-widest ${styles}`}>
-      {role}
-    </span>
-  );
+function planOf(u: AdminUser): string {
+  if (u.sub_plan) return u.sub_plan;
+  if (u.role === "privileged") return "Friends & Family";
+  if (u.role === "admin") return "Owner";
+  return "—";
 }
 
-function StatusDot({ user }: { user: AdminUser }) {
-  if (user.status === "disabled") return <span className="text-xs text-danger">disabled</span>;
-  if (user.access_locked) return <span className="text-xs text-warning">locked</span>;
-  return <span className="text-xs text-success">active</span>;
+function statusOf(u: AdminUser): { tone: "ok" | "warn" | "bad" | "info" | "muted"; label: string } {
+  if (u.status === "disabled") return { tone: "bad", label: "Suspended" };
+  if (u.status === "pending") return { tone: "warn", label: "Trial" };
+  if (u.access_locked) return { tone: "warn", label: "Locked" };
+  if (u.sub_plan) return { tone: "ok", label: "Pro" };
+  return { tone: "ok", label: "Active" };
 }
 
 export default function AdminUsersPage() {
@@ -42,21 +39,29 @@ export default function AdminUsersPage() {
   const [presets, setPresets] = useState<Preset[]>([]);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const [capsUser, setCapsUser] = useState<AdminUser | null>(null);
   const [presetUser, setPresetUser] = useState<AdminUser | null>(null);
+  const [menuFor, setMenuFor] = useState<string | null>(null);
 
   const load = useCallback(() => {
     api
-      .adminUsers({ query_text: search, role: roleFilter })
+      .adminUsers({ query_text: search || undefined, role: roleFilter || undefined })
       .then((r) => setUsers(r.users))
-      .catch((e) => setError(errText(e)));
+      .catch((e) => setError(errText(e)))
+      .finally(() => setLoading(false));
   }, [search, roleFilter]);
 
   useEffect(() => {
-    load();
-    api.adminPresets().then((r) => setPresets(r.presets));
+    const t = setTimeout(load, 250);
+    return () => clearTimeout(t);
   }, [load]);
+
+  useEffect(() => {
+    api.adminPresets().then((r) => setPresets(r.presets));
+  }, []);
 
   async function act(fn: () => Promise<unknown>) {
     setError(null);
@@ -65,45 +70,136 @@ export default function AdminUsersPage() {
       load();
     } catch (e) {
       setError(errText(e));
+    } finally {
+      setMenuFor(null);
     }
   }
 
+  const metrics = useMemo(() => {
+    const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
+    return {
+      total: users.length,
+      active: users.filter((u) => u.status === "approved" && !u.access_locked).length,
+      pro: users.filter((u) => u.sub_plan).length,
+      fresh: users.filter((u) => u.created_at && new Date(u.created_at).getTime() >= weekAgo).length,
+    };
+  }, [users]);
+
+  const visible = useMemo(
+    () =>
+      users.filter((u) => {
+        if (!statusFilter) return true;
+        return statusOf(u).label.toLowerCase() === statusFilter;
+      }),
+    [users, statusFilter],
+  );
+
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
+    <div>
+      <PageHeader eyebrow="Admin" title="Users" desc="Manage accounts, subscriptions and user activity." />
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4" style={{ marginBottom: 20 }}>
+        <Stat label="Total users" value={metrics.total.toLocaleString()} />
+        <Stat label="Active users" value={metrics.active.toLocaleString()} tone="ok" />
+        <Stat label="Pro users" value={metrics.pro.toLocaleString()} tone="ok" />
+        <Stat label="New users (7d)" value={metrics.fresh.toLocaleString()} tone="info" />
+      </div>
+
+      <div className={styles.toolbar}>
         <input
-          className="search-input w-72"
-          placeholder="Search email or name…"
+          className={styles.toolInput}
+          style={{ width: 250 }}
+          placeholder="Search name or email…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          aria-label="Search users"
         />
-        <select className="search-input w-36" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}>
+        <select className={styles.toolInput} value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} aria-label="Role">
           <option value="">All roles</option>
           <option value="user">user</option>
           <option value="privileged">privileged</option>
           <option value="admin">admin</option>
         </select>
-        <span className="ml-auto text-xs text-text-muted">{users.length} account(s)</span>
+        <select className={styles.toolInput} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Status">
+          <option value="">All statuses</option>
+          <option value="active">Active</option>
+          <option value="trial">Trial</option>
+          <option value="pro">Pro</option>
+          <option value="locked">Locked</option>
+          <option value="suspended">Suspended</option>
+        </select>
+        <span className={styles.spacer} />
+        <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>{visible.length} account(s)</span>
       </div>
 
-      {error && <p className="text-sm text-danger">{error}</p>}
+      {error && (
+        <p style={{ fontSize: 13, color: "var(--ink-danger)", marginBottom: 12 }}>{error}</p>
+      )}
 
-      <div className="card divide-y divide-border overflow-hidden">
-        {users.map((u) => (
-          <UserRow
-            key={u.id}
-            u={u}
-            presets={presets}
-            onAct={act}
-            onCaps={() => setCapsUser(u)}
-            onPreset={() => setPresetUser(u)}
-            isSelf={me?.id === u.id}
-          />
-        ))}
-        {users.length === 0 && (
-          <div className="p-6 text-center text-sm text-text-muted">No accounts match.</div>
-        )}
-      </div>
+      {loading ? (
+        <LoadingState rows={6} />
+      ) : visible.length === 0 ? (
+        <EmptyState title="No accounts match." />
+      ) : (
+        <DataTable head={["User", "Email", "Plan", "Status", "Joined", "Last active", ""]}>
+          {visible.map((u) => {
+            const st = statusOf(u);
+            const isSelf = me?.id === u.id;
+            return (
+              <tr key={u.id} style={isSelf ? { opacity: 0.65 } : undefined}>
+                <td>
+                  <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <Avatar name={u.display_name || u.email || "?"} size={32} />
+                    <span style={{ fontWeight: 600 }}>
+                      {u.display_name || u.email || u.id.slice(0, 8)}
+                      {u.alert_delay_minutes > 0 && (
+                        <span style={{ fontFamily: "ui-monospace,monospace", fontSize: 10, color: "var(--ink-warn)", marginLeft: 8 }}>
+                          +{u.alert_delay_minutes}m
+                        </span>
+                      )}
+                    </span>
+                  </span>
+                </td>
+                <td style={{ color: "var(--ink-text2)", maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {u.email || "—"}
+                </td>
+                <td style={{ textTransform: "capitalize" }}>{planOf(u)}</td>
+                <td>
+                  <StatusPill tone={st.tone}>● {st.label}</StatusPill>
+                </td>
+                <td style={{ color: "var(--ink-text2)", whiteSpace: "nowrap" }}>{dateIST(u.created_at)}</td>
+                <td style={{ color: "var(--ink-text2)", whiteSpace: "nowrap" }}>{timeAgo(u.last_login_at)}</td>
+                <td style={{ textAlign: "right", position: "relative" }}>
+                  <button
+                    type="button"
+                    aria-label="User actions"
+                    onClick={() => setMenuFor(menuFor === u.id ? null : u.id)}
+                    className={styles.btnLine}
+                    style={{ padding: "6px 12px", fontSize: 15, lineHeight: 1 }}
+                  >
+                    ⋯
+                  </button>
+                  {menuFor === u.id && (
+                    <RowMenu
+                      u={u}
+                      onAct={act}
+                      onCaps={() => {
+                        setCapsUser(u);
+                        setMenuFor(null);
+                      }}
+                      onPreset={() => {
+                        setPresetUser(u);
+                        setMenuFor(null);
+                      }}
+                      onClose={() => setMenuFor(null)}
+                    />
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </DataTable>
+      )}
 
       {capsUser && (
         <CapabilitiesModal
@@ -131,24 +227,20 @@ export default function AdminUsersPage() {
   );
 }
 
-function UserRow({
+function RowMenu({
   u,
-  presets,
   onAct,
   onCaps,
   onPreset,
-  isSelf,
+  onClose,
 }: {
   u: AdminUser;
-  presets: Preset[];
   onAct: (fn: () => Promise<unknown>) => void;
   onCaps: () => void;
   onPreset: () => void;
-  isSelf: boolean;
+  onClose: () => void;
 }) {
   const [delay, setDelay] = useState(String(u.alert_delay_minutes));
-
-  useEffect(() => setDelay(String(u.alert_delay_minutes)), [u.alert_delay_minutes]);
 
   function saveDelay() {
     const parsed = Math.max(0, parseInt(delay, 10) || 0);
@@ -157,25 +249,40 @@ function UserRow({
     }
   }
 
-  return (
-    <div className={`flex flex-wrap items-center gap-x-4 gap-y-2 p-4 ${isSelf ? "opacity-70" : ""}`}>
-      <div className="min-w-52 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="truncate text-sm font-medium">{u.email || u.display_name}</span>
-          <RoleBadge role={u.role} />
-          <StatusDot user={u} />
-          {u.alert_delay_minutes > 0 && (
-            <span className="font-mono text-[10px] text-warning">+{u.alert_delay_minutes}m</span>
-          )}
-        </div>
-        <p className="mt-0.5 text-xs text-text-muted">
-          joined {dateIST(u.created_at)} · last login {timeAgo(u.last_login_at)}
-          {u.sub_plan ? ` · ${u.sub_plan} (${u.sub_provider ?? "—"})` : ""}
-        </p>
-      </div>
+  const item: React.CSSProperties = {
+    display: "flex",
+    width: "100%",
+    alignItems: "center",
+    gap: 8,
+    border: 0,
+    background: "none",
+    color: "var(--ink-text)",
+    fontSize: 12.5,
+    padding: "8px 12px",
+    cursor: "pointer",
+    fontFamily: "inherit",
+    textAlign: "left",
+    borderRadius: 8,
+  };
 
-      <label className="flex items-center gap-1.5 text-xs text-text-muted">
-        Delay min
+  return (
+    <div
+      style={{
+        position: "absolute",
+        right: 0,
+        top: "calc(100% + 4px)",
+        zIndex: 20,
+        minWidth: 210,
+        background: "#0e2b2e",
+        border: "1px solid rgba(255,255,255,0.1)",
+        borderRadius: 12,
+        padding: 6,
+        boxShadow: "0 16px 40px rgba(0,0,0,0.5)",
+      }}
+      onMouseLeave={onClose}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", fontSize: 12, color: "var(--ink-muted)" }}>
+        Alert delay (min)
         <input
           type="number"
           min={0}
@@ -185,66 +292,66 @@ function UserRow({
           onChange={(e) => setDelay(e.target.value)}
           onBlur={saveDelay}
           onKeyDown={(e) => e.key === "Enter" && saveDelay()}
-          className="search-input w-20 px-2 py-1 text-right"
+          className={styles.toolInput}
+          style={{ width: 64, padding: "5px 8px", textAlign: "right" }}
         />
-      </label>
-
-      <div className="flex flex-wrap gap-1">
-        {(u.role === "user" || u.role === "privileged") && !u.is_owner && (
-          <button
-            className="btn-ghost px-2 py-1 text-xs"
-            onClick={() => onAct(() => api.setUserRole(u.id, u.role === "user" ? "privileged" : "user"))}
-          >
-            {u.role === "user" ? "Make privileged" : "Revoke privileged"}
-          </button>
-        )}
-        {!u.is_owner && (
-          <>
-            {u.status === "pending" && (
-              <button className="btn-ghost px-2 py-1 text-xs" onClick={() => onAct(() => api.adminUserAction(u.id, "approve"))}>
-                Approve
-              </button>
-            )}
-            {u.status !== "disabled" ? (
-              <button className="btn-ghost px-2 py-1 text-xs" onClick={() => onAct(() => api.adminUserAction(u.id, "disable"))}>
-                Disable
-              </button>
-            ) : (
-              <button className="btn-ghost px-2 py-1 text-xs" onClick={() => onAct(() => api.adminUserAction(u.id, "enable"))}>
-                Enable
-              </button>
-            )}
-            {!u.access_locked ? (
-              <button className="btn-ghost px-2 py-1 text-xs" onClick={() => onAct(() => api.adminUserAction(u.id, "lock"))}>
-                Lock
-              </button>
-            ) : (
-              <button className="btn-ghost px-2 py-1 text-xs" onClick={() => onAct(() => api.adminUserAction(u.id, "unlock"))}>
-                Unlock
-              </button>
-            )}
-          </>
-        )}
-        <button className="btn-ghost px-2 py-1 text-xs" onClick={onCaps}>
-          Caps ({(u.capabilities || []).length})
-        </button>
-        <button className="btn-ghost px-2 py-1 text-xs" onClick={onPreset}>
-          Preset…
-        </button>
-        {!u.is_owner && (
-          <button
-            className="btn-ghost px-2 py-1 text-xs"
-            onClick={() => {
-              const input = window.prompt("Comp subscription days (blank = until revoked):");
-              if (input === null) return;
-              const days = parseInt(input, 10);
-              onAct(() => api.compSubscription(u.id, "standard", Number.isFinite(days) ? days : null));
-            }}
-          >
-            Comp…
-          </button>
-        )}
       </div>
+      {(u.role === "user" || u.role === "privileged") && !u.is_owner && (
+        <button
+          type="button"
+          style={item}
+          onClick={() => onAct(() => api.setUserRole(u.id, u.role === "user" ? "privileged" : "user"))}
+        >
+          {u.role === "user" ? "Make privileged" : "Revoke privileged"}
+        </button>
+      )}
+      {!u.is_owner && (
+        <>
+          {u.status === "pending" && (
+            <button type="button" style={item} onClick={() => onAct(() => api.adminUserAction(u.id, "approve"))}>
+              Approve
+            </button>
+          )}
+          {u.status !== "disabled" ? (
+            <button type="button" style={item} onClick={() => onAct(() => api.adminUserAction(u.id, "disable"))}>
+              Disable
+            </button>
+          ) : (
+            <button type="button" style={item} onClick={() => onAct(() => api.adminUserAction(u.id, "enable"))}>
+              Enable
+            </button>
+          )}
+          {!u.access_locked ? (
+            <button type="button" style={item} onClick={() => onAct(() => api.adminUserAction(u.id, "lock"))}>
+              Lock
+            </button>
+          ) : (
+            <button type="button" style={item} onClick={() => onAct(() => api.adminUserAction(u.id, "unlock"))}>
+              Unlock
+            </button>
+          )}
+        </>
+      )}
+      <button type="button" style={item} onClick={onCaps}>
+        Capabilities ({(u.capabilities || []).length})
+      </button>
+      <button type="button" style={item} onClick={onPreset}>
+        Apply preset…
+      </button>
+      {!u.is_owner && (
+        <button
+          type="button"
+          style={item}
+          onClick={() => {
+            const input = window.prompt("Comp subscription days (blank = until revoked):");
+            if (input === null) return;
+            const days = parseInt(input, 10);
+            onAct(() => api.compSubscription(u.id, "standard", Number.isFinite(days) ? days : null));
+          }}
+        >
+          Comp subscription…
+        </button>
+      )}
     </div>
   );
 }
@@ -258,7 +365,6 @@ function CapabilitiesModal({
   onClose: () => void;
   onSave: (add: string[], remove: string[]) => Promise<void>;
 }) {
-  // Effective caps: explicit array if non-empty, else role defaults (mirrors backend).
   const effective = useMemo(() => {
     if ((user.capabilities || []).length > 0) return new Set(user.capabilities);
     const defaults: Record<Role, string[]> = {

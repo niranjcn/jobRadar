@@ -1,6 +1,6 @@
-# jobRadar
+# jobQuest
 
-[![CI](https://github.com/niranjcn/jobRadar/actions/workflows/ci.yml/badge.svg)](https://github.com/niranjcn/jobRadar/actions/workflows/ci.yml)
+[![CI](https://github.com/niranjcn/jobQuest/actions/workflows/ci.yml/badge.svg)](https://github.com/niranjcn/jobQuest/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-15-black.svg)](https://nextjs.org/)
@@ -145,7 +145,7 @@ tweaked live from the dashboard. A full integrity sweep runs every 12 hours.
 - A failure in one source is logged and doesn't stop the loop.
 - If the process restarts, orphaned `running` rows are cleaned up and polling
   resumes immediately.
-- Set `JOBRADAR_DISABLE_SCHEDULER=1` to run the API without any scheduled
+- Set `JOBQUEST_DISABLE_SCHEDULER=1` to run the API without any scheduled
   polling (e.g. when an external cron handles it).
 
 ## Adding a company

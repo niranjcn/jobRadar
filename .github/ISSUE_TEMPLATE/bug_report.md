@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a problem with jobRadar
+about: Report a problem with jobQuest
 title: "[bug] "
 labels: bug
 assignees: ""

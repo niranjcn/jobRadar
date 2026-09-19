@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { RadarLoading } from "@/components/radar-loading";
+import { PageHeader, Stat } from "@/components/ink/ui";
+import styles from "@/components/ink/ink.module.css";
 import { api } from "@/lib/api";
 import { atsLabel, formatDuration, formatRunDuration } from "@/lib/format";
 import type { PollRun } from "@/lib/types";
@@ -84,20 +86,65 @@ export default function TimingsPage() {
   const stats = useMemo(() => (runs ? perAtsStats(runs) : []), [runs]);
   const maxAvg = Math.max(1, ...stats.map((s) => s.avgMs));
 
-  if (!runs) return <div className="mx-auto max-w-5xl p-8"><RadarLoading label="Loading poll timings…" /></div>;
+  const avgs = useMemo(() => {
+    const done = (runs || []).filter((r) => r.status === "completed");
+    const durs = done.map(runDurationMs).filter((v): v is number => v != null);
+    const avg = durs.length ? durs.reduce((s, v) => s + v, 0) / durs.length : null;
+    return { avg };
+  }, [runs]);
+
+  if (!runs)
+    return (
+      <div className={styles.content}>
+        <RadarLoading label="Loading poll timings…" />
+      </div>
+    );
 
   return (
-    <div className="mx-auto max-w-5xl p-8">
-      <h1 className="text-[28px] font-semibold">Poll Timings</h1>
-      <p className="mt-1 text-sm text-text-secondary">
-        Time taken per adapter after each run. Total = <span className="font-mono">finished_at - started_at</span>.
-        Per-adapter = sum of <span className="font-mono">sources[].duration_ms</span> (Tier 1, from this deploy).
-        {runs.length ? ` · Last ${runs.length} runs` : ""}
-      </p>
+    <div className={styles.content}>
+      <PageHeader
+        eyebrow="System"
+        title="Timings"
+        desc={`Understand how JobQuest's systems are performing.${runs.length ? ` Last ${runs.length} runs.` : ""}`}
+      />
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4" style={{ marginBottom: 20 }}>
+        <Stat label="Avg scrape time" value={avgs.avg != null ? formatDuration(Math.round(avgs.avg)) : "—"} />
+        <Stat label="Runs analyzed" value={runs.length} />
+        <Stat label="Adapters tracked" value={stats.length} />
+        <Stat
+          label="Slowest adapter"
+          value={stats.length ? atsLabel(stats[0].ats) : "—"}
+          sub={stats.length && stats[0].avgMs ? formatDuration(Math.round(stats[0].avgMs)) : undefined}
+        />
+      </div>
 
       <div className="mt-2 rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs text-text-secondary">
         <span className="font-semibold text-text">Tier 1 live:</span> concurrency light 16 (greenhouse/lever/ashby/remotive/wwr) · heavy 4-6 (workday 4, successfactors 4, oracle 6) · jitter ±120s · 404 backoff 12h · intervals: workday 1h (was 30m), successfactors 2h (was 1h)
       </div>
+
+      <section className={styles.panel} style={{ marginTop: 20, padding: 20 }}>
+        <p style={{ fontSize: 14, fontWeight: 700, margin: "0 0 4px" }}>Scraping performance</p>
+        <p style={{ fontSize: 12, color: "var(--ink-muted)", margin: "0 0 12px" }}>Total run duration, most recent last</p>
+        {(() => {
+          const seq = runs
+            .slice(0, 24)
+            .map(runDurationMs)
+            .filter((v): v is number => v != null)
+            .reverse();
+          const max = Math.max(1, ...seq);
+          if (!seq.length) return <p style={{ fontSize: 13, color: "var(--ink-muted)" }}>No completed runs yet.</p>;
+          return (
+            <div className={styles.bars} style={{ height: 110 }}>
+              {seq.map((ms, i) => (
+                <div key={i} className={styles.barCol} title={formatDuration(ms)}>
+                  <div className={styles.bar} style={{ height: `${Math.max(4, Math.round((ms / max) * 100))}%` }} />
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+      </section>
 
       <div className="mt-8 card overflow-hidden">
         <div className="grid grid-cols-12 gap-2 border-b border-border bg-elevated px-4 py-2 text-[11px] uppercase tracking-wide text-text-muted">

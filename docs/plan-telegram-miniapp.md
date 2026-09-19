@@ -1,4 +1,4 @@
-# Plan — Telegram-First JobRadar (Mini App Only)
+# Plan — Telegram-First JobQuest (Mini App Only)
 
 **Date:** 2026-08-28
 **Owner:** Admin chat ID from env (`ADMIN_CHAT_ID` = your `TELEGRAM_CHAT_ID`)
@@ -8,7 +8,7 @@
 
 ## 1. What You Asked For (in plain English)
 
-You want JobRadar to live **completely inside Telegram**. No separate website login.
+You want JobQuest to live **completely inside Telegram**. No separate website login.
 
 *   **You are the single owner (admin).** Your chat ID is set in `backend/.env` as `ADMIN_CHAT_ID`. Only you can see all users and make someone “privileged”.
 *   **Everyone else** who taps `/start` on your bot is instantly a **normal user**. Their Telegram `chat_id` is saved, they get a welcome, and they can immediately use the Mini App.
@@ -28,7 +28,7 @@ You want JobRadar to live **completely inside Telegram**. No separate website lo
 User -> Telegram -> /start
   -> Bot captures chat_id, username, first_name
   -> Creates row in `users` (role=normal, delay = normal_delay)
-  -> Sends welcome: "Welcome to JobRadar. Open Mini App to set preferences."
+  -> Sends welcome: "Welcome to JobQuest. Open Mini App to set preferences."
   -> Mini App button appears below chat
 ```
 
@@ -69,9 +69,9 @@ You already have the Next.js frontend. Mini App is **the same app**, just opened
 
 **What Telegram needs:**
 1.  **HTTPS URL** — Mini App must be `https://` (Telegram blocks `http`). Options:
-    *   Deploy `frontend` to Vercel/Render (you already have `render.yaml` for backend) — get `https://jobradar.vercel.app`
+    *   Deploy `frontend` to Vercel/Render (you already have `render.yaml` for backend) — get `https://jobquest.vercel.app`
     *   For local testing, use `ngrok` or `cloudflare tunnel`: `ngrok http 3000` -> gives `https://abc.ngrok.io`
-2.  **Tell BotFather:** In Telegram, message `@BotFather` -> `/mybots` -> your bot `JobRadarScannerbot` -> **Bot Settings** -> **Menu Button** -> set URL to `https://your-frontend/miniapp` (or `/`).
+2.  **Tell BotFather:** In Telegram, message `@BotFather` -> `/mybots` -> your bot `JobQuestScannerbot` -> **Bot Settings** -> **Menu Button** -> set URL to `https://your-frontend/miniapp` (or `/`).
     *   Also `/setdomain` -> paste your domain (`vercel.app` or `ngrok.io`) so “Login with Telegram” widget works.
 
 **What we build in code:**
@@ -108,7 +108,7 @@ Migration file: `029_telegram_multiuser.sql` (adds `ADMIN_CHAT_ID` handling, ens
 *   **Preferences API:** Change `GET/PUT /api/preferences` to use `chat_id` from initData, not session cookie.
 *   **Admin API:** `GET /api/admin/users` (admin only), `POST /api/admin/users/{id}/role`, `PUT /api/admin/delays`.
 *   **Poller:** In `match_and_enqueue`, loop over all active users, compute `scheduled_for` per tier, insert per user. Admin `0`, privileged `+X`, normal `+Y`.
-*   **Remove web auth:** Keep `JOBRADAR_REQUIRE_AUTH` but Mini App uses initData, not `SECRET_KEY` session.
+*   **Remove web auth:** Keep `JOBQUEST_REQUIRE_AUTH` but Mini App uses initData, not `SECRET_KEY` session.
 
 ---
 

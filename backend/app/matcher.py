@@ -6,7 +6,7 @@ from supabase import Client
 
 from app.config import DEFAULT_USER_ID
 from app.db import get_pool
-from app.geo import location_matches_preference, map_location
+from app.geo import country_stored_variants, location_matches_preference, map_location
 from app.settings_store import load_location_mapping
 
 REMOTE_PREF_WORDS = ("remote", "work from home", "wfh", "anywhere", "worldwide", "global")
@@ -32,7 +32,7 @@ def job_matches_preferences(
     location = (job.get("location") or "").lower()
     company = job.get("company_name") or ""
 
-    job_countries = [c.upper() for c in (job.get("countries") or []) if c]
+    job_countries = country_stored_variants([c for c in (job.get("countries") or []) if c])
     job_is_remote = bool(job.get("is_remote"))
 
     roles = preferences.get("roles") or []
@@ -98,7 +98,7 @@ def compute_match_score(
     description = (job.get("description") or "").lower()
     location = (job.get("location") or "").lower()
 
-    job_countries = [c.upper() for c in (job.get("countries") or []) if c]
+    job_countries = country_stored_variants([c for c in (job.get("countries") or []) if c])
     job_is_remote = bool(job.get("is_remote"))
 
     categories = 0

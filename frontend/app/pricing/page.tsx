@@ -34,14 +34,14 @@ export default function PricingPage() {
     <div className="flex min-h-screen flex-col items-center px-6 py-14">
       <Link href="/" className="mb-10 flex flex-col items-center gap-3">
         <RadarMark />
-        <span className="font-display text-lg font-bold tracking-[0.14em]">JOBRADAR</span>
+        <span className="font-display text-lg font-bold tracking-[0.14em]">JOBQUEST</span>
       </Link>
 
       <h1 className="max-w-xl text-center font-display text-3xl font-bold">
         Never miss a fresh posting again
       </h1>
       <p className="mt-3 max-w-md text-center text-sm text-text-secondary">
-        JobRadar watches career pages around the clock and alerts you within seconds when something
+        JobQuest watches career pages around the clock and alerts you within seconds when something
         matches.
       </p>
 

@@ -143,6 +143,48 @@ export function timeLeft(iso: string | null | undefined, now = Date.now()): stri
   return `${hours}h ${minutes % 60}m left`;
 }
 
+let regionNames: Intl.DisplayNames | null = null;
+
+/** ISO code → full country name ("IN" → "India"). Full-name values stored
+ *  in the DB ("Australia") are title-cased; anything else falls back as-is. */
+export function countryName(code: string): string {
+  const c = (code || "").trim();
+  if (!c) return "";
+  if (/^[A-Za-z]{2,3}$/.test(c)) {
+    const up = c.toUpperCase();
+    try {
+      if (!regionNames) regionNames = new Intl.DisplayNames(["en"], { type: "region" });
+      return regionNames.of(up) || up;
+    } catch {
+      return up;
+    }
+  }
+  return c.toLowerCase().replace(/(^|[\s-])(\w)/g, (_, p1: string, p2: string) => p1 + p2.toUpperCase());
+}
+
+/** Compact number formatter: 12400 → "12.4K". */
+export function fmtCompact(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
+  return String(n);
+}
+
+/** Week-over-week % change of two equal-length halves. Null when flat/empty. */
+export function pctChange(recent: number[], prior: number[]): number | null {
+  const a = recent.reduce((s, v) => s + v, 0);
+  const b = prior.reduce((s, v) => s + v, 0);
+  if (b <= 0) return a > 0 ? 100 : null;
+  const pct = Math.round(((a - b) / b) * 100);
+  return pct === 0 ? null : pct;
+}
+
+/** "2026-09-12" → "Sep 12". */
+export function shortDate(iso: string): string {
+  const d = new Date(iso + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
 export function errText(err: unknown): string {
   if (err instanceof Error) {
     return err.message.replace(/^\d+ \w+: /, "").slice(0, 200);

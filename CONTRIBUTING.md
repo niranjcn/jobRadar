@@ -1,6 +1,6 @@
-# Contributing to jobRadar
+# Contributing to jobQuest
 
-Thanks for helping out! jobRadar is a single-user project that aims to stay
+Thanks for helping out! jobQuest is a single-user project that aims to stay
 small and reliable, so contributions should be focused and follow the existing
 architecture. The authoritative design document is [AGENTS.md](AGENTS.md) —
 **read it before making changes.**

@@ -1,9 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { CompanyLogo } from "@/components/company-logo";
 import { RadarLoading } from "@/components/radar-loading";
+import { PageHeader } from "@/components/ink/ui";
+import styles from "@/components/ink/ink.module.css";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import type { Notification, Preferences } from "@/lib/types";
 
 type Scope = "all" | "matched";
@@ -112,20 +116,56 @@ function ChannelCard({
   );
 }
 
+const READ_KEY = "jobquest:notif-read-at";
+
 export default function NotificationsPage() {
+  const { me } = useAuth();
+  const isNormalUser = !!me && me.role === "user" && !me.is_owner && !me.anonymous;
   const [prefs, setPrefs] = useState<Preferences | null>(null);
   const [recent, setRecent] = useState<Notification[]>([]);
+  const [readAt, setReadAt] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
+  if (isNormalUser) {
+    return (
+      <div className={styles.content}>
+        <PageHeader eyebrow="Personal" title="Notifications" desc="Notifications are now handled directly via Telegram." />
+        <div className={styles.stateWrap} style={{ padding: 32 }}>
+          <p className={styles.stateTitle}>No separate page needed</p>
+          <p className={styles.stateDesc}>
+            For your account, just set your <strong>Telegram Chat ID</strong> in <Link href="/preferences" className="text-primary hover:underline">Preferences</Link> — matched jobs are sent there instantly after your subscription is active. No email/Telegram toggles needed.
+          </p>
+          <div className={styles.stateAction}>
+            <Link href="/preferences" className={styles.btnMint}>Go to Preferences</Link>
+            <Link href="/billing" className={styles.btnLine}>Billing</Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const load = useCallback(() => {
     api.preferences().then(setPrefs);
-    api.notifications().then((res) => setRecent(res.notifications.slice(0, 5)));
+    api.notifications().then((res) => setRecent(res.notifications));
   }, []);
 
   useEffect(() => {
     load();
+    try {
+      setReadAt(Number(localStorage.getItem(READ_KEY) || 0));
+    } catch {}
   }, [load]);
+
+  function markAllRead() {
+    const now = Date.now();
+    setReadAt(now);
+    try {
+      localStorage.setItem(READ_KEY, String(now));
+    } catch {}
+  }
+
+  const unread = recent.filter((n) => new Date(n.sent_at).getTime() > readAt).length;
 
   async function save() {
     if (!prefs) return;
@@ -139,20 +179,66 @@ export default function NotificationsPage() {
     }
   }
 
-  if (!prefs) return <RadarLoading label="Loading notification settings…" />;
+  if (!prefs)
+    return (
+      <div className={styles.content}>
+        <RadarLoading label="Loading notification settings…" />
+      </div>
+    );
 
-  const telegram = recent.filter((n) => n.channel === "telegram");
-  const email = recent.filter((n) => n.channel === "email");
+  const telegram = recent.filter((n) => n.channel === "telegram").slice(0, 5);
+  const email = recent.filter((n) => n.channel === "email").slice(0, 5);
 
   return (
-    <div className="mx-auto max-w-3xl p-8">
-      <h1 className="text-[28px] font-semibold">Notifications</h1>
-      <p className="mt-1 text-sm text-text-secondary">
-        Control what each channel sends. Telegram and email are independent — you can send everything to
-        one and only matches to the other. Changes apply to the next poll.
-      </p>
+    <div className={styles.content}>
+      <PageHeader
+        eyebrow="Personal"
+        title="Notifications"
+        desc="Stay updated on opportunities that matter. Telegram and email are independent — changes apply to the next poll."
+      />
 
-      <div className="mt-8 space-y-6">
+      <div style={{ maxWidth: 760 }} className="space-y-5">
+        <section className={styles.panel}>
+          <div className={styles.panelHead}>
+            <span className={styles.panelTitle}>Recent activity</span>
+            {unread > 0 && (
+              <span className={styles.statusTag} style={{ marginLeft: 0 }}>
+                <span className={styles.okDot} /> {unread} new
+              </span>
+            )}
+            <span style={{ marginLeft: "auto" }} />
+            <button type="button" className={styles.btnLine} style={{ fontSize: 12.5, padding: "7px 14px" }} onClick={markAllRead}>
+              Mark all as read
+            </button>
+          </div>
+          <div className={styles.timeline}>
+            {recent.slice(0, 12).map((n) => {
+              const isUnread = new Date(n.sent_at).getTime() > readAt;
+              return (
+                <div key={n.id} className={`${styles.tItem} ${isUnread ? styles.unread : ""}`}>
+                  <span className={`${styles.tIcon} ${n.channel === "email" ? styles.blue : ""}`}>
+                    <CompanyLogo name={n.company_name || "?"} domain={n.domain} size="sm" />
+                  </span>
+                  <span style={{ minWidth: 0 }}>
+                    <span style={{ display: "block", fontSize: 13.5, fontWeight: isUnread ? 700 : 500 }}>
+                      {n.title || "—"}
+                      <span style={{ color: "var(--ink-muted)", fontWeight: 400 }}> · {n.company_name || "unknown"}</span>
+                    </span>
+                    <span style={{ display: "block", fontSize: 12, color: "var(--ink-muted)", marginTop: 2, textTransform: "capitalize" }}>
+                      {n.channel} alert
+                    </span>
+                  </span>
+                  <span style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", flexShrink: 0 }}>
+                    {isUnread && <span className={styles.okDot} />}
+                    <span className={styles.tTime}>{new Date(n.sent_at).toLocaleString()}</span>
+                  </span>
+                </div>
+              );
+            })}
+            {recent.length === 0 && <p className={styles.emptyNote}>No alerts sent yet.</p>}
+          </div>
+        </section>
+
         <ChannelCard
           title="Telegram"
           badge="messaging"

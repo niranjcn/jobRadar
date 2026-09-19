@@ -36,7 +36,7 @@
 
 | Area | Evidence | Reading |
 |------|----------|---------|
-| **Local DB size** | `docker exec jobradar-postgres psql -U postgres -c "SELECT pg_size_pretty(pg_database_size('postgres'))"` | **129 MB** total, `jobs` table **111 MB** (69 MB heap + 39 MB indexes) for **185,211 rows**, avg **314 bytes**/row |
+| **Local DB size** | `docker exec jobquest-postgres psql -U postgres -c "SELECT pg_size_pretty(pg_database_size('postgres'))"` | **129 MB** total, `jobs` table **111 MB** (69 MB heap + 39 MB indexes) for **185,211 rows**, avg **314 bytes**/row |
 | **Descriptions** | `backend/migrations/011_clear_descriptions.sql:6`, `backend/app/models.py:38` | Only **864 rows** have a description, total **276 kB**. 99.5% are `NULL` — already optimized. |
 | **`poll_runs` last 14d** | `SELECT count(*) FROM poll_runs WHERE started_at > now()-'14d'` | **2,752 runs**, **36,528,356 jobs_fetched** — avg **197 runs/day** |
 | **Egress reported** | Supabase dashboard (user) | **7.35 GB / 14 days = ~538 MB/day** — billed as **Database + REST** egress |
@@ -148,20 +148,20 @@ Each phase states **risk, rollback, verification, and expected egress saving**. 
 
 **What to do (choose one, no code):**
 
-* **Option 1A — Recommended:** Render Dashboard -> Service `jobradar` -> Environment -> update:
-  * `SUPABASE_URL` -> `http://postgrest:3000` **or** leave Supabase but set `JOBRADAR_DISABLE_SCHEDULER=1` on Supabase-hosted service while you validate local.
+* **Option 1A — Recommended:** Render Dashboard -> Service `jobquest` -> Environment -> update:
+  * `SUPABASE_URL` -> `http://postgrest:3000` **or** leave Supabase but set `JOBQUEST_DISABLE_SCHEDULER=1` on Supabase-hosted service while you validate local.
   * Better: if you intend to move off Supabase entirely, set `DATABASE_URL` to your self-hosted Postgres (Neon, Fly Postgres, or keep Render's Postgres addon) and rotate `SUPABASE_KEY`. This instantly stops new egress.
 * **Option 1B — Pause to prove:** Render -> Suspend service for 24h. Check Supabase egress the next day — if it flatlines to near 0, Render was the source.
 * **Option 1C — Keep Supabase but throttle:** If you must stay on Supabase for now, set `POLL_INTERVAL_SECONDS=21600` (6h) on Render only. This cuts poll volume by 6x without code.
 
 **Files:** `render.yaml` (only doc update), Render dashboard (real change).
 
-**Risk:** **Low.** Config-only. Scheduler disable is respected in `backend/app/main.py:217` (`JOBRADAR_DISABLE_SCHEDULER`) and `backend/app/db.py:41` handles both local and Supabase URLs.
+**Risk:** **Low.** Config-only. Scheduler disable is respected in `backend/app/main.py:217` (`JOBQUEST_DISABLE_SCHEDULER`) and `backend/app/db.py:41` handles both local and Supabase URLs.
 
 **Rollback:** Revert env var in Render dashboard -> Redeploy -> previous behavior returns in <2 min.
 
 **Verification:**
-* `docker logs jobradar-web` should show `scheduler disabled via JOBRADAR_DISABLE_SCHEDULER` if you chose disable.
+* `docker logs jobquest-web` should show `scheduler disabled via JOBQUEST_DISABLE_SCHEDULER` if you chose disable.
 * Supabase egress 24h later should drop to <50 MB/day (only health checks).
 
 **Egress saving:** **100% of ongoing Render-driven egress** — typically **60-80% of total** when local dev is already off Supabase. If Render drives 300 MB/day, this phase alone saves **~4.2 GB / 14 days**.
@@ -186,7 +186,7 @@ Each phase states **risk, rollback, verification, and expected egress saving**. 
 
 **Verification:**
 * `pytest backend/tests/` — existing 98 unit tests still pass.
-* `docker exec jobradar-postgres psql -c "EXPLAIN SELECT external_job_id FROM jobs WHERE source_id = '...'"` shows `Index Scan using jobs_source_id_idx` (already indexed).
+* `docker exec jobquest-postgres psql -c "EXPLAIN SELECT external_job_id FROM jobs WHERE source_id = '...'"` shows `Index Scan using jobs_source_id_idx` (already indexed).
 * Supabase egress 24h delta before/after (check Reports).
 
 **Egress saving:** **~30-40%** of Database egress. Fewer bytes per query + fewer queries per sweep.
@@ -422,7 +422,7 @@ Supabase egress = every byte that **leaves** Supabase's network:
 ## 20. Appendix B — Verification Queries You Can Run Today
 
 ```sql
--- Local DB size (run on local: docker exec jobradar-postgres psql -U postgres)
+-- Local DB size (run on local: docker exec jobquest-postgres psql -U postgres)
 SELECT pg_size_pretty(pg_database_size('postgres')) AS db_size;
 -- 129 MB expected
 

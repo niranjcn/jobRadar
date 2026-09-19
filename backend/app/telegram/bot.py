@@ -43,7 +43,7 @@ COMMANDS: list[dict[str, str]] = [
     {"command": "runs", "description": "Recent poll runs"},
     {"command": "notifications", "description": "Recent alerts sent"},
     {"command": "preferences", "description": "Your preferences"},
-    {"command": "app", "description": "Open the JobRadar mini app"},
+    {"command": "app", "description": "Open the JobQuest mini app"},
 ]
 
 # Inline menu (read-only commands only). Two columns per row keeps the
@@ -299,7 +299,7 @@ def _menu_markup(mini_app_url: str = "") -> dict[str, Any]:
         keyboard.append(
             [
                 {
-                    "text": "🚀 Open JobRadar app",
+                    "text": "🚀 Open JobQuest app",
                     "web_app": {"url": mini_app_url},
                 }
             ]
@@ -310,7 +310,7 @@ def _menu_markup(mini_app_url: str = "") -> dict[str, Any]:
 def _app_markup(mini_app_url: str) -> dict[str, Any]:
     """Inline keyboard with a single WebApp button for the mini app."""
     return {
-        "inline_keyboard": [[{"text": "🚀 Open JobRadar app", "web_app": {"url": mini_app_url}}]]
+        "inline_keyboard": [[{"text": "🚀 Open JobQuest app", "web_app": {"url": mini_app_url}}]]
     }
 
 
@@ -390,7 +390,8 @@ def _list_jobs(
         from jobs j
         join sources s on s.id = j.source_id
         left join job_matches m on m.job_id = j.id and m.user_id = %s
-        where (%s = '' or (lower(j.title) ilike lower('%%' || %s || '%%')
+        where j.is_active
+          and (%s = '' or (lower(j.title) ilike lower('%%' || %s || '%%')
                or lower(s.company_name) ilike lower('%%' || %s || '%%')))
         {since_cond}
         order by j.first_seen_at desc
@@ -420,7 +421,7 @@ def _list_matches(
         from job_matches m
         join jobs j on j.id = m.job_id
         join sources s on s.id = j.source_id
-        where m.user_id = %s
+        where m.user_id = %s and j.is_active
           and (%s = '' or lower(s.company_name) ilike lower('%%' || %s || '%%'))
         {since_cond}
         order by m.match_score desc, j.first_seen_at desc
@@ -439,14 +440,15 @@ def _cmd_start(settings: Settings, supabase: Client, args: str, user_id: str | N
         settings,
         """
         select
-          (select count(*)::int from jobs) as jobs_total,
+          (select count(*)::int from jobs where is_active) as jobs_total,
           (select count(*)::int from sources where active) as companies,
-          (select count(*)::int from job_matches where user_id = %s) as matches
+          (select count(*)::int from job_matches m join jobs j on j.id = m.job_id
+            where m.user_id = %s and j.is_active) as matches
         """,
         (uid,),
     )[0]
     return (
-        "👋 Welcome to JobRadar!\n\n"
+        "👋 Welcome to JobQuest!\n\n"
         "I monitor company career pages and alert you about new jobs.\n\n"
         f"📦 {row['jobs_total']} jobs tracked\n"
         f"🏢 {row['companies']} companies monitored\n"
@@ -456,7 +458,7 @@ def _cmd_start(settings: Settings, supabase: Client, args: str, user_id: str | N
 
 
 def _cmd_help(settings: Settings, supabase: Client, args: str) -> str:
-    lines = ["🤖 JobRadar commands", ""]
+    lines = ["🤖 JobQuest commands", ""]
     lines.extend(f"/{c['command']} — {c['description']}" for c in COMMANDS)
     return "\n".join(lines)
 
@@ -468,11 +470,13 @@ def _cmd_stats(settings: Settings, supabase: Client, args: str, user_id: str | N
         settings,
         """
         select
-          (select count(*)::int from jobs) as jobs_total,
-          (select count(*)::int from jobs where first_seen_at >= %s) as jobs_7d,
+          (select count(*)::int from jobs where is_active) as jobs_total,
+          (select count(*)::int from jobs where is_active and first_seen_at >= %s) as jobs_7d,
           (select count(*)::int from sources where active) as companies,
-          (select count(*)::int from job_matches where user_id = %s) as matches,
-          (select coalesce(round(avg(match_score))::int, 0) from job_matches where user_id = %s) as avg_score
+          (select count(*)::int from job_matches m join jobs j on j.id = m.job_id
+            where m.user_id = %s and j.is_active) as matches,
+          (select coalesce(round(avg(m.match_score))::int, 0) from job_matches m
+            join jobs j on j.id = m.job_id where m.user_id = %s and j.is_active) as avg_score
         """,
         (since, uid, uid),
     )[0]
@@ -534,7 +538,8 @@ def _cmd_companies(settings: Settings, supabase: Client, args: str) -> str:
     rows = query(
         settings,
         """
-        select s.company_name, s.ats_type, s.active, count(j.id)::int as job_count
+        select s.company_name, s.ats_type, s.active,
+               count(j.id) filter (where j.is_active)::int as job_count
         from sources s
         left join jobs j on j.source_id = s.id
         group by s.id
@@ -825,8 +830,8 @@ def _inline_placeholder(q: str) -> list[dict[str, Any]]:
     Tapping either sends the hint text into the chat as-is.
     """
     if not q.strip():
-        title = "🔍 Search JobRadar jobs"
-        text = "Type a job title or company to search.\n\nTry: @JobRadarBot python"
+        title = "🔍 Search JobQuest jobs"
+        text = "Type a job title or company to search.\n\nTry: @JobQuestBot python"
         description = "Type e.g. 'python' or 'Adobe'…"
     else:
         title = f"No jobs found for '{q}'"
@@ -975,7 +980,7 @@ async def handle_update(
             client,
             token,
             chat_id,
-            "🚀 Open the JobRadar dashboard:",
+            "🚀 Open the JobQuest dashboard:",
             reply_markup=_app_markup(settings.telegram_mini_app_url),
         )
         return

@@ -121,7 +121,7 @@ export function Sidebar() {
     <aside className="sticky top-0 flex h-screen w-56 shrink-0 flex-col border-r-2 border-border bg-bg">
       <div className="flex items-center gap-2.5 border-b-2 border-border px-5 py-5">
         <RadarMark />
-        <span className="font-fraunces text-[15px] font-extrabold tracking-[-0.02em]">JOBRADAR</span>
+        <span className="font-fraunces text-[15px] font-extrabold tracking-[-0.02em]">JOBQUEST</span>
         <span className="ml-auto rounded bg-primary px-1.5 py-0.5 font-mono text-[8px] font-bold uppercase tracking-widest text-white">
           ED. 28
         </span>

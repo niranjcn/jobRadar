@@ -9,7 +9,7 @@ from app.config import DEFAULT_USER_ID
 from app.telegram.messages import build_html
 
 RESEND_API_URL = "https://api.resend.com/emails"
-TEST_MODE_FROM = "jobRadar <onboarding@resend.dev>"
+TEST_MODE_FROM = "JobQuest <onboarding@resend.dev>"
 IN_BATCH = 200
 
 
@@ -175,7 +175,7 @@ def send_email_notifications(
         api_key=api_key,
         to_addresses=to_addresses,
         subject=(
-            f"📡 jobRadar: {len(jobs)} new job(s), "
+            f"📡 JobQuest: {len(jobs)} new job(s), "
             f"{len(new_matches)} new matching job(s) — {datetime.now(UTC):%b %d}"
         ),
         html=build_html(new_matches, new_jobs=len(jobs), new_matches=len(new_matches)),

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Modal } from "@/components/admin-modal";
+import { PageHeader } from "@/components/ink/ui";
+import styles from "@/components/ink/ink.module.css";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { errText } from "@/lib/format";
@@ -89,9 +91,14 @@ export default function AdminPresetsPage() {
 
   return (
     <div className="space-y-4">
+      <PageHeader
+        eyebrow="Admin"
+        title="Presets"
+        desc="Create reusable job-search configurations for JobQuest."
+      />
       <div className="flex items-center gap-2">
-        <button className="btn-primary w-fit" onClick={() => setDraft(toDraft())}>
-          New preset
+        <button className={styles.btnMint} onClick={() => setDraft(toDraft())}>
+          + New preset
         </button>
         <button
           className="btn-ghost w-fit"
@@ -126,6 +133,28 @@ export default function AdminPresetsPage() {
               )}
             </div>
             {p.description && <p className="text-xs text-text-secondary">{p.description}</p>}
+            {(
+              [
+                ["Locations", p.locations ?? []],
+                ["Experience", p.seniority ?? []],
+                ["Skills", p.keywords ?? []],
+              ] as [string, string[]][]
+            ).map(
+              ([label, values]) =>
+                values.length > 0 && (
+                  <div key={label} style={{ fontSize: 12 }}>
+                    <span style={{ color: "var(--ink-muted)", marginRight: 8 }}>{label}:</span>
+                    {values.slice(0, 4).map((v) => (
+                      <span key={v} className={styles.tagChip} style={{ cursor: "default", marginRight: 6 }}>
+                        {v}
+                      </span>
+                    ))}
+                    {values.length > 4 && (
+                      <span style={{ color: "var(--ink-muted)" }}>+{values.length - 4} more</span>
+                    )}
+                  </div>
+                ),
+            )}
             <p className="flex flex-wrap gap-x-3 font-mono text-[11px] text-text-muted">
               <span>{(p.roles ?? []).length} roles</span>
               <span>{(p.keywords ?? []).length} skills</span>

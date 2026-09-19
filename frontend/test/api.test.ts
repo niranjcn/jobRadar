@@ -35,6 +35,8 @@ describe("api client", () => {
       country: "AE",
       since: "2026-01-01T00:00:00.000Z",
       remote_only: true,
+      loc: "Dubai",
+      sort: "oldest",
       limit: 20,
     });
     const [url] = (globalThis.fetch as any).mock.calls[0];
@@ -42,6 +44,32 @@ describe("api client", () => {
     expect(String(url)).toContain("q=engineer");
     expect(String(url)).toContain("ats=emirates");
     expect(String(url)).toContain("remote_only=true");
+    expect(String(url)).toContain("loc=Dubai");
+    expect(String(url)).toContain("sort=oldest");
+  });
+
+  it("builds query string for landing filters", async () => {
+    mockFetch({ jobs: [], total: 0, limit: 6, offset: 0 });
+    await api.publicJobs({
+      companies: "Google,Zoho",
+      sources: "greenhouse,lever",
+      countries: "IN,US",
+      locs: "Bengaluru,Hyderabad",
+      types: "full-time,internship",
+      exp: "fresher",
+      skills: "Python",
+      cats: "software",
+      min_salary: "6",
+      max_salary: "20",
+      limit: 6,
+    });
+    const [url] = (globalThis.fetch as any).mock.calls[0];
+    expect(String(url)).toContain("companies=Google%2CZoho");
+    expect(String(url)).toContain("sources=greenhouse%2Clever");
+    expect(String(url)).toContain("countries=IN%2CUS");
+    expect(String(url)).toContain("types=full-time%2Cinternship");
+    expect(String(url)).toContain("min_salary=6");
+    expect(String(url)).toContain("max_salary=20");
   });
 
   it("fetches a single public job", async () => {

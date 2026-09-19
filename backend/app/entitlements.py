@@ -47,14 +47,16 @@ def delivery_delay_minutes(user: dict[str, Any]) -> int:
     if role == "admin":
         return 0
     # If user has explicit per-user delay, use it (allows admin override per user if needed)
+    # A value of 0 means "use tier default" – the DB default is 0 for new users so they
+    # inherit the tier (30m privileged, 360m normal) until an admin sets a non-zero override.
+    # When tier keys are absent (unit tests without DB) the fallback is 0.
     value = user.get("alert_delay_minutes")
     try:
         if value is not None:
-            # None/empty is treated as 0 (unit tests expect 0), non-zero respects explicit value
             iv = int(value)
             if iv != 0:
                 return max(0, iv)
-            return 0
+            # iv == 0 → fall through to tier defaults below
     except (TypeError, ValueError):
         pass
     # Tier defaults - will be overridden by DB values in load_audience where we inject

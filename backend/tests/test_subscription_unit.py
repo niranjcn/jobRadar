@@ -110,6 +110,15 @@ def test_coupon_state_machine():
     assert coupon_state(iso_expired, now) == "expired"
 
 
+def test_coupon_state_survives_claimant_purge():
+    """ON DELETE SET NULL (037): a claimed row whose claimant was purged has
+    claimed_by NULL but claimed_at set — it must still read as claimed so the
+    code can never be re-claimed."""
+    now = datetime.now(UTC)
+    purged = {"claimed_by": None, "claimed_at": now, "expires_at": now + timedelta(hours=1)}
+    assert coupon_state(purged, now) == "claimed"
+
+
 # ---------- sessions / otp / initData ----------
 
 
@@ -342,12 +351,19 @@ def test_password_hash_roundtrip():
 def test_password_strength_rules():
     from app.auth import validate_password_strength
 
+    # MNC policy: 12-128 chars, 3/4 categories, not common, not containing identity
     assert validate_password_strength("abc") == [
-        "password needs at least 8 characters, at least one number"
+        "password needs at least 12 characters, at least 3 of: upper, lower, number, special character"
     ]
-    assert validate_password_strength("abcdefgh") == ["password needs at least one number"]
-    assert validate_password_strength("12345678") == ["password needs at least one letter"]
-    assert validate_password_strength("goodpass1") == []
+    assert validate_password_strength("abcdefghijkl") == [
+        "password needs at least 3 of: upper, lower, number, special character"
+    ]
+    assert validate_password_strength("123456789012") == [
+        "password needs at least 3 of: upper, lower, number, special character"
+    ]
+    assert validate_password_strength("GoodPass123!") == []
+    # 12 chars with 3 categories passes
+    assert validate_password_strength("Strong123!ab") == []
 
 
 # ---------- db json safety (uuid crash fix) ----------

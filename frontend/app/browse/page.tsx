@@ -3,7 +3,7 @@ import { BrowseJobs } from "./browse-jobs";
 import { RadarLoading } from "@/components/radar-loading";
 
 export const metadata = {
-  title: "Browse Jobs · JobRadar",
+  title: "Browse Jobs · JobQuest",
   description: "Browse every tracked job posting. No login required.",
 };
 
