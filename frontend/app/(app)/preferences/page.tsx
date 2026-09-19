@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CountrySelect } from "@/components/country-select";
 import { RadarLoading } from "@/components/radar-loading";
+import { PageHeader } from "@/components/ink/ui";
+import styles from "@/components/ink/ink.module.css";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
+import { errText } from "@/lib/format";
 import type { GeoCountry, Preferences } from "@/lib/types";
 
 const ROLES_PRESET = ["Software Engineer", "Backend Engineer", "DevOps Engineer", "SRE", "Platform Engineer", "MTS", "Full Stack Engineer", "Cloud Engineer"];
@@ -12,11 +16,16 @@ const SENIORITY_PRESET = ["Internship", "New Grad", "Entry", "Junior", "Mid", "S
 const LOCATIONS_PRESET = ["Remote", "India", "United States", "Bengaluru", "Hyderabad", "Mumbai", "Delhi", "Pune", "Chennai", "Dubai", "Singapore", "Germany"];
 
 export default function PreferencesPage() {
+  const { me, refresh } = useAuth();
   const [prefs, setPrefs] = useState<Preferences | null>(null);
   const [countries, setCountries] = useState<GeoCountry[]>([]);
   const [countryPreview, setCountryPreview] = useState<Record<string, string[]>>({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [telegramChatId, setTelegramChatId] = useState("");
+  const [tgSaving, setTgSaving] = useState(false);
+  const [tgMsg, setTgMsg] = useState<string | null>(null);
+  const [tgErr, setTgErr] = useState<string | null>(null);
 
   const load = useCallback(() => {
     api.preferences().then(setPrefs);
@@ -26,6 +35,26 @@ export default function PreferencesPage() {
     load();
     api.geoCountries().then((res) => setCountries(res.countries));
   }, [load]);
+
+  useEffect(() => {
+    if (me?.telegram_chat_id) setTelegramChatId(String(me.telegram_chat_id));
+    else if (me && me.telegram_chat_id === null) setTelegramChatId("");
+  }, [me?.telegram_chat_id, me]);
+
+  async function saveTelegram() {
+    setTgSaving(true);
+    setTgMsg(null);
+    setTgErr(null);
+    try {
+      const res = await api.setTelegramChatId(telegramChatId.trim());
+      setTgMsg(res.telegram_chat_id ? `Saved — alerts will go to ${res.telegram_chat_id}` : "Cleared — no Telegram alerts until you set a chat ID.");
+      await refresh();
+    } catch (e) {
+      setTgErr(errText(e as Error));
+    } finally {
+      setTgSaving(false);
+    }
+  }
 
   const locations = useMemo(() => (prefs?.locations || []).slice(0, 12), [prefs?.locations]);
 
@@ -106,7 +135,12 @@ export default function PreferencesPage() {
     }
   }
 
-  if (!prefs) return <RadarLoading label="Loading preferences…" />;
+  if (!prefs)
+    return (
+      <div className={styles.content}>
+        <RadarLoading label="Loading preferences…" />
+      </div>
+    );
 
   const TagInput = ({ field, placeholder, presets }: { field: keyof Preferences; placeholder: string; presets: string[] }) => (
     <div>
@@ -216,14 +250,14 @@ export default function PreferencesPage() {
   };
 
   return (
-    <div className="mx-auto max-w-3xl p-8">
-      <h1 className="text-[28px] font-semibold">Your Job Preferences</h1>
-      <p className="mt-1 text-sm text-text-secondary">
-        Locations act as a hard filter — a job must be in one of your selected locations. Roles, skills,
-        and experience are OR'd: a job matches if it hits ANY of them.
-      </p>
+    <div className={styles.content}>
+      <PageHeader
+        eyebrow="Personal"
+        title="Preferences"
+        desc="Tell JobQuest what kind of opportunities you're looking for. Locations act as a hard filter — roles, skills, and experience are OR'd: a job matches if it hits ANY of them."
+      />
 
-      <div className="mt-8 space-y-8">
+      <div style={{ maxWidth: 760 }} className="space-y-5">
         <section className="card space-y-4 p-5">
           <h2 className="text-[15px] font-semibold">Roles</h2>
           <BulkTagInput
@@ -318,43 +352,44 @@ export default function PreferencesPage() {
         </section>
 
         <section className="card space-y-4 p-5">
-          <h2 className="text-[15px] font-semibold">Notification preferences</h2>
-          <div className="flex items-center gap-6">
-            <label className="flex items-center gap-2 text-sm text-text-secondary">
-              <input
-                type="checkbox"
-                checked={prefs.notify_telegram}
-                onChange={(e) => setPrefs({ ...prefs, notify_telegram: e.target.checked })}
-              />
-              Telegram
-            </label>
-            <label className="flex items-center gap-2 text-sm text-text-secondary">
-              <input
-                type="checkbox"
-                checked={prefs.notify_email}
-                onChange={(e) => setPrefs({ ...prefs, notify_email: e.target.checked })}
-              />
-              Email
-            </label>
+          <h2 className="text-[15px] font-semibold">Telegram alerts</h2>
+          <p className="text-sm text-text-secondary">
+            Your <strong>matched jobs</strong> will be sent instantly to this Telegram chat ID after payment is active. Find your ID via{" "}
+            <a href="https://t.me/userinfobot" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+              @userinfobot
+            </a>{" "}
+            on Telegram (send <code>/start</code>), or use a channel/group ID like <code>-1001234567890</code>.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              placeholder="e.g. 1415590254 or -1001234567890"
+              value={telegramChatId}
+              onChange={(e) => setTelegramChatId(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && telegramChatId.trim() && saveTelegram()}
+              className="search-input w-64 font-mono"
+            />
+            <button onClick={saveTelegram} disabled={tgSaving} className="btn-primary w-fit">
+              {tgSaving ? "Saving…" : "Save Telegram ID"}
+            </button>
+            {telegramChatId && (
+              <button
+                type="button"
+                onClick={() => {
+                  setTelegramChatId("");
+                  setTgMsg(null);
+                  setTgErr(null);
+                }}
+                className="btn-ghost w-fit"
+              >
+                Clear
+              </button>
+            )}
           </div>
-          <div>
-            <p className="mb-2 text-xs uppercase tracking-wide text-text-muted">Alert frequency</p>
-            <div className="flex flex-wrap gap-2">
-              {["immediate", "every 6 hours", "daily digest"].map((f) => (
-                <button
-                  key={f}
-                  onClick={() => setPrefs({ ...prefs, alert_frequency: f })}
-                  className={`rounded px-3 py-1.5 text-sm transition-colors ${
-                    prefs.alert_frequency === f
-                      ? "bg-primary text-white"
-                      : "border border-border text-text-secondary hover:border-primary"
-                  }`}
-                >
-                  {f.charAt(0).toUpperCase() + f.slice(1)}
-                </button>
-              ))}
-            </div>
-          </div>
+          {tgMsg && <p className="text-sm text-success">{tgMsg}</p>}
+          {tgErr && <p className="text-sm text-danger">{tgErr}</p>}
+          <p className="text-xs text-text-muted">
+            {me?.telegram_linked ? `Linked: ${me.telegram_chat_id}` : "Not linked yet"} — {me?.access_locked ? "Subscribe via Billing to activate alerts." : "Alerts active (1 message per new match batch, respects your delay)."}
+          </p>
         </section>
 
         <div className="flex items-center gap-3">
