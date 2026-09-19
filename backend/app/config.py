@@ -26,13 +26,16 @@ ATS_DEFAULT_SECONDS = {
 # run 10-way: rate limits are per-host (each company is a different tenant
 # host) and the retrying client backs off on 429, so cross-board concurrency is
 # safe. Tune per ATS without code changes via POLL_CONCURRENCY_{ATS} env vars.
+# Workday bumped to 20 for 200+ boards (271): 10-way would be ~78 min wall at
+# 62→271 scale (>1h interval would skip). 20-way halves to ~39 min, fits 60m
+# interval without sharding. Per-host limits still safe (each tenant distinct).
 ATS_CONCURRENCY = {
     "greenhouse": 16,
     "lever": 16,
     "ashby": 16,
     "remotive": 16,
     "weworkremotely": 16,
-    "workday": 10,
+    "workday": 20,
     "oracle": 10,
     "successfactors": 10,
     "phenom": 8,
@@ -72,6 +75,10 @@ class Settings:
         notify_drain_seconds: int = 30,
         telegram_bot_username: str = "",
         admin_chat_id: str = "",
+        razorpay_key_id: str = "",
+        razorpay_key_secret: str = "",
+        razorpay_webhook_secret: str = "",
+        razorpay_plan_id: str = "",
     ) -> None:
         self.supabase_url = supabase_url
         self.supabase_key = supabase_key
@@ -97,6 +104,10 @@ class Settings:
         self.notify_drain_seconds = notify_drain_seconds
         self.telegram_bot_username = telegram_bot_username
         self.admin_chat_id = admin_chat_id or telegram_chat_id
+        self.razorpay_key_id = razorpay_key_id
+        self.razorpay_key_secret = razorpay_key_secret
+        self.razorpay_webhook_secret = razorpay_webhook_secret
+        self.razorpay_plan_id = razorpay_plan_id
 
 
 def _parse_list(value: str) -> list[str]:
@@ -155,7 +166,7 @@ def _build_settings() -> Settings:
         ats_intervals=_load_ats_intervals(),
         ats_concurrency=_load_ats_concurrency(),
         secret_key=os.environ.get("SECRET_KEY", ""),
-        require_auth=os.environ.get("JOBRADAR_REQUIRE_AUTH", "").lower() in ("1", "true", "yes"),
+        require_auth=os.environ.get("JOBQUEST_REQUIRE_AUTH", "").lower() in ("1", "true", "yes"),
         session_ttl_hours=int(os.environ.get("SESSION_TTL_HOURS", "168")),
         session_cookie_secure=os.environ.get("SESSION_COOKIE_SECURE", "").lower()
         in ("1", "true", "yes"),
@@ -163,6 +174,10 @@ def _build_settings() -> Settings:
         notify_drain_seconds=int(os.environ.get("NOTIFY_DRAIN_SECONDS", "30")),
         telegram_bot_username=os.environ.get("TELEGRAM_BOT_USERNAME", "").lstrip("@"),
         admin_chat_id=os.environ.get("ADMIN_CHAT_ID", "").strip(),
+        razorpay_key_id=os.environ.get("RAZORPAY_KEY_ID", "").strip(),
+        razorpay_key_secret=os.environ.get("RAZORPAY_KEY_SECRET", "").strip(),
+        razorpay_webhook_secret=os.environ.get("RAZORPAY_WEBHOOK_SECRET", "").strip(),
+        razorpay_plan_id=os.environ.get("RAZORPAY_PLAN_ID", "").strip(),
     )
 
 
