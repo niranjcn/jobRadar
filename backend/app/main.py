@@ -281,17 +281,30 @@ async def security_headers(request, call_next):
         "frame-src 'self' https://api.razorpay.com https://*.razorpay.com https://checkout.razorpay.com https://*.hdfcbank.com https://*.icicibank.com https:; "
         "frame-ancestors 'none'"
     )
-    if os.environ.get("SESSION_COOKIE_SECURE", "").lower() in ("1", "true", "yes") or os.environ.get("JOBQUEST_REQUIRE_AUTH", "").lower() in ("1", "true", "yes"):
+    if os.environ.get("SESSION_COOKIE_SECURE", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    ) or os.environ.get("JOBQUEST_REQUIRE_AUTH", "").lower() in ("1", "true", "yes"):
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     # CSRF origin check for auth state-changing routes with cookie
-    if request.method in ("POST", "PUT", "PATCH", "DELETE") and request.url.path.startswith("/api/auth"):
+    if request.method in ("POST", "PUT", "PATCH", "DELETE") and request.url.path.startswith(
+        "/api/auth"
+    ):
         origin = request.headers.get("origin") or request.headers.get("referer") or ""
         # allow same-site or allowed CORS origins; block cross-site with cookie
-        allowed = ["http://localhost:3000", "http://127.0.0.1:3000"] + [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
-        if origin and not any(origin.startswith(a) for a in allowed) and request.cookies.get("jobquest_session"):
+        allowed = ["http://localhost:3000", "http://127.0.0.1:3000"] + [
+            o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()
+        ]
+        if (
+            origin
+            and not any(origin.startswith(a) for a in allowed)
+            and request.cookies.get("jobquest_session")
+        ):
             # still allow if no origin (e.g., mobile, curl) — Lax SameSite already protects
             pass
     return response
+
 
 app.add_middleware(
     CORSMiddleware,

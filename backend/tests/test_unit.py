@@ -1885,9 +1885,7 @@ def test_prune_inactive_jobs_counts_deletes(monkeypatch):
     """Inactive prune returns the deleted count for retention logging."""
     import app.poller as poller_module
 
-    monkeypatch.setattr(
-        poller_module, "query", lambda settings, sql, params=(): [{"c": 7}]
-    )
+    monkeypatch.setattr(poller_module, "query", lambda settings, sql, params=(): [{"c": 7}])
     assert poller_module.prune_inactive_jobs(object()) == 7
 
 
