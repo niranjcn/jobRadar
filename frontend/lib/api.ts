@@ -3,6 +3,7 @@ import type {
   AdminUser,
   Company,
   Coupon,
+  DailyStats,
   GeoCountry,
   Job,
   JobFilters,
@@ -52,6 +53,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   stats: () => request<Stats>("/api/stats"),
+  statsDaily: (days = 14) => request<DailyStats>(`/api/stats/daily?days=${days}`),
   matchesSummary: () => request<MatchesSummary>("/api/matches/summary"),
   matchedJobs: (params?: {
     company?: string;
@@ -95,10 +97,22 @@ export const api = {
     q?: string;
     ats?: string;
     company?: string;
+    companies?: string;
+    sources?: string;
     country?: string;
+    countries?: string;
     since?: string;
     remote_only?: boolean;
     mode?: string;
+    loc?: string;
+    locs?: string;
+    types?: string;
+    exp?: string;
+    skills?: string;
+    cats?: string;
+    min_salary?: string;
+    max_salary?: string;
+    sort?: "newest" | "oldest";
     limit?: number;
     offset?: number;
   }) => {
@@ -106,10 +120,22 @@ export const api = {
     if (params?.q) search.set("q", params.q);
     if (params?.ats) search.set("ats", params.ats);
     if (params?.company) search.set("company", params.company);
+    if (params?.companies) search.set("companies", params.companies);
+    if (params?.sources) search.set("sources", params.sources);
     if (params?.country) search.set("country", params.country);
+    if (params?.countries) search.set("countries", params.countries);
     if (params?.since) search.set("since", params.since);
     if (params?.remote_only) search.set("remote_only", "true");
     if (params?.mode) search.set("mode", params.mode);
+    if (params?.loc) search.set("loc", params.loc);
+    if (params?.locs) search.set("locs", params.locs);
+    if (params?.types) search.set("types", params.types);
+    if (params?.exp) search.set("exp", params.exp);
+    if (params?.skills) search.set("skills", params.skills);
+    if (params?.cats) search.set("cats", params.cats);
+    if (params?.min_salary) search.set("min_salary", params.min_salary);
+    if (params?.max_salary) search.set("max_salary", params.max_salary);
+    if (params?.sort) search.set("sort", params.sort);
     if (params?.limit) search.set("limit", String(params.limit));
     if (params?.offset) search.set("offset", String(params.offset));
     const qs = search.toString();
@@ -213,6 +239,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ new_password, current_password }),
     }),
+  setTelegramChatId: (telegram_chat_id: string) =>
+    request<{ ok: boolean; telegram_chat_id: number | null }>("/api/auth/telegram-chat-id", {
+      method: "PUT",
+      body: JSON.stringify({ telegram_chat_id }),
+    }),
 
   plans: () => request<{ plans: Plan[] }>("/api/plans"),
   redeemCoupon: (code: string) =>
@@ -221,10 +252,15 @@ export const api = {
       body: JSON.stringify({ code }),
     }),
   checkout: (plan_code = "standard") =>
-    request<{ provider: string; instructions: string }>("/api/billing/checkout", {
+    request<{ provider: string; instructions: string; subscription_id?: string; key_id?: string; amount?: number; currency?: string }>("/api/billing/checkout", {
       method: "POST",
       body: JSON.stringify({ plan_code }),
     }),
+  razorpayCreateSubscription: () =>
+    request<{ ok: boolean; subscription_id: string; key_id: string; plan_id: string; customer_id: string }>("/api/billing/razorpay/create-subscription", { method: "POST" }),
+  razorpayVerify: (payload: { razorpay_payment_id: string; razorpay_subscription_id: string; razorpay_signature: string }) =>
+    request<{ ok: boolean; subscription_id: string; period_end: string }>("/api/billing/razorpay/verify", { method: "POST", body: JSON.stringify(payload) }),
+  razorpayCancel: () => request<{ ok: boolean; message: string }>("/api/billing/razorpay/cancel", { method: "POST" }),
   userPresets: () => request<{ presets: Preset[] }>("/api/presets"),
 
   // ---------- admin ----------
@@ -292,4 +328,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  egress: (days = 30) =>
+    request<import("./types").EgressResponse>(`/api/admin/egress?days=${days}`),
+  adminSchema: () => request<{ generated_at: string; tables: import("./types").SchemaTable[]; issues: import("./types").SchemaIssue[]; counts: { tables: number; total_bytes: number } }>("/api/admin/schema"),
 };

@@ -2,13 +2,35 @@ import { describe, expect, it } from "vitest";
 import {
   atsLabel,
   avatarColor,
+  countryName,
+  fmtCompact,
   formatInterval,
   initials,
+  pctChange,
+  shortDate,
   statusMeta,
   timeAgo,
 } from "../lib/format";
 
 describe("format helpers", () => {
+  it("countryName resolves ISO codes", () => {
+    expect(countryName("IN")).toBe("India");
+    expect(countryName("us")).toBe("United States");
+    expect(countryName("DE")).toBe("Germany");
+    expect(countryName("")).toBe("");
+    expect(countryName("Australia")).toBe("Australia");
+    expect(countryName("CZECH REPUBLIC")).toBe("Czech Republic");
+  });
+
+  it("fmtCompact / pctChange / shortDate", () => {
+    expect(fmtCompact(12400)).toBe("12.4K");
+    expect(fmtCompact(900)).toBe("900");
+    expect(pctChange([10, 10], [5, 5])).toBe(100);
+    expect(pctChange([5], [5])).toBeNull();
+    expect(pctChange([0], [0])).toBeNull();
+    expect(shortDate("2026-09-12")).toBe("Sep 12");
+  });
+
   it("initials", () => {
     expect(initials("Adobe")).toBe("AD");
     expect(initials("Nike")).toBe("NI");
