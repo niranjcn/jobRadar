@@ -61,12 +61,12 @@ export default function UnlockPage() {
       <div className="w-full max-w-md">
         <div className="mb-8 flex flex-col items-center gap-3">
           <RadarMark />
-          <span className="font-display text-lg font-bold tracking-[0.14em]">JOBRADAR</span>
+          <span className="font-display text-lg font-bold tracking-[0.14em]">JOBQUEST</span>
           {me?.email && <p className="text-xs text-text-muted">{me.email}</p>}
         </div>
 
         <div className="card space-y-6 p-6">
-          <h1 className="text-center text-lg font-semibold">Unlock JobRadar</h1>
+          <h1 className="text-center text-lg font-semibold">Unlock JobQuest</h1>
 
           {plans.map((plan) => (
             <div key={plan.code} className="rounded-[10px] border border-border p-4">

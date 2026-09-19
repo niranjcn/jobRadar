@@ -20,14 +20,11 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       router.replace("/pending");
       return;
     }
-    if (me.access_locked) {
-      router.replace("/unlock");
-      return;
-    }
+    // Locked users can still access dashboard/new-jobs/preferences/billing — paywalled pages handle their own gate
     setHolding(false);
   }, [loading, me, router]);
 
-  if (loading || holding || !me || me.status === "pending" || me.access_locked) {
+  if (loading || holding || !me || me.status === "pending") {
     return <RadarLoading label="Checking access…" />;
   }
   return <>{children}</>;
