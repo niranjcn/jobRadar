@@ -3,11 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AuthGate } from "@/components/auth-gate";
+import ink from "@/components/ink/ink.module.css";
 import { RadarLoading } from "@/components/radar-loading";
 import { useAuth } from "@/lib/auth-context";
 
 const TABS = [
   { href: "/admin", label: "Overview" },
+  { href: "/admin/egress", label: "Egress" },
+  { href: "/admin/schema", label: "Schema" },
   { href: "/admin/users", label: "Users" },
   { href: "/admin/coupons", label: "Coupons" },
   { href: "/admin/presets", label: "Presets" },
@@ -34,28 +37,31 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   return (
     <AuthGate>
       <AdminGuard>
-        <div className="mx-auto max-w-6xl p-8">
-          <h1 className="font-display text-2xl font-bold tracking-wide">ADMIN</h1>
-          <nav className="mt-4 flex gap-1 border-b border-border pb-3">
-            {TABS.map((tab) => {
-              const active =
-                tab.href === "/admin" ? pathname === "/admin" : pathname.startsWith(tab.href);
-              return (
-                <Link
-                  key={tab.href}
-                  href={tab.href}
-                  className={`rounded-full px-4 py-1.5 text-sm transition-colors ${
-                    active
-                      ? "bg-primary/15 text-primary"
-                      : "text-text-secondary hover:bg-primary/5 hover:text-text"
-                  }`}
-                >
-                  {tab.label}
-                </Link>
-              );
-            })}
-          </nav>
-          <div className="mt-6">{children}</div>
+        <div className={ink.ink} style={{ minHeight: "100vh" }}>
+          <div className="mx-auto max-w-6xl p-8">
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="font-display text-2xl font-bold tracking-wide">ADMIN</h1>
+              <Link href="/dashboard" className={ink.viewAll}>
+                ← Dashboard
+              </Link>
+            </div>
+            <nav className="mt-4 flex flex-wrap gap-1 border-b border-border pb-3">
+              {TABS.map((tab) => {
+                const active =
+                  tab.href === "/admin" ? pathname === "/admin" : pathname.startsWith(tab.href);
+                return (
+                  <Link
+                    key={tab.href}
+                    href={tab.href}
+                    className={`${ink.pill} ${active ? ink.pillActive : ""}`}
+                  >
+                    {tab.label}
+                  </Link>
+                );
+              })}
+            </nav>
+            <div className="mt-6">{children}</div>
+          </div>
         </div>
       </AdminGuard>
     </AuthGate>

@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { PageHeader } from "@/components/ink/ui";
+import styles from "@/components/ink/ink.module.css";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import type { Preset, PresetField } from "@/lib/types";
@@ -112,23 +114,31 @@ export default function OnboardingPage() {
 
   if (done) {
     return (
-      <div className="mx-auto max-w-xl p-8 text-center">
-        <h1 className="text-2xl font-semibold">You&apos;re all set 🎉</h1>
-        <p className="mt-3 text-sm text-text-secondary">Your matches are building now. You&apos;ll get alerts via email based on your preferences.</p>
-        <button onClick={() => router.push("/dashboard")} className="btn-primary mt-8">
-          Go to dashboard
-        </button>
+      <div className={styles.content}>
+        <div style={{ maxWidth: 560, margin: "40px auto", textAlign: "center" }}>
+          <h1 className={styles.pageTitle}>You&apos;re all set 🎉</h1>
+          <p className={styles.pageDesc} style={{ marginLeft: "auto", marginRight: "auto" }}>
+            Your matches are building now. You&apos;ll get alerts based on your preferences.
+          </p>
+          <div className={styles.pageAction} style={{ justifyContent: "center" }}>
+            <button onClick={() => router.push("/dashboard")} className={styles.btnMint}>
+              Go to dashboard →
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-2xl p-8">
-      <p className="font-mono text-xs uppercase tracking-[0.18em] text-text-muted">Welcome{me?.display_name ? `, ${me.display_name}` : ""}</p>
-      <h1 className="mt-1 text-[28px] font-semibold">Set your job preferences</h1>
-      <p className="mt-1 text-sm text-text-secondary">
-        Start from a quick-start preset or build your own. You can fine-tune everything later.
-      </p>
+    <div className={styles.content}>
+      <PageHeader
+        eyebrow={`Welcome${me?.display_name ? `, ${me.display_name}` : ""}`}
+        title="Set your job preferences"
+        desc="Start from a quick-start preset or build your own. You can fine-tune everything later."
+      />
+
+      <div style={{ maxWidth: 720 }}>
 
       {needsProfile && (
         <div className="card mt-6 space-y-4 p-5">
@@ -204,6 +214,7 @@ export default function OnboardingPage() {
         <button onClick={() => setDone(true)} className="btn-ghost text-sm text-text-muted">
           Skip for now
         </button>
+      </div>
       </div>
     </div>
   );

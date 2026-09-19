@@ -2,11 +2,19 @@
 
 import Link from "next/link";
 import { RadarLoading } from "@/components/radar-loading";
+import { PageHeader } from "@/components/ink/ui";
+import styles from "@/components/ink/ink.module.css";
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, api } from "@/lib/api";
 import { formatInterval } from "@/lib/format";
 import { useAuth } from "@/lib/auth-context";
 import type { LocationMappingResult, SourceResult } from "@/lib/types";
+
+const SECTIONS = [
+  { id: "profile", label: "Profile" },
+  { id: "mapping", label: "Location Mapping" },
+  { id: "polling", label: "Polling" },
+];
 
 export default function SettingsPage() {
   const { me, refresh } = useAuth();
@@ -91,14 +99,32 @@ export default function SettingsPage() {
     setPreview(res);
   }
 
-  if (loading) return <RadarLoading label="Loading settings…" />;
+  if (loading)
+    return (
+      <div className={styles.content}>
+        <RadarLoading label="Loading settings…" />
+      </div>
+    );
 
   return (
-    <div className="mx-auto max-w-3xl p-8">
-      <h1 className="text-[28px] font-semibold">Settings</h1>
-      <p className="mt-1 text-sm text-text-secondary">Profile and location mapping</p>
+    <div className={styles.content}>
+      <PageHeader
+        eyebrow="System"
+        title="Settings"
+        desc="Configure your JobQuest environment — profile, location mapping and polling."
+      />
 
-      <section className="card mt-8 space-y-4 p-5">
+      <div className={styles.setLayout}>
+        <nav className={styles.setNav} aria-label="Settings sections">
+          {SECTIONS.map((s) => (
+            <a key={s.id} href={`#${s.id}`} className={styles.setNavBtn}>
+              {s.label}
+            </a>
+          ))}
+        </nav>
+        <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 20 }}>
+
+      <section id="profile" className="card space-y-4 p-5" style={{ scrollMarginTop: 76 }}>
         <h2 className="text-[15px] font-semibold">Profile</h2>
         <div className="space-y-3">
           <input className="search-input w-full" placeholder="Display name" value={profileName} onChange={(e) => setProfileName(e.target.value)} />
@@ -110,7 +136,7 @@ export default function SettingsPage() {
         </div>
       </section>
 
-      <section className="card mt-8 space-y-4 p-5">
+      <section id="polling" className="card space-y-4 p-5" style={{ scrollMarginTop: 76 }}>
         <h2 className="text-[15px] font-semibold">Polling schedule (APScheduler)</h2>
         {sources ? (
           <ul className="space-y-2 text-sm text-text-secondary">
@@ -131,7 +157,7 @@ export default function SettingsPage() {
       </section>
 
       {geo && (
-        <section className="card mt-6 space-y-4 p-5">
+        <section id="mapping" className="card space-y-4 p-5" style={{ scrollMarginTop: 76 }}>
           <div className="flex items-center justify-between">
             <h2 className="text-[15px] font-semibold">Location → Country mapping</h2>
             <label className="flex items-center gap-2 text-sm text-text-secondary">
@@ -283,9 +309,11 @@ export default function SettingsPage() {
         <Link href="/preferences" className="block hover:text-primary">→ Edit matching preferences</Link>
       </section>
 
-      <p className="mt-8 text-xs text-text-muted">
+      <p className="text-xs text-text-muted">
         Backend API: <code>{process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}</code>
       </p>
+        </div>
+      </div>
     </div>
   );
 }

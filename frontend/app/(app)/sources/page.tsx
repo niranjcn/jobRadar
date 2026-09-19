@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CompanyLogo } from "@/components/company-logo";
 import { RadarLoading } from "@/components/radar-loading";
+import { PageHeader, Stat } from "@/components/ink/ui";
+import styles from "@/components/ink/ink.module.css";
 import { api } from "@/lib/api";
 import { atsLabel, ATS_ORDER, formatInterval, statusMeta, timeAgo } from "@/lib/format";
 import type { Source } from "@/lib/types";
@@ -77,7 +79,7 @@ export default function SourcesPage() {
     const healthy = sources.filter((s) => s.status === "healthy").length;
     const stale = sources.filter((s) => s.status === "stale").length;
     const never = sources.filter((s) => s.status === "never").length;
-    return { healthy, stale, never };
+    return { total: sources.length, active: sources.filter((s) => s.active).length, healthy, failed: stale + never };
   }, [sources]);
 
   const byAts = sources.reduce<Record<string, Source[]>>((acc, s) => {
@@ -88,31 +90,24 @@ export default function SourcesPage() {
   const atsOrder = ATS_ORDER;
 
   return (
-    <div className="mx-auto max-w-4xl p-8">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-[28px] font-semibold">Career Sources</h1>
-          <p className="mt-1 text-sm text-text-secondary">{sources.length} sources monitored</p>
-        </div>
-        <button className="btn-primary" onClick={() => setShowAdd(!showAdd)}>
-          {showAdd ? "Cancel" : "+ Add Source"}
-        </button>
-      </div>
+    <div className={styles.content}>
+      <PageHeader
+        eyebrow="Intelligence"
+        title="Sources"
+        desc="Monitor the sources powering JobQuest's job intelligence."
+        action={
+          <button className={styles.btnMint} onClick={() => setShowAdd(!showAdd)}>
+            {showAdd ? "Cancel" : "+ Add Source"}
+          </button>
+        }
+      />
 
       {!loading && (
-        <div className="mt-5 grid grid-cols-3 gap-3">
-          <div className="card p-4">
-            <p className="text-2xl font-semibold text-success">{stats.healthy}</p>
-            <p className="text-xs text-text-muted">Healthy</p>
-          </div>
-          <div className="card p-4">
-            <p className="text-2xl font-semibold text-warning">{stats.stale}</p>
-            <p className="text-xs text-text-muted">Unhealthy / stale</p>
-          </div>
-          <div className="card p-4">
-            <p className="text-2xl font-semibold text-text-secondary">{stats.never}</p>
-            <p className="text-xs text-text-muted">Never checked</p>
-          </div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4" style={{ marginBottom: 20 }}>
+          <Stat label="Sources" value={stats.total} />
+          <Stat label="Active" value={stats.active} tone="ok" />
+          <Stat label="Healthy" value={stats.healthy} tone="ok" />
+          <Stat label="Failed" value={stats.failed} tone={stats.failed > 0 ? "bad" : "muted"} />
         </div>
       )}
 

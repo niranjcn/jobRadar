@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { RadarLoading } from "@/components/radar-loading";
+import { PageHeader } from "@/components/ink/ui";
+import styles from "@/components/ink/ink.module.css";
 import { api } from "@/lib/api";
 import { atsLabel, formatDateTime, formatInterval, INTERVAL_OPTIONS, timeAgo } from "@/lib/format";
 import type { ScheduleEntry } from "@/lib/types";
@@ -63,11 +65,12 @@ export default function SchedulePage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl p-8">
-      <h1 className="text-[28px] font-semibold">Schedule Management</h1>
-      <p className="mt-1 text-sm text-text-secondary">
-        When each source type was last checked, how often it runs, and when the next check happens.
-      </p>
+    <div className={styles.content}>
+      <PageHeader
+        eyebrow="System"
+        title="Schedule"
+        desc="Control when JobQuest scans and processes job sources — frequency, next run and last run per pipeline."
+      />
 
       {msg && (
         <div className={`card mt-6 p-4 text-sm ${msg.ok ? "text-success" : "text-danger"}`}>{msg.text}</div>

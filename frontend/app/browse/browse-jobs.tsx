@@ -5,20 +5,43 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CompanySelect } from "@/components/company-select";
 import { CompanyLogo, domainsFromJobs } from "@/components/company-logo";
-import { JobCard } from "@/components/job-card";
 import { RadarLoading } from "@/components/radar-loading";
+import { RadarMark } from "@/components/radar-mark";
 import { api } from "@/lib/api";
-import { ATS_ORDER, atsLabel } from "@/lib/format";
+import { useAuth } from "@/lib/auth-context";
+import { ATS_ORDER, atsLabel, timeAgo } from "@/lib/format";
+import {
+  filterHidden,
+  hideJob,
+  loadHidden,
+  loadSaved,
+  toggleSaved,
+  unhideAll,
+} from "@/lib/job-store";
 import type { Job, PublicCompany } from "@/lib/types";
 
-const PAGE_SIZE = 20;
-const STORAGE_KEY = "jobradar:browse-filters:v1";
+const STORAGE_KEY = "jobquest:browse-filters:v2";
 
 const SINCE_OPTIONS = [
   { value: "", label: "Any time" },
   { value: "24h", label: "Last 24 hours" },
+  { value: "3d", label: "Last 3 days" },
   { value: "7d", label: "Last 7 days" },
+  { value: "14d", label: "Last 14 days" },
   { value: "30d", label: "Last 30 days" },
+];
+
+const PAGE_SIZES = [20, 50];
+
+const POPULAR_SEARCHES = [
+  "Software Engineer",
+  "Backend Engineer",
+  "Data Analyst",
+  "DevOps",
+  "Marketing",
+  "Sales",
+  "Designer",
+  "Customer Support",
 ];
 
 function sinceToIso(preset: string): string {
@@ -26,48 +49,91 @@ function sinceToIso(preset: string): string {
   const now = Date.now();
   const day = 24 * 3600 * 1000;
   if (preset === "24h") return new Date(now - day).toISOString();
+  if (preset === "3d") return new Date(now - 3 * day).toISOString();
   if (preset === "7d") return new Date(now - 7 * day).toISOString();
+  if (preset === "14d") return new Date(now - 14 * day).toISOString();
   if (preset === "30d") return new Date(now - 30 * day).toISOString();
   return "";
 }
 
+function sinceLabel(value: string): string {
+  return SINCE_OPTIONS.find((o) => o.value === value)?.label ?? value;
+}
+
 type Mode = "" | "remote" | "hybrid" | "onsite";
-const MODES: { value: Exclude<Mode, "">; label: string; blurb: string }[] = [
-  { value: "remote", label: "Remote", blurb: "work from anywhere" },
-  { value: "hybrid", label: "Hybrid", blurb: "mix of home + office" },
-  { value: "onsite", label: "On-site", blurb: "at the office" },
+type Sort = "newest" | "oldest";
+const ENVIRONMENTS: { value: Mode; label: string }[] = [
+  { value: "", label: "All environments" },
+  { value: "remote", label: "Remote" },
+  { value: "hybrid", label: "Hybrid" },
+  { value: "onsite", label: "On-site" },
 ];
+
+function modeLabel(m: Mode): string {
+  return m === "" ? "All environments" : (ENVIRONMENTS.find((e) => e.value === m)?.label ?? m);
+}
+
+/** Display work mode for a row (same heuristic the API filter uses). */
+function jobMode(job: Job): "Remote" | "Hybrid" | "On-site" {
+  if (job.is_remote) return "Remote";
+  const hay = `${job.title} ${job.location || ""}`.toLowerCase();
+  if (hay.includes("hybrid")) return "Hybrid";
+  return "On-site";
+}
 
 interface Filters {
   q: string;
+  loc: string;
   ats: string;
   company: string;
   country: string;
   since: string;
   remoteOnly: boolean;
   mode: Mode;
+  sort: Sort;
+  pageSize: number;
   page: number;
 }
 
-const EMPTY: Filters = { q: "", ats: "", company: "", country: "", since: "", remoteOnly: false, mode: "", page: 0 };
+const EMPTY: Filters = {
+  q: "",
+  loc: "",
+  ats: "",
+  company: "",
+  country: "",
+  since: "",
+  remoteOnly: false,
+  mode: "",
+  sort: "newest",
+  pageSize: 20,
+  page: 0,
+};
 
 function readMode(v: string | null): Mode {
   return v === "remote" || v === "hybrid" || v === "onsite" ? v : "";
 }
 
+function readSort(v: string | null): Sort {
+  return v === "oldest" ? "oldest" : "newest";
+}
+
 function readUrlParams(sp: URLSearchParams): Filters | null {
-  const keys = ["q", "ats", "company", "country", "since", "remote", "mode", "page"];
+  const keys = ["q", "loc", "ats", "company", "country", "since", "remote", "mode", "sort", "size", "page"];
   const hasAny = keys.some((k) => sp.get(k) !== null);
   if (!hasAny) return null;
   const page = Math.max(0, parseInt(sp.get("page") || "0", 10) || 0);
+  const size = parseInt(sp.get("size") || "20", 10);
   return {
     q: sp.get("q") || "",
+    loc: sp.get("loc") || "",
     ats: sp.get("ats") || "",
     company: sp.get("company") || "",
     country: sp.get("country") || "",
     since: sp.get("since") || "",
     remoteOnly: sp.get("remote") === "1",
     mode: readMode(sp.get("mode")),
+    sort: readSort(sp.get("sort")),
+    pageSize: PAGE_SIZES.includes(size) ? size : 20,
     page,
   };
 }
@@ -77,19 +143,50 @@ function readStored(): Filters | null {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<Filters>;
-    return { ...EMPTY, ...parsed, page: Math.max(0, Number(parsed.page) || 0) };
+    return {
+      ...EMPTY,
+      ...parsed,
+      mode: readMode((parsed.mode as string) ?? ""),
+      sort: readSort((parsed.sort as string) ?? ""),
+      pageSize: PAGE_SIZES.includes(Number(parsed.pageSize)) ? Number(parsed.pageSize) : 20,
+      page: Math.max(0, Number(parsed.page) || 0),
+    };
   } catch {
     return null;
   }
+}
+
+function FilterGroup({
+  title,
+  children,
+  defaultOpen = true,
+}: {
+  title: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}) {
+  return (
+    <details open={defaultOpen} className="border-b border-border/60 pb-4 last:border-0 last:pb-0">
+      <summary className="cursor-pointer list-none font-mono text-[11px] uppercase tracking-widest text-text-muted hover:text-text [&::-webkit-details-marker]:hidden">
+        <span className="flex items-center justify-between">
+          {title}
+          <span aria-hidden>＋</span>
+        </span>
+      </summary>
+      <div className="mt-3">{children}</div>
+    </details>
+  );
 }
 
 export function BrowseJobs() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { me } = useAuth();
 
   const [filters, setFilters] = useState<Filters>(() => readUrlParams(searchParams) || EMPTY);
   const [hydrated, setHydrated] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [companyOptions, setCompanyOptions] = useState<string[]>([]);
   const [countryOptions, setCountryOptions] = useState<string[]>([]);
   const [atsOptions, setAtsOptions] = useState<string[]>(ATS_ORDER);
@@ -97,7 +194,9 @@ export function BrowseJobs() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [topCompanies, setTopCompanies] = useState<PublicCompany[]>([]);
-  const [board, setBoard] = useState<Record<string, { total: number; jobs: Job[] }>>({});
+  const [saved, setSaved] = useState<string[]>([]);
+  const [hidden, setHidden] = useState<string[]>([]);
+  const [savedOnly, setSavedOnly] = useState(false);
   const firstRender = useRef(true);
 
   // Filters survive a refresh in two layers: the URL query string (primary,
@@ -110,6 +209,8 @@ export function BrowseJobs() {
       const stored = readStored();
       if (stored) setFilters(stored);
     }
+    setSaved(loadSaved());
+    setHidden(loadHidden());
     setHydrated(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -127,16 +228,6 @@ export function BrowseJobs() {
       .publicCompanies()
       .then((res) => setTopCompanies(res.companies.slice(0, 12)))
       .catch(() => {});
-    Promise.all(
-      MODES.map((m) =>
-        api
-          .publicJobs({ mode: m.value, limit: 5 })
-          .then((res) => [m.value, { total: res.total, jobs: res.jobs }] as const)
-          .catch(() => [m.value, { total: 0, jobs: [] }] as const),
-      ),
-    )
-      .then((entries) => setBoard(Object.fromEntries(entries)))
-      .catch(() => {});
   }, []);
 
   // Persist every change to both the URL and localStorage.
@@ -150,12 +241,15 @@ export function BrowseJobs() {
     } catch {}
     const sp = new URLSearchParams();
     if (filters.q) sp.set("q", filters.q);
+    if (filters.loc) sp.set("loc", filters.loc);
     if (filters.ats) sp.set("ats", filters.ats);
     if (filters.company) sp.set("company", filters.company);
     if (filters.country) sp.set("country", filters.country);
     if (filters.since) sp.set("since", filters.since);
     if (filters.remoteOnly) sp.set("remote", "1");
     if (filters.mode) sp.set("mode", filters.mode);
+    if (filters.sort !== "newest") sp.set("sort", filters.sort);
+    if (filters.pageSize !== 20) sp.set("size", String(filters.pageSize));
     if (filters.page > 0) sp.set("page", String(filters.page));
     const qs = sp.toString();
     router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
@@ -166,14 +260,16 @@ export function BrowseJobs() {
     try {
       const res = await api.publicJobs({
         q: filters.q || undefined,
+        loc: filters.loc || undefined,
         ats: filters.ats || undefined,
         company: filters.company || undefined,
         country: filters.country || undefined,
         since: sinceToIso(filters.since) || undefined,
         remote_only: filters.remoteOnly || undefined,
         mode: filters.mode || undefined,
-        limit: PAGE_SIZE,
-        offset: filters.page * PAGE_SIZE,
+        sort: filters.sort,
+        limit: filters.pageSize,
+        offset: filters.page * filters.pageSize,
       });
       setJobs(res.jobs);
       setTotal(res.total);
@@ -190,60 +286,249 @@ export function BrowseJobs() {
     return () => clearTimeout(t);
   }, [load, hydrated]);
 
-  const pageCount = useMemo(() => Math.max(1, Math.ceil(total / PAGE_SIZE)), [total]);
+  const pageCount = useMemo(
+    () => Math.max(1, Math.ceil(total / filters.pageSize)),
+    [total, filters.pageSize],
+  );
   const companyDomains = useMemo(() => domainsFromJobs(jobs), [jobs]);
+
+  const visibleJobs = useMemo(() => {
+    let list = filterHidden(jobs, hidden);
+    if (savedOnly) {
+      const set = new Set(saved);
+      list = list.filter((j) => set.has(j.id));
+    }
+    return list;
+  }, [jobs, hidden, saved, savedOnly]);
 
   function update(patch: Partial<Filters>, resetPage = true) {
     setFilters((f) => ({ ...f, ...patch, page: resetPage ? 0 : (patch.page ?? f.page) }));
   }
 
-  const hasActiveFilters =
-    filters.q !== "" ||
-    filters.ats !== "" ||
-    filters.company !== "" ||
-    filters.country !== "" ||
-    filters.since !== "" ||
-    filters.mode !== "" ||
-    filters.remoteOnly;
+  function onToggleSave(id: string) {
+    setSaved((cur) => toggleSaved(cur, id));
+  }
+
+  function onHide(id: string) {
+    setHidden((cur) => hideJob(cur, id));
+  }
+
+  const chips: { key: string; label: string; clear: () => void }[] = [];
+  if (filters.q) chips.push({ key: "q", label: `“${filters.q}”`, clear: () => update({ q: "" }) });
+  if (filters.loc)
+    chips.push({ key: "loc", label: `Location: ${filters.loc}`, clear: () => update({ loc: "" }) });
+  if (filters.company)
+    chips.push({ key: "company", label: filters.company, clear: () => update({ company: "" }) });
+  if (filters.country)
+    chips.push({ key: "country", label: filters.country, clear: () => update({ country: "" }) });
+  if (filters.ats)
+    chips.push({ key: "ats", label: atsLabel(filters.ats), clear: () => update({ ats: "" }) });
+  if (filters.mode)
+    chips.push({ key: "mode", label: modeLabel(filters.mode), clear: () => update({ mode: "" }) });
+  if (filters.since)
+    chips.push({ key: "since", label: sinceLabel(filters.since), clear: () => update({ since: "" }) });
+  if (filters.remoteOnly)
+    chips.push({ key: "remote", label: "Remote only", clear: () => update({ remoteOnly: false }) });
+
+  const hasActiveFilters = chips.length > 0;
 
   function clearAll() {
-    setFilters(EMPTY);
+    setFilters((f) => ({ ...EMPTY, sort: f.sort, pageSize: f.pageSize }));
+    setSavedOnly(false);
     try {
       localStorage.removeItem(STORAGE_KEY);
     } catch {}
   }
 
-  return (
-    <div className="mx-auto max-w-6xl p-8">
-      {/* Hero */}
-      <section className="relative overflow-hidden rounded-2xl border border-border bg-surface p-8 sm:p-10">
-        <div className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-primary/15 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-20 -left-10 h-56 w-56 rounded-full bg-accent/15 blur-3xl" />
-        <div className="relative">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-primary">
-              Public · No login required
+  const sidebar = (
+    <div className="space-y-4">
+      <FilterGroup title="Date posted">
+        <div className="flex flex-wrap gap-1.5">
+          {SINCE_OPTIONS.map((o) => (
+            <button
+              key={o.value || "any"}
+              type="button"
+              onClick={() => update({ since: o.value })}
+              className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                filters.since === o.value
+                  ? "border-primary bg-primary/15 text-text"
+                  : "border-border bg-elevated text-text-secondary hover:text-text"
+              }`}
+            >
+              {filters.since === o.value ? "✓ " : ""}
+              {o.label}
+            </button>
+          ))}
+        </div>
+      </FilterGroup>
+
+      <FilterGroup title="Company">
+        <CompanySelect
+          companies={companyOptions}
+          value={filters.company}
+          onChange={(v) => update({ company: v })}
+          domains={companyDomains}
+        />
+      </FilterGroup>
+
+      <FilterGroup title="Location">
+        <select
+          value={filters.country}
+          onChange={(e) => update({ country: e.target.value })}
+          className="search-input w-full"
+          aria-label="Country"
+        >
+          <option value="">All countries</option>
+          {countryOptions.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+      </FilterGroup>
+
+      <FilterGroup title="Source">
+        <select
+          value={filters.ats}
+          onChange={(e) => update({ ats: e.target.value })}
+          className="search-input w-full"
+          aria-label="Job source"
+        >
+          <option value="">All sources</option>
+          {atsOptions.map((a) => (
+            <option key={a} value={a}>
+              {atsLabel(a)}
+            </option>
+          ))}
+        </select>
+      </FilterGroup>
+
+      <FilterGroup title="My jobs" defaultOpen={false}>
+        <div className="space-y-2 text-sm">
+          <button
+            type="button"
+            onClick={() => setSavedOnly((v) => !v)}
+            className={`w-full rounded-lg border px-3 py-1.5 text-left text-xs font-medium transition-colors ${
+              savedOnly
+                ? "border-primary bg-primary/10 text-text"
+                : "border-border text-text-secondary hover:text-text"
+            }`}
+          >
+            {savedOnly ? "✓ " : ""}Show saved only ({saved.length})
+          </button>
+          {hidden.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setHidden(unhideAll())}
+              className="w-full rounded-lg border border-border px-3 py-1.5 text-left text-xs text-text-secondary hover:text-text"
+            >
+              Unhide {hidden.length} hidden job{hidden.length === 1 ? "" : "s"}
+            </button>
+          )}
+          {saved.length === 0 && hidden.length === 0 && (
+            <p className="text-xs text-text-muted">
+              Tap Save on any job to build your shortlist here.
             </p>
-            <Link href="/login" className="btn-primary">
+          )}
+        </div>
+      </FilterGroup>
+
+      {hasActiveFilters && (
+        <button type="button" onClick={clearAll} className="btn-ghost w-full">
+          Clear all filters
+        </button>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen">
+      {/* Header */}
+      <header className="sticky top-0 z-30 border-b-2 border-border bg-surface/95 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
+          <Link href="/" className="flex items-center gap-2.5">
+            <RadarMark />
+            <span className="leading-tight">
+              <span className="block font-display text-base font-bold tracking-[0.14em]">
+                JOBQUEST
+              </span>
+              <span className="block font-mono text-[10px] uppercase tracking-widest text-text-muted">
+                {total.toLocaleString()} jobs · {companyOptions.length} companies
+              </span>
+            </span>
+          </Link>
+          <div className="flex-1" />
+          <div className="flex items-center gap-2">
+            {me && !me.anonymous ? (
+              <Link href="/dashboard" className="btn-ghost hidden sm:inline-flex">
+                Dashboard
+              </Link>
+            ) : (
+              <Link href="/login" className="btn-ghost hidden sm:inline-flex">
+                Sign in
+              </Link>
+            )}
+            <Link href={me && !me.anonymous ? "/billing" : "/register"} className="btn-primary">
               Get job alerts
             </Link>
           </div>
-          <h1 className="mt-3 max-w-2xl font-fraunces text-4xl font-extrabold leading-tight tracking-[-0.02em] text-text sm:text-5xl">
-            Find your next role, fresh from career pages.
-          </h1>
-          <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-text-secondary">
-            {total.toLocaleString()} open postings across {companyOptions.length} companies,
-            tracked daily — no signup needed to browse.
+        </div>
+      </header>
+
+      {/* Alerts strip */}
+      <div className="border-b border-border bg-primary/5">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 px-4 py-2.5 sm:px-6">
+          <p className="text-[13px] text-text-secondary">
+            <span className="font-semibold text-text">Never miss a match.</span> Register or log
+            in, set your preferences once, and get new matching jobs on Telegram.
           </p>
-          <div className="mt-6 flex max-w-xl items-center gap-2">
+          <div className="flex gap-2 text-xs">
+            <Link href="/register" className="font-semibold text-primary hover:underline">
+              Create free account →
+            </Link>
+            <Link href="/pricing" className="text-text-secondary hover:text-text">
+              See alerts pricing
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      <div className="mx-auto max-w-7xl px-4 sm:px-6">
+        {/* Search panel */}
+        <section className="mt-6 rounded-2xl border-2 border-border bg-surface p-4 shadow-offset sm:p-5">
+          <div className="grid gap-2.5 md:grid-cols-2">
             <input
               value={filters.q}
               onChange={(e) => update({ q: e.target.value })}
-              placeholder="Try 'backend engineer'…"
+              placeholder="Job title or keyword"
+              aria-label="Job title or keyword"
+              className="search-input w-full !py-3 text-[15px]"
+            />
+            <input
+              value={filters.loc}
+              onChange={(e) => update({ loc: e.target.value })}
+              placeholder="Location"
+              aria-label="Location"
               className="search-input w-full !py-3 text-[15px]"
             />
           </div>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            {ENVIRONMENTS.map((env) => (
+              <button
+                key={env.value || "all"}
+                type="button"
+                onClick={() => update({ mode: env.value })}
+                className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                  filters.mode === env.value
+                    ? "border-primary bg-primary/15 text-text"
+                    : "border-border bg-elevated text-text-secondary hover:text-text"
+                }`}
+              >
+                {filters.mode === env.value ? "✓ " : ""}
+                {env.label}
+              </button>
+            ))}
+            <span className="mx-1 h-4 w-px bg-border" aria-hidden />
             <button
               type="button"
               onClick={() => update({ remoteOnly: !filters.remoteOnly })}
@@ -257,274 +542,354 @@ export function BrowseJobs() {
             </button>
             <button
               type="button"
-              onClick={() => update({ since: filters.since === "24h" ? "" : "24h" })}
-              className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
-                filters.since === "24h"
-                  ? "border-primary bg-primary/15 text-text"
-                  : "border-border bg-elevated text-text-secondary hover:text-text"
-              }`}
+              onClick={() => setFiltersOpen((v) => !v)}
+              className="rounded-full border border-border bg-elevated px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text lg:hidden"
             >
-              {filters.since === "24h" ? "✓ " : ""}Last 24 hours
+              {filtersOpen ? "Hide filters" : `Filters${hasActiveFilters ? ` (${chips.length})` : ""}`}
             </button>
-            {hasActiveFilters && (
-              <button type="button" onClick={clearAll} className="text-xs text-text-muted hover:text-text">
-                Clear all filters
-              </button>
-            )}
-          </div>
-        </div>
-      </section>
-
-      {/* Company directory */}
-      {topCompanies.length > 0 && (
-        <section className="mt-8">
-          <div className="mb-3 flex items-baseline justify-between">
-            <h2 className="font-fraunces text-lg font-bold text-text">Companies hiring now</h2>
-            <p className="text-xs text-text-muted">Tap a company to filter the feed</p>
-          </div>
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
-            {topCompanies.map((c) => {
-              const active = filters.company === c.company_name;
-              const fresh =
-                c.latest_job_at &&
-                Date.now() - new Date(c.latest_job_at).getTime() < 24 * 3600 * 1000;
-              return (
-                <button
-                  key={c.company_name}
-                  type="button"
-                  onClick={() => update({ company: active ? "" : c.company_name })}
-                  title={`${c.company_name} · ${c.job_count} open roles`}
-                  className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-colors ${
-                    active
-                      ? "border-primary bg-primary/10"
-                      : "border-border bg-surface hover:border-primary/60"
-                  }`}
-                >
-                  <CompanyLogo name={c.company_name} domain={c.domain} size="md" />
-                  <span className="min-w-0">
-                    <span className="block truncate text-[13px] font-semibold text-text">
-                      {c.company_name}
-                    </span>
-                    <span className="block text-[11px] text-text-muted">
-                      {c.job_count.toLocaleString()} role{c.job_count === 1 ? "" : "s"}
-                      {fresh && <span className="ml-1 font-bold text-success">· new today</span>}
-                    </span>
-                  </span>
-                </button>
-              );
-            })}
           </div>
         </section>
-      )}
 
-      {/* Work-mode board */}
-      <section className="mt-8">
-        <div className="mb-3 flex items-baseline justify-between">
-          <h2 className="font-fraunces text-lg font-bold text-text">Browse by work mode</h2>
-          <p className="text-xs text-text-muted">Latest in each lane</p>
-        </div>
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-          {MODES.map((m) => {
-            const lane = board[m.value] || { total: 0, jobs: [] };
-            const active = filters.mode === m.value;
-            return (
-              <div key={m.value} className="card flex flex-col p-4">
-                <div className="flex items-baseline justify-between">
-                  <h3 className="text-[15px] font-bold text-text">{m.label}</h3>
-                  <span className="font-mono text-xs text-text-muted">
-                    {lane.total.toLocaleString()}
-                  </span>
-                </div>
-                <p className="mb-3 text-xs text-text-muted">{m.blurb}</p>
-                <div className="min-h-40 flex-1 space-y-2.5">
-                  {lane.jobs.length === 0 ? (
-                    <p className="text-xs text-text-muted">Loading…</p>
-                  ) : (
-                    lane.jobs.map((job) => (
-                      <Link
-                        key={job.id}
-                        href={`/browse/${job.id}`}
-                        className="flex items-center gap-2.5 rounded-lg border border-border/60 bg-elevated/40 p-2 transition-colors hover:border-primary/60"
-                      >
-                        <CompanyLogo name={job.company} domain={job.domain} size="sm" />
-                        <span className="min-w-0">
-                          <span className="block truncate text-[13px] font-semibold text-text">
-                            {job.title}
-                          </span>
-                          <span className="block truncate text-[11px] text-text-muted">
-                            {job.company} · {job.location || "Remote"}
-                          </span>
-                        </span>
-                      </Link>
-                    ))
-                  )}
-                </div>
+        {/* Body: sidebar + feed */}
+        <div className="mt-5 flex items-start gap-5 pb-4">
+          <aside className="sticky top-24 hidden w-64 shrink-0 rounded-xl border-2 border-border bg-surface p-4 shadow-offset-sm lg:block">
+            <h2 className="mb-3 font-fraunces text-base font-bold text-text">Filters</h2>
+            {sidebar}
+          </aside>
+
+          <div className="min-w-0 flex-1">
+            {filtersOpen && (
+              <div className="mb-4 rounded-xl border-2 border-border bg-surface p-4 lg:hidden">
+                <h2 className="mb-3 font-fraunces text-base font-bold text-text">Filters</h2>
+                {sidebar}
+              </div>
+            )}
+
+            {/* Feed header */}
+            <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+              <h1 className="font-fraunces text-lg font-bold text-text">
+                {savedOnly ? "Your saved jobs" : "Latest jobs"}
+                <span className="ml-2 font-mono text-xs font-normal text-text-muted">
+                  {total.toLocaleString()} jobs · {companyOptions.length} companies
+                </span>
+              </h1>
+              <label className="flex items-center gap-1.5 text-xs text-text-muted">
+                Sort by:
+                <select
+                  value={filters.sort}
+                  onChange={(e) => update({ sort: e.target.value as Sort })}
+                  className="search-input !py-1 !text-xs"
+                  aria-label="Sort jobs"
+                >
+                  <option value="newest">Newest</option>
+                  <option value="oldest">Oldest</option>
+                </select>
+              </label>
+            </div>
+
+            {chips.length > 0 && (
+              <div className="mb-3 flex flex-wrap items-center gap-1.5">
+                {chips.map((chip) => (
+                  <button
+                    key={chip.key}
+                    type="button"
+                    onClick={chip.clear}
+                    title="Remove filter"
+                    className="rounded-full border border-primary/50 bg-primary/10 px-2.5 py-1 text-xs font-medium text-text hover:bg-primary/20"
+                  >
+                    {chip.label} ✕
+                  </button>
+                ))}
                 <button
                   type="button"
-                  onClick={() => {
-                    update({ mode: active ? "" : m.value, page: 0 });
-                    document
-                      .getElementById("browse-results")
-                      ?.scrollIntoView({ behavior: "smooth" });
-                  }}
-                  className={`mt-3 rounded-lg border px-3 py-1.5 text-xs font-bold transition-colors ${
-                    active
-                      ? "border-primary bg-primary/10 text-text"
-                      : "border-border text-text-secondary hover:text-text"
-                  }`}
+                  onClick={clearAll}
+                  className="text-xs text-text-muted hover:text-text"
                 >
-                  {active ? "✓ Showing — tap to clear" : `View all ${m.label.toLowerCase()} →`}
+                  Clear all
                 </button>
               </div>
-            );
-          })}
-        </div>
-        <p className="mt-2 text-[11px] text-text-muted">
-          Hybrid = flagged in the posting text; everything not remote sits in On-site.
-        </p>
-      </section>
+            )}
 
-      {/* Filters */}
-      <div className="card mt-8 p-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="w-44">
-            <CompanySelect
-              companies={companyOptions}
-              value={filters.company}
-              onChange={(v) => update({ company: v })}
-              domains={companyDomains}
-            />
+            {/* Job rows */}
+            <div>
+              {loading ? (
+                <RadarLoading label="Scanning jobs…" />
+              ) : visibleJobs.length === 0 ? (
+                <div className="rounded-xl border-2 border-border bg-surface p-10 text-center text-sm text-text-muted shadow-offset-sm">
+                  {savedOnly ? (
+                    <>No saved jobs on this page. Tap Save on any job to shortlist it.</>
+                  ) : (
+                    <>
+                      No jobs found. Try widening your filters — or{" "}
+                      <Link href="/register" className="font-semibold text-primary hover:underline">
+                        register for alerts
+                      </Link>{" "}
+                      so the next match finds you.
+                    </>
+                  )}
+                </div>
+              ) : (
+                <div className="overflow-hidden rounded-xl border-2 border-border bg-surface shadow-offset-sm">
+                  <div className="divide-y divide-border/60">
+                    {visibleJobs.map((job) => {
+                      const isSaved = saved.includes(job.id);
+                      const mode = jobMode(job);
+                      return (
+                        <article key={job.id} className="p-4 transition-colors hover:bg-elevated/40 sm:p-5">
+                          <div className="flex items-center gap-2 font-mono text-[11px] text-text-muted">
+                            <span>{timeAgo(job.first_seen_at)}</span>
+                            <span aria-hidden>·</span>
+                            <button
+                              type="button"
+                              onClick={() => onToggleSave(job.id)}
+                              className={`font-semibold hover:text-text ${isSaved ? "text-primary" : ""}`}
+                            >
+                              {isSaved ? "★ Saved" : "Save"}
+                            </button>
+                            <span aria-hidden>·</span>
+                            <button
+                              type="button"
+                              onClick={() => onHide(job.id)}
+                              className="hover:text-text"
+                            >
+                              Hide
+                            </button>
+                          </div>
+
+                          <div className="mt-1.5 flex items-start gap-3">
+                            <CompanyLogo name={job.company} domain={job.domain} size="md" />
+                            <div className="min-w-0">
+                              <Link
+                                href={`/browse/${job.id}`}
+                                className="font-fraunces text-lg font-bold leading-snug text-text hover:text-primary"
+                              >
+                                {job.title}
+                              </Link>
+                              <p className="mt-0.5 text-sm text-text-secondary">
+                                {job.location || "Remote / unspecified"}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                            <span
+                              className={`rounded-full border px-2.5 py-0.5 font-mono text-[11px] font-semibold ${
+                                mode === "Remote"
+                                  ? "border-success/40 bg-success/10 text-success"
+                                  : "border-border bg-elevated text-text-secondary"
+                              }`}
+                            >
+                              {mode}
+                            </span>
+                            {job.countries
+                              .filter(Boolean)
+                              .slice(0, 4)
+                              .map((c) => (
+                                <span
+                                  key={c}
+                                  className="rounded-full border border-border bg-elevated px-2.5 py-0.5 font-mono text-[11px] text-text-secondary"
+                                >
+                                  {c}
+                                </span>
+                              ))}
+                            {job.is_remote && mode !== "Remote" && (
+                              <span className="rounded-full border border-border bg-elevated px-2.5 py-0.5 font-mono text-[11px] text-text-secondary">
+                                Remote
+                              </span>
+                            )}
+                          </div>
+
+                          <p className="mt-2 text-[13px] text-text-secondary">
+                            <span className="font-semibold text-text">{job.company}</span>
+                            <span className="text-text-muted"> · via {atsLabel(job.ats_type)}</span>
+                          </p>
+
+                          <div className="mt-2 flex items-center gap-3 text-[13px]">
+                            {job.url ? (
+                              <a
+                                href={job.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="font-semibold text-primary hover:underline"
+                              >
+                                Apply →
+                              </a>
+                            ) : (
+                              <span className="text-text-muted">No apply link</span>
+                            )}
+                            <Link
+                              href={`/browse/${job.id}`}
+                              className="text-text-secondary hover:text-text"
+                            >
+                              Details
+                            </Link>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Pagination */}
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-2 text-sm text-text-muted">
+              <span>
+                Page {filters.page + 1} of {pageCount}
+              </span>
+              <div className="flex items-center gap-2">
+                <select
+                  value={filters.pageSize}
+                  onChange={(e) => update({ pageSize: Number(e.target.value) })}
+                  className="search-input !py-1 !text-xs"
+                  aria-label="Jobs per page"
+                >
+                  {PAGE_SIZES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}/page
+                    </option>
+                  ))}
+                </select>
+                <button
+                  className="btn-ghost"
+                  disabled={filters.page === 0 || loading}
+                  onClick={() => update({ page: Math.max(0, filters.page - 1) }, false)}
+                >
+                  Previous
+                </button>
+                <button
+                  className="btn-ghost"
+                  disabled={filters.page >= pageCount - 1 || loading}
+                  onClick={() => update({ page: Math.min(pageCount - 1, filters.page + 1) }, false)}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+
+            {/* Bottom alerts CTA */}
+            <section className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-xl border-2 border-border bg-surface p-5 shadow-offset-sm">
+              <div>
+                <h2 className="font-fraunces text-lg font-bold text-text">
+                  Get matching jobs on Telegram.
+                </h2>
+                <p className="mt-1 text-sm text-text-secondary">
+                  Register or log in, set your preferences once — new matches find you.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Link href="/login" className="btn-ghost">
+                  Log in
+                </Link>
+                <Link href="/register" className="btn-primary">
+                  Register for alerts
+                </Link>
+              </div>
+            </section>
+
+            {/* SEO footer */}
+            <footer className="mt-8 grid gap-6 border-t-2 border-border pb-10 pt-6 text-sm sm:grid-cols-2 lg:grid-cols-4">
+              <div>
+                <h3 className="font-mono text-[11px] uppercase tracking-widest text-text-muted">
+                  Popular searches
+                </h3>
+                <ul className="mt-2 space-y-1.5">
+                  {POPULAR_SEARCHES.map((s) => (
+                    <li key={s}>
+                      <button
+                        type="button"
+                        onClick={() => update({ q: s })}
+                        className="text-text-secondary hover:text-primary hover:underline"
+                      >
+                        {s} jobs
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <h3 className="font-mono text-[11px] uppercase tracking-widest text-text-muted">
+                  By country
+                </h3>
+                <ul className="mt-2 space-y-1.5">
+                  {countryOptions.slice(0, 8).map((c) => (
+                    <li key={c}>
+                      <button
+                        type="button"
+                        onClick={() => update({ country: c })}
+                        className="text-text-secondary hover:text-primary hover:underline"
+                      >
+                        Jobs in {c}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <h3 className="font-mono text-[11px] uppercase tracking-widest text-text-muted">
+                  Work your way
+                </h3>
+                <ul className="mt-2 space-y-1.5">
+                  <li>
+                    <button
+                      type="button"
+                      onClick={() => update({ mode: "remote" })}
+                      className="text-text-secondary hover:text-primary hover:underline"
+                    >
+                      Remote jobs
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      type="button"
+                      onClick={() => update({ mode: "hybrid" })}
+                      className="text-text-secondary hover:text-primary hover:underline"
+                    >
+                      Hybrid jobs
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      type="button"
+                      onClick={() => update({ mode: "onsite" })}
+                      className="text-text-secondary hover:text-primary hover:underline"
+                    >
+                      On-site jobs
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      type="button"
+                      onClick={() => update({ since: "24h" })}
+                      className="text-text-secondary hover:text-primary hover:underline"
+                    >
+                      Posted in the last 24 hours
+                    </button>
+                  </li>
+                </ul>
+              </div>
+              <div>
+                <h3 className="font-mono text-[11px] uppercase tracking-widest text-text-muted">
+                  Top companies
+                </h3>
+                <ul className="mt-2 space-y-1.5">
+                  {topCompanies.slice(0, 8).map((c) => (
+                    <li key={c.company_name}>
+                      <button
+                        type="button"
+                        onClick={() => update({ company: c.company_name })}
+                        className="text-text-secondary hover:text-primary hover:underline"
+                      >
+                        {c.company_name} jobs
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </footer>
           </div>
-          <select
-            value={filters.country}
-            onChange={(e) => update({ country: e.target.value })}
-            className="search-input w-36"
-          >
-            <option value="">All countries</option>
-            {countryOptions.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-          <select
-            value={filters.ats}
-            onChange={(e) => update({ ats: e.target.value })}
-            className="search-input w-40"
-          >
-            <option value="">All sources</option>
-            {atsOptions.map((a) => (
-              <option key={a} value={a}>
-                {atsLabel(a)}
-              </option>
-            ))}
-          </select>
-          <select
-            value={filters.mode}
-            onChange={(e) => update({ mode: e.target.value as Mode })}
-            className="search-input w-32"
-          >
-            <option value="">Any mode</option>
-            {MODES.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-          </select>
-          <select
-            value={filters.since}
-            onChange={(e) => update({ since: e.target.value })}
-            className="search-input w-36"
-          >
-            {SINCE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-text-secondary">
-            <input
-              type="checkbox"
-              checked={filters.remoteOnly}
-              onChange={(e) => update({ remoteOnly: e.target.checked })}
-              className="h-4 w-4 accent-[var(--color-primary)]"
-            />
-            Remote only
-          </label>
-          {hasActiveFilters && (
-            <button type="button" onClick={clearAll} className="btn-ghost">
-              Clear all
-            </button>
-          )}
         </div>
       </div>
-
-      <div id="browse-results" className="mb-3 mt-8 flex scroll-mt-6 items-baseline justify-between">
-        <h2 className="font-fraunces text-lg font-bold text-text">
-          {hasActiveFilters ? "Matching jobs" : "Latest jobs"}
-        </h2>
-        <p className="text-xs text-text-muted">
-          {total.toLocaleString()} posting{total === 1 ? "" : "s"}
-          {hasActiveFilters ? " match your filters" : ""}
-        </p>
-      </div>
-      <div>
-        {loading ? (
-          <RadarLoading label="Scanning jobs…" />
-        ) : jobs.length === 0 ? (
-          <div className="card p-10 text-center text-sm text-text-muted">
-            No jobs found. Try widening your filters.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            {jobs.map((job, i) => (
-              <JobCard key={job.id} job={job} index={i} hrefPrefix="/browse" />
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="mt-6 flex items-center justify-between text-sm text-text-muted">
-        <span>
-          Page {filters.page + 1} of {pageCount}
-        </span>
-        <div className="flex gap-2">
-          <button
-            className="btn-ghost"
-            disabled={filters.page === 0 || loading}
-            onClick={() => update({ page: Math.max(0, filters.page - 1) }, false)}
-          >
-            Previous
-          </button>
-          <button
-            className="btn-ghost"
-            disabled={filters.page >= pageCount - 1 || loading}
-            onClick={() => update({ page: Math.min(pageCount - 1, filters.page + 1) }, false)}
-          >
-            Next
-          </button>
-        </div>
-      </div>
-
-      {/* Bottom CTA */}
-      <section className="card mt-10 flex flex-wrap items-center justify-between gap-4 p-6">
-        <div>
-          <h2 className="font-fraunces text-xl font-bold text-text">
-            Never miss a matching role.
-          </h2>
-          <p className="mt-1 text-sm text-text-secondary">
-            Tell JobRadar what you want once — get new matches on Telegram and email.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Link href="/" className="btn-ghost">
-            ← Home
-          </Link>
-          <Link href="/login" className="btn-primary">
-            Get job alerts
-          </Link>
-        </div>
-      </section>
     </div>
   );
 }

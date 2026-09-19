@@ -102,7 +102,7 @@ export default function MiniAppPage() {
   if (!initData) {
     return (
       <div className="mx-auto max-w-xl p-8">
-        <h1 className="font-fraunces text-2xl font-extrabold">JobRadar Mini App</h1>
+        <h1 className="font-fraunces text-2xl font-extrabold">JobQuest Mini App</h1>
         <p className="mt-2 text-sm text-text-secondary">Open this page inside Telegram. Tap the bot’s Mini App button.</p>
         <p className="mt-4 font-mono text-xs text-text-muted">No initData found. For local testing, add ?initData=... to URL.</p>
       </div>
@@ -122,7 +122,7 @@ export default function MiniAppPage() {
     <div className="mx-auto max-w-xl p-4">
       <div className="flex items-center justify-between border-b-2 border-border pb-3">
         <div>
-          <h1 className="font-fraunces text-xl font-extrabold">JobRadar</h1>
+          <h1 className="font-fraunces text-xl font-extrabold">JobQuest</h1>
           <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-text-muted">
             {user.display_name || user.chat_id} · {user.role} {user.is_admin ? "· admin" : ""}
           </p>

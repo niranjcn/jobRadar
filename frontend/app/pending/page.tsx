@@ -28,7 +28,7 @@ export default function PendingPage() {
       <div className="w-full max-w-md">
         <div className="mb-8 flex flex-col items-center gap-3">
           <RadarMark />
-          <span className="font-display text-lg font-bold tracking-[0.14em]">JOBRADAR</span>
+          <span className="font-display text-lg font-bold tracking-[0.14em]">JOBQUEST</span>
         </div>
         <div className="card space-y-4 p-6 text-center">
           <h1 className="text-lg font-semibold">Awaiting admin approval</h1>
