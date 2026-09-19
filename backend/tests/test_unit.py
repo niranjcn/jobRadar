@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-os.environ.setdefault("JOBRADAR_DISABLE_SCHEDULER", "1")
-os.environ.setdefault("JOBRADAR_DISABLE_BOT", "1")
+os.environ.setdefault("JOBQUEST_DISABLE_SCHEDULER", "1")
+os.environ.setdefault("JOBQUEST_DISABLE_BOT", "1")
 
 from app.main import _interval_seconds_to_cron
 from app.matcher import compute_match_score, job_matches_preferences
@@ -1207,7 +1207,7 @@ def test_bot_parse_command():
     assert parse_command("/start") == ("start", "")
     assert parse_command("/jobs python") == ("jobs", "python")
     assert parse_command("/jobs  python aws ") == ("jobs", "python aws")
-    assert parse_command("/matches@JobRadarBot adobe") == ("matches", "adobe")
+    assert parse_command("/matches@JobQuestBot adobe") == ("matches", "adobe")
     assert parse_command("/HELP") == ("help", "")
     assert parse_command("not a command") == ("", "")
     assert parse_command("") == ("", "")
@@ -1585,10 +1585,10 @@ def test_load_settings_memoized():
 
 
 def test_ats_concurrency_defaults_and_env_override(monkeypatch):
-    """Tier 3: heavy boards run 10-way by default; POLL_CONCURRENCY_{ATS} overrides."""
+    """Tier 3: heavy boards run 10-way by default (workday 20 for 271 boards); POLL_CONCURRENCY_{ATS} overrides."""
     from app.config import ATS_CONCURRENCY, load_settings, reset_settings_cache
 
-    assert ATS_CONCURRENCY["workday"] == 10
+    assert ATS_CONCURRENCY["workday"] == 20
     assert ATS_CONCURRENCY["successfactors"] == 10
     assert ATS_CONCURRENCY["avature"] == 10
     assert ATS_CONCURRENCY["oracle"] == 10
@@ -1606,7 +1606,7 @@ def test_ats_concurrency_defaults_and_env_override(monkeypatch):
         reset_settings_cache()
     monkeypatch.delenv("POLL_CONCURRENCY_WORKDAY", raising=False)
     monkeypatch.delenv("POLL_CONCURRENCY_GREENHOUSE", raising=False)
-    assert load_settings().ats_concurrency["workday"] == 10
+    assert load_settings().ats_concurrency["workday"] == 20
     reset_settings_cache()
 
 
@@ -1676,10 +1676,15 @@ def test_close_async_pool_noop_without_pool():
     asyncio.run(run())
 
 
-def test_poll_source_reuses_geo_settings():
-    """Step D: a passed geo_settings must be reused (no app_settings DB read)."""
+def test_poll_source_reuses_geo_settings(monkeypatch):
+    """Step D: a passed geo_settings must be reused (no app_settings DB read).
+
+    New ingestion path: persistence is database-side (bulk INSERT ... RETURNING),
+    so poll_source must not touch Supabase REST at all — only mark_checked does.
+    """
     import asyncio
 
+    import app.poller as poller_module
     from app.geo import DEFAULT_SETTINGS
     from app.models import NormalizedJob
     from app.poller import poll_source
@@ -1725,13 +1730,22 @@ def test_poll_source_reuses_geo_settings():
                 )
             ]
 
+    statements: list[str] = []
+
+    def fake_query(settings, sql, params=()):
+        statements.append(sql)
+        if sql.startswith("INSERT INTO jobs"):
+            return [{"external_job_id": "1", "is_new": True}]
+        return []
+
+    monkeypatch.setattr(poller_module, "query", fake_query)
+
     async def run():
         return await poll_source(
             FakeSupabase(),
             {"id": "source-1", "company_name": "Acme", "board_identifier": "acme"},
             FakeAdapter(),
             90,
-            existing_ids=set(),
             geo_settings={**DEFAULT_SETTINGS},
         )
 
@@ -1739,7 +1753,142 @@ def test_poll_source_reuses_geo_settings():
     assert result["company"] == "Acme"
     assert result["fetched"] == 1
     assert result["new"] == 1
+    assert result["new_ids"] == ["1"]
     assert "app_settings" not in accessed_tables
+    assert "jobs" not in accessed_tables
+    # Full lifecycle sequence runs on the success path: upsert, reactivate, touch, sweep.
+    joined = "\n".join(statements)
+    assert joined.count("INSERT INTO jobs") == 1
+    assert "is_active = true" in joined  # reactivate reposts
+    assert "last_seen_at = now()" in joined  # touch sightings
+    assert "is_active = false" in joined  # sweep the unseen
+
+
+def _job_row(external_id: str, index: int = 0) -> dict:
+    return {
+        "source_id": "source-1",
+        "external_job_id": external_id,
+        "title": f"Engineer {index}",
+        "location": "Bengaluru, India",
+        "url": f"https://example.com/jobs/{external_id}",
+        "description": "desc",
+        "countries": ["IN"],
+        "is_remote": False,
+    }
+
+
+def test_upsert_jobs_returning_chunks_and_new_detection(monkeypatch):
+    """Bulk path: 1200 rows -> 3 chunks, RETURNING maps is_new, SQL shape exact."""
+    import app.poller as poller_module
+
+    calls: list[tuple[str, tuple]] = []
+
+    def fake_query(settings, sql, params=()):
+        calls.append((sql, params))
+        return [
+            {"external_job_id": "n", "is_new": True},
+            {"external_job_id": "o", "is_new": False},
+        ]
+
+    monkeypatch.setattr(poller_module, "query", fake_query)
+    rows = [_job_row(f"e{i}", i) for i in range(1200)]
+    out = poller_module.upsert_jobs_returning(object(), rows)
+    assert len(calls) == 3  # 1200 rows at 500 per chunk
+    assert len(calls[0][1]) == 500 * 8
+    assert len(calls[2][1]) == 200 * 8
+    sql = calls[0][0]
+    assert "ON CONFLICT (source_id, external_job_id)" in sql
+    assert "DO UPDATE SET" in sql
+    assert "description = EXCLUDED" not in sql  # descriptions frozen after insert
+    assert "RETURNING" in sql and "xmax" in sql
+    assert "%s::uuid" in sql and "%s::text[]" in sql
+    assert out == {"new_ids": ["n", "n", "n"], "failed_chunks": 0}
+
+
+def test_upsert_jobs_returning_empty_and_failures(monkeypatch):
+    """Empty short-circuits; all-failed raises; partial failure still returns."""
+    import pytest
+
+    import app.poller as poller_module
+
+    seen: list = []
+    monkeypatch.setattr(poller_module, "query", lambda *a, **k: seen.append(a) or [])
+    assert poller_module.upsert_jobs_returning(object(), []) == {
+        "new_ids": [],
+        "failed_chunks": 0,
+    }
+    assert seen == []
+
+    def always_fail(settings, sql, params=()):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(poller_module, "query", always_fail)
+    with pytest.raises(RuntimeError, match="all 1 upsert chunk"):
+        poller_module.upsert_jobs_returning(object(), [_job_row("e")])
+
+    state = {"n": 0}
+
+    def flaky(settings, sql, params=()):
+        state["n"] += 1
+        if state["n"] == 1:
+            raise RuntimeError("boom")
+        return [{"external_job_id": "ok", "is_new": True}]
+
+    monkeypatch.setattr(poller_module, "query", flaky)
+    big = [_job_row(f"e{i}", i) for i in range(600)]  # 2 chunks
+    assert poller_module.upsert_jobs_returning(object(), big) == {
+        "new_ids": ["ok"],
+        "failed_chunks": 1,
+    }
+
+
+def test_reactivate_jobs_returns_reopened_ids(monkeypatch):
+    """Reposts (seen again after deactivation) are reported for matching."""
+    import app.poller as poller_module
+
+    calls: list[tuple[str, tuple]] = []
+
+    def fake_query(settings, sql, params=()):
+        calls.append((sql, params))
+        return [{"external_job_id": "r1"}, {"external_job_id": "r2"}]
+
+    monkeypatch.setattr(poller_module, "query", fake_query)
+    out = poller_module.reactivate_jobs(object(), "source-9", ["r1", "r2", "r3"])
+    assert out == ["r1", "r2"]
+    assert "is_active = false" in calls[0][0]
+    assert "last_seen_at = now()" in calls[0][0]
+    assert poller_module.reactivate_jobs(object(), "source-9", []) == []
+    assert len(calls) == 1  # empty list short-circuits, no query
+
+
+def test_touch_and_sweep_sql_shape(monkeypatch):
+    """Touch respects the staleness guard; sweep respects the grace window."""
+    import app.poller as poller_module
+
+    calls: list[tuple[str, tuple]] = []
+
+    def fake_query(settings, sql, params=()):
+        calls.append((sql, params))
+        return [{"external_job_id": "x"}]
+
+    monkeypatch.setattr(poller_module, "query", fake_query)
+    assert poller_module.touch_seen_jobs(object(), "source-9", ["a", "b"]) == 1
+    assert poller_module.sweep_missing_jobs(object(), "source-9", grace_hours=72) == ["x"]
+    assert poller_module.touch_seen_jobs(object(), "source-9", []) == 0
+    touch_sql, sweep_sql = calls[0][0], calls[1][0]
+    assert "last_seen_at < now()" in touch_sql  # daily granularity, not per poll
+    assert "is_active" in sweep_sql and "last_seen_at < now()" in sweep_sql
+    assert calls[1][1][1] == 72  # grace passed as a bound parameter, not inlined
+
+
+def test_prune_inactive_jobs_counts_deletes(monkeypatch):
+    """Inactive prune returns the deleted count for retention logging."""
+    import app.poller as poller_module
+
+    monkeypatch.setattr(
+        poller_module, "query", lambda settings, sql, params=(): [{"c": 7}]
+    )
+    assert poller_module.prune_inactive_jobs(object()) == 7
 
 
 def test_quiet_runs_counter():
@@ -1823,3 +1972,28 @@ def test_quiet_boards_not_stale():
     errored = {**quiet, "last_error": "boom"}
     assert stale_after_seconds(errored, 3600) == 7200
     assert source_status(errored, 3600, now)[0] == "stale"
+
+
+def test_stats_daily_shapes_series(monkeypatch):
+    """GET /api/stats/daily with a stubbed DB: shape, totals, placeholder alignment."""
+    from types import SimpleNamespace
+
+    import app.api.routes as routes
+
+    calls: list[tuple[str, list]] = []
+
+    def fake_query(_settings, sql, params=()):
+        calls.append((sql, list(params)))
+        return [
+            {"day": "2026-09-10", "jobs": 5, "matches": 1, "avg_score": 80},
+            {"day": "2026-09-11", "jobs": 0, "matches": 0, "avg_score": 0},
+        ]
+
+    monkeypatch.setattr(routes, "query", fake_query)
+    monkeypatch.setattr(routes, "_settings", lambda: object())
+    out = routes.stats_daily(SimpleNamespace(id="user-1"), days=2)
+    assert out["total_jobs"] == 5
+    assert [d["date"] for d in out["days"]] == ["2026-09-10", "2026-09-11"]
+    assert out["days"][0]["matches"] == 1
+    sql, params = calls[0]
+    assert sql.count("%s") == len(params) == 3

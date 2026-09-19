@@ -54,7 +54,7 @@ def main() -> None:
         _send_email(
             api_key=settings.resend_api_key,
             to_addresses=settings.notify_to,
-            subject="jobRadar test — 3 sample jobs",
+            subject="JobQuest test — 3 sample jobs",
             html=html,
         )
         print("email: sent OK")
