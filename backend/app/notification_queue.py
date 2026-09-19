@@ -190,12 +190,16 @@ def build_queue_rows(
 
 def _channels_for(user: AudienceUser) -> list[str]:
     channels: list[str] = []
-    if user.prefs.get("notify_telegram", True) and can_receive_channel(
-        {"capabilities": user.capabilities, "role": user.role}, "telegram"
+    if (
+        user.telegram_chat_id
+        and user.prefs.get("notify_telegram", True)
+        and can_receive_channel({"capabilities": user.capabilities, "role": user.role}, "telegram")
     ):
         channels.append("telegram")
-    if user.prefs.get("notify_email", True) and can_receive_channel(
-        {"capabilities": user.capabilities, "role": user.role}, "email"
+    if (
+        user.email
+        and user.prefs.get("notify_email", True)
+        and can_receive_channel({"capabilities": user.capabilities, "role": user.role}, "email")
     ):
         channels.append("email")
     return channels
@@ -296,6 +300,11 @@ def drain_due_notifications(
     """Send every due queue row. Groups by (user, channel) so each person gets
     one consolidated message per channel per drain tick."""
     now = now or datetime.now(UTC)
+    # Exclude rows whose user has no destination for that channel – they would
+    # otherwise occupy the LIMIT window forever and starve deliverable users
+    # (e.g., a user without telegram_chat_id whose telegram rows stay pending).
+    # Those rows are canceled below on first sight; filtering here makes the fix
+    # effective immediately without needing 14 drain ticks to clear 5530 rows.
     due = query(
         settings,
         """
@@ -306,11 +315,27 @@ def drain_due_notifications(
         join users u on u.id = q.user_id
         where q.status = 'pending'
           and q.scheduled_for <= %s
-        order by q.scheduled_for
+          and (
+                (q.channel = 'telegram' and u.telegram_chat_id is not null)
+             or (q.channel = 'email' and u.email is not null and u.email <> '')
+          )
+        order by
+          case when u.role = 'admin' then 0
+               when u.role = 'privileged' then 1
+               else 2 end,
+          q.scheduled_for
         limit %s
         """,
         (now.isoformat(), limit),
     )
+    # Opportunistic cleanup: pending rows for users missing a destination are
+    # stale (future enqueues require a destination – see _channels_for). Cancel
+    # them so they never accumulate and never block the due-window. This is
+    # best-effort and ignores errors so it never breaks the drain.
+    try:
+        _cancel_undeliverable_pending(settings, supabase)
+    except Exception:
+        pass
     if not due:
         return {"sent_telegram": 0, "sent_email": 0, "failed": 0}
 
@@ -339,8 +364,14 @@ def drain_due_notifications(
         elif channel == "email":
             destination = head.get("email")
             globally_enabled = settings.notify_enabled
-        if not destination or not globally_enabled:
-            # No destination yet / channel off globally: stay pending.
+        if not globally_enabled:
+            # Channel disabled globally: stay pending (admin may re-enable).
+            continue
+        if not destination:
+            # No destination for this channel (e.g., telegram without chat_id).
+            # Future enqueues require a destination – cancel stale rows so they
+            # never block the LIMIT window for deliverable users.
+            _mark_rows(supabase, [r["id"] for r in rows], status="canceled")
             continue
 
         job_ids = [r["job_id"] for r in rows]
@@ -356,7 +387,7 @@ def drain_due_notifications(
             else:
                 html = build_html(items, new_jobs=len(items), new_matches=len(items))
                 subject = (
-                    f"📡 jobRadar: {len(items)} new matching job(s) — {datetime.now(UTC):%b %d}"
+                    f"📡 JobQuest: {len(items)} new matching job(s) — {datetime.now(UTC):%b %d}"
                 )
                 _send_email(settings.resend_api_key, [destination], subject, html)
                 sent["email"] += len(rows)
@@ -394,6 +425,53 @@ def _load_job_items(settings: Settings, job_ids: list[str], user_id: str) -> lis
             )
         )
     return items
+
+
+def _cancel_undeliverable_pending(settings: Settings, supabase: Client) -> int:
+    """Cancel pending queue rows where the user has no destination for that channel.
+
+    These rows were enqueued before _channels_for required a destination and would
+    otherwise sit pending forever, occupying the drain LIMIT and starving the
+    admin (who does have a telegram_chat_id). Best-effort: returns canceled count.
+    """
+    canceled = 0
+    # Telegram without chat_id
+    try:
+        rows = query(
+            settings,
+            """
+            select q.id from notification_queue q
+            join users u on u.id = q.user_id
+            where q.status = 'pending' and q.channel = 'telegram'
+              and u.telegram_chat_id is null
+            limit 1000
+            """,
+        )
+        ids = [r["id"] for r in rows]
+        if ids:
+            _mark_rows(supabase, ids, status="canceled")
+            canceled += len(ids)
+    except Exception:
+        pass
+    # Email without address
+    try:
+        rows = query(
+            settings,
+            """
+            select q.id from notification_queue q
+            join users u on u.id = q.user_id
+            where q.status = 'pending' and q.channel = 'email'
+              and (u.email is null or u.email = '')
+            limit 1000
+            """,
+        )
+        ids = [r["id"] for r in rows]
+        if ids:
+            _mark_rows(supabase, ids, status="canceled")
+            canceled += len(ids)
+    except Exception:
+        pass
+    return canceled
 
 
 def _mark_rows(supabase: Client, row_ids: list[str], *, status: str) -> None:
