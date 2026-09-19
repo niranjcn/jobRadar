@@ -9,12 +9,15 @@ from app.auth import (
     UserCtx,
     clear_session_cookie,
     get_current_user,
+    is_valid_email,
+    log_auth_event,
     rate_limit,
+    sanitize_display_name,
     set_session_cookie,
     validate_password_strength,
 )
 from app.config import load_settings
-from app.db import get_supabase
+from app.db import get_supabase, query
 from app.users import (
     create_registered_user,
     fetch_user,
@@ -37,6 +40,7 @@ def _me_payload(ctx: UserCtx) -> dict[str, Any]:
         "alert_delay_minutes": ctx.alert_delay_minutes,
         "access_locked": ctx.access_locked,
         "is_owner": ctx.is_owner,
+        "telegram_chat_id": ctx.telegram_chat_id,
         "telegram_linked": ctx.telegram_chat_id is not None,
         "anonymous": ctx.anonymous,
     }
@@ -48,6 +52,7 @@ def _me_payload(ctx: UserCtx) -> dict[str, Any]:
         payload["has_password"] = bool(rows[0].get("password_hash") if rows else None)
         payload["telegram_username"] = rows[0].get("telegram_username") if rows else None
         payload["telegram_photo_url"] = rows[0].get("telegram_photo_url") if rows else None
+        payload["telegram_chat_id"] = rows[0].get("telegram_chat_id") if rows else ctx.telegram_chat_id
         payload["needs_onboarding"] = not bool(rows[0].get("email") if rows else True)
         from app.access import active_subscription
 
@@ -66,11 +71,20 @@ class RegisterBody(BaseModel):
 def register(body: RegisterBody, request: Request, response: Response) -> dict:
     settings = load_settings()
     ip = request.client.host if request.client else "unknown"
+    ua = request.headers.get("user-agent", "")[:256]
     if not rate_limit(f"register:{ip}", max_events=5, window_seconds=3600):
-        raise HTTPException(status_code=429, detail="too many registrations, try later")
+        raise HTTPException(status_code=429, detail="too many registrations, try again later (1h)")
+    email = (body.email or "").strip().lower()
+    if not is_valid_email(email):
+        raise HTTPException(status_code=422, detail="enter a valid email address")
+    # display_name: MNC - 2-50 chars, filtered
+    try:
+        display_name = sanitize_display_name(body.display_name) if body.display_name.strip() else email.split("@")[0]
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     if not body.password:
         raise HTTPException(status_code=422, detail="password is required")
-    problems = validate_password_strength(body.password)
+    problems = validate_password_strength(body.password, email=email, display_name=display_name)
     if problems:
         raise HTTPException(status_code=422, detail=problems[0])
     supabase = get_supabase(settings)
@@ -78,12 +92,15 @@ def register(body: RegisterBody, request: Request, response: Response) -> dict:
         row = create_registered_user(
             settings,
             supabase,
-            email=body.email,
-            display_name=body.display_name,
+            email=email,
+            display_name=display_name,
             password=body.password,
         )
     except ValueError as exc:
+        # Use generic timing to reduce enumeration, but still 409 for UX (admin needs to know duplicate)
+        log_auth_event(settings, email=email, user_id=None, event_type="register", ip=ip, user_agent=ua)
         raise HTTPException(status_code=409, detail=str(exc))
+    log_auth_event(settings, email=email, user_id=str(row["id"]), event_type="register", ip=ip, user_agent=ua)
     # Pending accounts get a session but product access is blocked until admin approves
     set_session_cookie(response, settings, row["id"])
     payload = _me_payload(_ctx_of(row))
@@ -120,25 +137,72 @@ class PasswordLoginBody(BaseModel):
 def login_password(body: PasswordLoginBody, request: Request, response: Response) -> dict:
     settings = load_settings()
     ip = request.client.host if request.client else "unknown"
-    if not rate_limit(f"pwd:{ip}:{body.email.strip().lower()}", max_events=10, window_seconds=300):
-        raise HTTPException(status_code=429, detail="too many attempts, try again shortly")
-    rows = fetch_user_by_email(settings, body.email)
+    ua = request.headers.get("user-agent", "")[:256]
+    email_norm = (body.email or "").strip().lower()
+    if not is_valid_email(email_norm):
+        raise HTTPException(status_code=422, detail="enter a valid email address")
+    if not rate_limit(f"pwd:{ip}:{email_norm}", max_events=10, window_seconds=300):
+        raise HTTPException(status_code=429, detail="too many attempts, try again shortly (5 min)")
+    rows = fetch_user_by_email(settings, email_norm)
     invalid = HTTPException(status_code=401, detail="invalid email or password")
     if not rows:
         from app.auth import hash_password
 
         hash_password(body.password)
+        log_auth_event(settings, email=email_norm, user_id=None, event_type="login_failure", ip=ip, user_agent=ua)
         raise invalid
     user = rows[0]
-    from app.auth import verify_password
+    # lockout check (MNC: 5 failures → 15 min lock, exponential)
+    lockout_until = user.get("lockout_until")
+    if lockout_until:
+        from datetime import datetime, UTC
+
+        try:
+            lu = lockout_until if isinstance(lockout_until, str) else str(lockout_until)
+            lu_dt = datetime.fromisoformat(lu.replace("Z", "+00:00")) if isinstance(lu, str) else lockout_until
+            if lu_dt and lu_dt.tzinfo is None:
+                lu_dt = lu_dt.replace(tzinfo=UTC)
+            if lu_dt and lu_dt > datetime.now(UTC):
+                log_auth_event(settings, email=email_norm, user_id=str(user["id"]), event_type="lockout", ip=ip, user_agent=ua)
+                raise HTTPException(status_code=423, detail="account temporarily locked — too many failed attempts, try again in 15 minutes")
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+    from app.auth import verify_password, needs_rehash, hash_password
 
     if not verify_password(user.get("password_hash"), body.password):
+        # increment failure, lock if needed
+        try:
+            fails = int(user.get("failed_login_attempts") or 0) + 1
+            # lock after 5 fails within window
+            if fails >= 5:
+                query(settings, "update users set failed_login_attempts=%s, last_failed_at=now(), lockout_until=now() + interval '15 minutes', updated_at=now() where id=%s::uuid", (fails, user["id"]))
+            else:
+                query(settings, "update users set failed_login_attempts=%s, last_failed_at=now(), updated_at=now() where id=%s::uuid", (fails, user["id"]))
+        except Exception:
+            pass
+        log_auth_event(settings, email=email_norm, user_id=str(user["id"]), event_type="login_failure", ip=ip, user_agent=ua)
         raise invalid
+    # success: check status before clearing lockout
     if user.get("status") == "disabled":
         raise HTTPException(status_code=403, detail="account disabled")
     if user.get("status") == "pending":
         raise HTTPException(status_code=403, detail="account pending admin approval")
+    # rehash if old iterations
+    if needs_rehash(user.get("password_hash")):
+        try:
+            new_hash = hash_password(body.password)
+            query(settings, "update users set password_hash=%s, password_changed_at=now(), updated_at=now() where id=%s::uuid", (new_hash, user["id"]))
+        except Exception:
+            pass
+    # clear lockout on success
+    try:
+        query(settings, "update users set failed_login_attempts=0, lockout_until=null, last_failed_at=null, updated_at=now() where id=%s::uuid", (user["id"],))
+    except Exception:
+        pass
     touch_login(settings, user["id"])
+    log_auth_event(settings, email=email_norm, user_id=str(user["id"]), event_type="login_success", ip=ip, user_agent=ua)
     set_session_cookie(response, settings, str(user["id"]))
     return {"ok": True, **_me_payload(_ctx_of(user))}
 
@@ -178,9 +242,13 @@ def set_password_route(
         raise HTTPException(status_code=401, detail="register or log in first")
     settings = load_settings()
     ip = request.client.host if request.client else "unknown"
+    ua = request.headers.get("user-agent", "")[:256]
     if not rate_limit(f"setpwd:{ip}:{ctx.id}", max_events=5, window_seconds=300):
         raise HTTPException(status_code=429, detail="too many attempts, try again shortly")
-    problems = validate_password_strength(body.new_password)
+    # fetch email for strength check (no email fragment in password)
+    rows = fetch_user(settings, ctx.id)
+    email_for_check = rows[0].get("email") if rows else None
+    problems = validate_password_strength(body.new_password, email=email_for_check, display_name=ctx.display_name)
     if problems:
         raise HTTPException(status_code=422, detail=problems[0])
     rows = fetch_user(settings, ctx.id)
@@ -196,13 +264,45 @@ def set_password_route(
     from app.users import set_password
 
     set_password(settings, str(ctx.id), hash_password(body.new_password))
+    query(settings, "update users set password_changed_at=now(), failed_login_attempts=0, lockout_until=null, updated_at=now() where id=%s::uuid", (ctx.id,))
+    log_auth_event(settings, email=email_for_check, user_id=str(ctx.id), event_type="password_change", ip=ip, user_agent=ua)
     return {"ok": True, "message": "password saved — you can now log in with email + password"}
 
 
 @router.post("/logout")
-def logout(response: Response) -> dict:
-    clear_session_cookie(response)
+def logout(request: Request, response: Response, ctx: Annotated[UserCtx, Depends(get_current_user)]) -> dict:
+    settings = load_settings()
+    ip = request.client.host if request.client else "unknown"
+    ua = request.headers.get("user-agent", "")[:256]
+    if not ctx.anonymous:
+        log_auth_event(settings, email=ctx.email, user_id=ctx.id, event_type="logout", ip=ip, user_agent=ua)
+    clear_session_cookie(response, settings)
     return {"ok": True}
+
+
+class TelegramChatIdBody(BaseModel):
+    telegram_chat_id: str
+
+
+@router.put("/telegram-chat-id")
+@router.post("/telegram-chat-id")
+def set_telegram_chat_id(body: TelegramChatIdBody, ctx: Annotated[UserCtx, Depends(get_current_user)]) -> dict:
+    if ctx.anonymous:
+        raise HTTPException(status_code=401, detail="log in first")
+    raw = (body.telegram_chat_id or "").strip()
+    if not raw:
+        # clear
+        query(load_settings(), "update users set telegram_chat_id=null, telegram_user_id=null, updated_at=now() where id=%s::uuid", (ctx.id,))
+        return {"ok": True, "telegram_chat_id": None}
+    try:
+        # allow -100... for channels, normal ids are positive ints
+        chat_id = int(raw)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="telegram chat ID must be a number (e.g. 1415590254 or -1001234567890 for channels)")
+    if chat_id == 0 or abs(chat_id) < 1000:
+        raise HTTPException(status_code=422, detail="invalid telegram chat ID")
+    query(load_settings(), "update users set telegram_chat_id=%s, telegram_user_id=%s, updated_at=now() where id=%s::uuid", (chat_id, chat_id if chat_id > 0 else None, ctx.id))
+    return {"ok": True, "telegram_chat_id": chat_id}
 
 
 @router.get("/me")

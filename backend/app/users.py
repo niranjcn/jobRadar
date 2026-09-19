@@ -69,7 +69,8 @@ def fetch_user_by_email(settings: Settings, email: str) -> list[dict[str, Any]]:
     return query(
         settings,
         "select id, email, telegram_chat_id, display_name, role, status, capabilities, "
-        "alert_delay_minutes, access_locked, is_owner, password_hash "
+        "alert_delay_minutes, access_locked, is_owner, password_hash, "
+        "failed_login_attempts, lockout_until, last_failed_at "
         "from users where lower(email) = lower(%s)",
         (email,),
     )
@@ -197,14 +198,17 @@ def update_user_profile(
     settings: Settings, user_id: str, display_name: str | None = None, email: str | None = None
 ) -> dict[str, Any]:
     """Update display_name/email for the onboarding completion step."""
+    from app.auth import is_valid_email, sanitize_display_name
+
     fields: dict[str, Any] = {}
     if display_name is not None:
-        fields["display_name"] = display_name.strip()
+        # Use MNC sanitizer
+        fields["display_name"] = sanitize_display_name(display_name)
     if email is not None:
         email = email.strip().lower()
         if email == "":
             email = None
-        elif "@" not in email:
+        elif not is_valid_email(email):
             raise ValueError("a valid email is required")
         else:
             # Ensure no one else owns this email
@@ -269,15 +273,20 @@ def create_registered_user(
     display_name: str = "",
     password: str | None = None,
 ) -> dict[str, Any]:
-    """Register a new account. Requires admin approval before login is allowed."""
+    """Register a new account. MNC flow: approved immediately but locked until payment/coupon."""
+    from app.auth import hash_password, is_valid_email, sanitize_display_name, validate_password_strength
+
     email = (email or "").strip().lower()
-    if not email or "@" not in email:
+    if not is_valid_email(email):
         raise ValueError("a valid email is required")
+    # sanitize display_name via MNC rules
+    if display_name and display_name.strip():
+        display_name = sanitize_display_name(display_name)
+    else:
+        display_name = email.split("@")[0]
     if not password:
         raise ValueError("password is required")
-    from app.auth import hash_password, validate_password_strength
-
-    problems = validate_password_strength(password)
+    problems = validate_password_strength(password, email=email, display_name=display_name)
     if problems:
         raise ValueError(problems[0])
     existing = fetch_user_by_email(settings, email)
@@ -287,7 +296,7 @@ def create_registered_user(
         "email": email,
         "display_name": display_name.strip() or email.split("@")[0],
         "role": "user",
-        "status": "pending",
+        "status": "approved",
         "access_locked": True,
         "password_hash": hash_password(password),
     }

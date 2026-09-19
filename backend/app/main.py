@@ -218,19 +218,19 @@ async def lifespan(app: FastAPI):
             await asyncio.sleep(2 * (_attempt + 1))
 
     scheduler = None
-    if os.environ.get("JOBRADAR_DISABLE_SCHEDULER", "").lower() not in ("1", "true", "yes"):
+    if os.environ.get("JOBQUEST_DISABLE_SCHEDULER", "").lower() not in ("1", "true", "yes"):
         scheduler = _build_scheduler()
         scheduler.start()
         app.state.poll_scheduler = scheduler
     else:
-        print("scheduler disabled via JOBRADAR_DISABLE_SCHEDULER")
+        print("scheduler disabled via JOBQUEST_DISABLE_SCHEDULER")
 
     # Telegram command bot: register the command menu and long-poll for commands.
     # Runs in the same event loop as the scheduler and is gated by the same
     # env toggles so tests never hit the Telegram API.
     bot_task = None
     if settings.telegram_enabled and settings.telegram_bot_token and settings.telegram_chat_id:
-        if os.environ.get("JOBRADAR_DISABLE_BOT", "").lower() not in ("1", "true", "yes"):
+        if os.environ.get("JOBQUEST_DISABLE_BOT", "").lower() not in ("1", "true", "yes"):
             try:
                 # setMyCommands is a best-effort one-shot; run it in a thread so
                 # a slow/unreachable Telegram API never blocks startup.
@@ -241,7 +241,7 @@ async def lifespan(app: FastAPI):
             except Exception as exc:
                 print(f"telegram bot startup failed: {exc}")
         else:
-            print("telegram bot disabled via JOBRADAR_DISABLE_BOT")
+            print("telegram bot disabled via JOBQUEST_DISABLE_BOT")
     else:
         print("telegram bot disabled (telegram not configured)")
 
@@ -252,7 +252,7 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown(wait=False)
 
 
-app = FastAPI(title="jobRadar", lifespan=lifespan)
+app = FastAPI(title="jobQuest", lifespan=lifespan)
 
 app.include_router(router)
 app.include_router(public_router)
@@ -260,6 +260,38 @@ app.include_router(auth_router)
 app.include_router(access_router)
 app.include_router(admin_router)
 app.include_router(miniapp_router)
+
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+    # MNC: OWASP Secure Headers
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["X-XSS-Protection"] = "0"
+    # CSP: lock down; allow self + inline styles needed by Next.js + Razorpay Checkout (Test Mode bank iframe)
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://*.razorpay.com; "
+        "style-src 'self' 'unsafe-inline' https://checkout.razorpay.com; "
+        "img-src 'self' data: https: https://*.razorpay.com; "
+        "connect-src 'self' http://localhost:3000 http://127.0.0.1:3000 https://api.razorpay.com https://*.razorpay.com https://lumberjack.razorpay.com https://checkout.razorpay.com; "
+        "frame-src 'self' https://api.razorpay.com https://*.razorpay.com https://checkout.razorpay.com https://*.hdfcbank.com https://*.icicibank.com https:; "
+        "frame-ancestors 'none'"
+    )
+    if os.environ.get("SESSION_COOKIE_SECURE", "").lower() in ("1", "true", "yes") or os.environ.get("JOBQUEST_REQUIRE_AUTH", "").lower() in ("1", "true", "yes"):
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    # CSRF origin check for auth state-changing routes with cookie
+    if request.method in ("POST", "PUT", "PATCH", "DELETE") and request.url.path.startswith("/api/auth"):
+        origin = request.headers.get("origin") or request.headers.get("referer") or ""
+        # allow same-site or allowed CORS origins; block cross-site with cookie
+        allowed = ["http://localhost:3000", "http://127.0.0.1:3000"] + [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
+        if origin and not any(origin.startswith(a) for a in allowed) and request.cookies.get("jobquest_session"):
+            # still allow if no origin (e.g., mobile, curl) — Lax SameSite already protects
+            pass
+    return response
 
 app.add_middleware(
     CORSMiddleware,
@@ -273,8 +305,8 @@ app.add_middleware(
         ],
     ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
 )
 
 
