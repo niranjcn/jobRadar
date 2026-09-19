@@ -9,8 +9,8 @@ from supabase import Client
 
 from app.adapters import adapter_for
 from app.adapters.http import RetryingClient
-from app.config import load_settings
-from app.db import close_async_pool, get_supabase, open_async_pool, query_async
+from app.config import Settings, load_settings
+from app.db import close_async_pool, get_supabase, open_async_pool, query
 from app.geo import map_location
 from app.matcher import load_notification_settings, sync_preferences
 from app.models import NormalizedJob
@@ -120,49 +120,158 @@ def unhealthy_sources(supabase: Client, intervals: dict[str, int]) -> list[dict[
     return result
 
 
-async def fetch_existing_job_ids(supabase: Client, source_id: str) -> set[str]:
-    """External job IDs already stored for a source.
+UPSERT_CHUNK_ROWS = 500  # 500 rows x 8 cols = 4000 params, far below the 65535 protocol limit
 
-    Uses a single pooled async SQL query instead of paginating 1000-row REST pages
-    (a 20k-job source used to cost 20 sequential HTTP round-trips per poll).
+# Lifecycle (041): sightings advance last_seen_at at most this often per row
+# (daily granularity is plenty for "is this posting still up"), and rows unseen
+# across LIFECYCLE_GRACE_HOURS of successful polls are deactivated. Dead
+# postings prune after INACTIVE_RETENTION_DAYS instead of full job_retention_days.
+TOUCH_STALE_HOURS = 24
+LIFECYCLE_GRACE_HOURS = 72
+INACTIVE_RETENTION_DAYS = 7
+
+_UPSERT_COLS = (
+    "source_id",
+    "external_job_id",
+    "title",
+    "location",
+    "url",
+    "description",
+    "countries",
+    "is_remote",
+)
+
+# Columns refreshed when a row already exists. Description is intentionally
+# excluded: it is written once at insert (parity with the old behavior, which
+# stripped it for existing rows) and is the largest column, so skipping it
+# keeps every poll's write volume to new + actually-changed rows only.
+_UPDATE_COLS = ("title", "location", "url", "countries", "is_remote")
+
+# One row of placeholders. uuid/text[] casts keep psycopg param typing exact.
+_ROW_SQL = "(%s::uuid, %s, %s, %s, %s, %s, %s::text[], %s)"
+
+
+def upsert_jobs_returning(settings: Settings, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Bulk insert with database-side dedup. Returns {"new_ids", "failed_chunks"}.
+
+    Chunked INSERT ... ON CONFLICT DO UPDATE ... RETURNING replaces the old
+    preload-everything-into-Python + REST-upsert-everything pattern:
+      * no preload query and no Python-side ID sets
+      * unchanged rows are skipped by the WHERE clause (no heap rewrite, no WAL)
+      * (xmax = 0) marks truly-inserted rows — reliable because each board has
+        a single writer (per-ATS scheduler lock), so no concurrent updater can
+        disturb the signal.
+    Per-chunk isolation: a failed chunk is logged and skipped — its rows were
+    never stored, so the next poll rediscovers them (self-healing). If every
+    chunk failed, raises so the source is marked errored instead of silently
+    reporting ok.
     """
-    rows = await query_async(
-        load_settings(),
-        "select external_job_id from jobs where source_id = %s",
-        (source_id,),
-    )
-    return {row["external_job_id"] for row in rows}
-
-
-async def fetch_existing_job_ids_batch(
-    supabase: Client, source_ids: list[str]
-) -> dict[str, set[str]]:
-    """Batch version: one async query for many sources (Tier 2).
-
-    One `SELECT ... WHERE source_id = ANY(...)` replaces N per-source queries (200 queries -> 1).
-    Returns dict source_id -> set[external_job_id]. Missing sources get empty set.
-    """
-    if not source_ids:
-        return {}
-    rows = await query_async(
-        load_settings(),
-        "select source_id, external_job_id from jobs where source_id = any(%s::uuid[])",
-        (source_ids,),
-    )
-    out: dict[str, set[str]] = {sid: set() for sid in source_ids}
-    for row in rows:
-        sid = str(row["source_id"])
-        # query returns uuid objects that become strings via json_safe, but be safe
-        if sid not in out:
-            out[sid] = set()
-        out[sid].add(row["external_job_id"])
-    return out
-
-
-def upsert_jobs(supabase: Client, rows: list[dict[str, Any]]) -> None:
     if not rows:
-        return
-    supabase.table("jobs").upsert(rows, on_conflict="source_id,external_job_id").execute()
+        return {"new_ids": [], "failed_chunks": 0}
+    # last_updated_at rides along only when content really changed (it is in
+    # SET but not in the WHERE guard). is_active is deliberately NOT touched
+    # here: reactivation is owned by reactivate_jobs so reposts are reported.
+    set_clause = ", ".join(f"{col} = EXCLUDED.{col}" for col in _UPDATE_COLS)
+    set_clause += ", last_updated_at = now()"
+    change_clause = " OR ".join(
+        f"jobs.{col} IS DISTINCT FROM EXCLUDED.{col}" for col in _UPDATE_COLS
+    )
+    new_ids: list[str] = []
+    failed_chunks = 0
+    total_chunks = 0
+    for start in range(0, len(rows), UPSERT_CHUNK_ROWS):
+        total_chunks += 1
+        chunk = rows[start : start + UPSERT_CHUNK_ROWS]
+        params: list[Any] = []
+        for row in chunk:
+            params.extend(
+                [
+                    row["source_id"],
+                    row["external_job_id"],
+                    row["title"],
+                    row["location"],
+                    row["url"],
+                    row.get("description") or "",
+                    row.get("countries") or [],
+                    bool(row.get("is_remote")),
+                ]
+            )
+        sql = (
+            f"INSERT INTO jobs ({', '.join(_UPSERT_COLS)}) VALUES "
+            + ", ".join([_ROW_SQL] * len(chunk))
+            + f" ON CONFLICT (source_id, external_job_id) DO UPDATE SET {set_clause}"
+            + f" WHERE {change_clause}"
+            + " RETURNING external_job_id, (xmax = 0) AS is_new"
+        )
+        try:
+            for out in query(settings, sql, tuple(params)):
+                if out.get("is_new"):
+                    new_ids.append(out["external_job_id"])
+        except Exception as exc:
+            failed_chunks += 1
+            print(f"upsert chunk {total_chunks} failed ({len(chunk)} rows): {exc}")
+    if failed_chunks == total_chunks:
+        raise RuntimeError(f"all {total_chunks} upsert chunk(s) failed for {len(rows)} rows")
+    return {"new_ids": new_ids, "failed_chunks": failed_chunks}
+
+
+def reactivate_jobs(settings: Settings, source_id: str, external_ids: list[str]) -> list[str]:
+    """Reopen postings seen again after deactivation (reposts).
+
+    Returns their external IDs so they join new_ids for matching: a reopened
+    role is news. Runs on the success path only — never on skipped/errored polls.
+    """
+    if not external_ids:
+        return []
+    rows = query(
+        settings,
+        "update jobs set is_active = true, last_seen_at = now(), last_updated_at = now() "
+        "where source_id = %s::uuid and external_job_id = any(%s) and is_active = false "
+        "returning external_job_id",
+        (source_id, external_ids),
+    )
+    return [row["external_job_id"] for row in rows]
+
+
+def touch_seen_jobs(settings: Settings, source_id: str, external_ids: list[str]) -> int:
+    """Advance last_seen_at for sighted rows, at most once per TOUCH_STALE_HOURS each."""
+    if not external_ids:
+        return 0
+    rows = query(
+        settings,
+        "update jobs set last_seen_at = now() "
+        "where source_id = %s::uuid and external_job_id = any(%s) "
+        "and last_seen_at < now() - (%s || ' hours')::interval returning 1",
+        (source_id, external_ids, TOUCH_STALE_HOURS),
+    )
+    return len(rows)
+
+
+def sweep_missing_jobs(
+    settings: Settings, source_id: str, grace_hours: int = LIFECYCLE_GRACE_HOURS
+) -> list[str]:
+    """Deactivate rows unseen across the grace window. Success-path only."""
+    rows = query(
+        settings,
+        "update jobs set is_active = false "
+        "where source_id = %s::uuid and is_active "
+        "and last_seen_at < now() - (%s || ' hours')::interval "
+        "returning external_job_id",
+        (source_id, grace_hours),
+    )
+    return [row["external_job_id"] for row in rows]
+
+
+def prune_inactive_jobs(settings: Settings, days: int = INACTIVE_RETENTION_DAYS) -> int:
+    """Delete long-dead postings fast; open ones keep full job_retention_days."""
+    rows = query(
+        settings,
+        "with d as (delete from jobs "
+        "where not is_active and last_seen_at < now() - (%s || ' days')::interval "
+        "returning 1) select count(*)::int as c from d",
+        (days,),
+    )
+    return rows[0]["c"] if rows else 0
 
 
 def mark_checked(supabase: Client, source_id: str, quiet_runs: int = 0) -> None:
@@ -229,12 +338,18 @@ def mark_error(supabase: Client, source: dict[str, Any], exc: Exception) -> None
 
 
 def prune_old_jobs(supabase: Client, retention_days: int) -> int:
+    # Dead postings go first and fast (inactive 7d); open ones keep full retention.
+    # Both cascades clean job_matches/notification_queue via the 035 FKs
+    # (notifications_sent rows for pruned jobs are intentionally left as history).
+    dead = prune_inactive_jobs(load_settings())
+    if dead:
+        print(f"retention: deleted {dead} inactive job(s) unseen for {INACTIVE_RETENTION_DAYS} day(s)")
     cutoff = datetime.now(UTC) - timedelta(days=retention_days)
     response = supabase.table("jobs").delete().lt("first_seen_at", cutoff.isoformat()).execute()
     deleted = len(response.data or [])
     if deleted:
         print(f"retention: deleted {deleted} job(s) older than {retention_days} day(s)")
-    return deleted
+    return deleted + dead
 
 
 def _is_within_age(job: NormalizedJob, max_age_days: int) -> bool:
@@ -282,13 +397,13 @@ async def poll_source(
     max_posting_age_days: int = MAX_POSTING_AGE_DAYS,
     *,
     client=None,
-    existing_ids: set[str] | None = None,
     geo_settings: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Poll one source. Tier 2: if `client` (shared RetryingClient) is given, reuse it to keep TCP alive.
-    If `existing_ids` is given, skip the per-source SELECT and use the batch result.
     If `geo_settings` is given, reuse it instead of re-reading the location
-    mapping from the DB (one fewer query per source per poll)."""
+    mapping from the DB (one fewer query per source per poll).
+    New-job detection is database-side: chunked INSERT ... ON CONFLICT DO UPDATE
+    ... RETURNING (xmax = 0) replaces the old preload-all-IDs + Python diff."""
     jobs = await adapter.fetch_jobs(source["board_identifier"], client=client)
     first_check = source.get("last_checked_at") is None
     if geo_settings is None:
@@ -299,25 +414,30 @@ async def poll_source(
             job.countries = mapped["countries"]
             job.is_remote = mapped["is_remote"]
     jobs = [j for j in jobs if _is_within_age(j, max_posting_age_days)]
+    # Dedupe within the fetch (Oracle Fusion pagination can overlap): duplicate
+    # VALUES rows for one conflict target would abort the whole INSERT chunk.
     rows = dedupe_rows([job.to_row(source_id=source["id"]) for job in jobs])
-    existing = (
-        existing_ids
-        if existing_ids is not None
-        else await fetch_existing_job_ids(supabase, source["id"])
-    )
-    new_rows = [row for row in rows if row["external_job_id"] not in existing]
-    for row in rows:
-        if row["external_job_id"] in existing:
-            row.pop("description", None)
-    upsert_jobs(supabase, rows)
-    mark_checked(supabase, source["id"], next_quiet_runs(source, first_check, len(new_rows)))
+    settings = load_settings()
+    outcome = upsert_jobs_returning(settings, rows)
+    # Lifecycle, in dependency order (success path only — this function is never
+    # reached on fetch errors, and skipped/errored polls never call it):
+    # upsert -> reactivate reposts -> touch sightings -> sweep the unseen.
+    # Reactivate runs before touch so reactivated rows aren't written twice.
+    seen_ids = [row["external_job_id"] for row in rows]
+    reactivated = reactivate_jobs(settings, source["id"], seen_ids)
+    touch_seen_jobs(settings, source["id"], seen_ids)
+    swept = sweep_missing_jobs(settings, source["id"])
+    if swept:
+        print(f"{source['company_name']}: {len(swept)} posting(s) no longer listed (deactivated)")
+    new_ids = outcome["new_ids"] + reactivated
+    mark_checked(supabase, source["id"], next_quiet_runs(source, first_check, len(new_ids)))
     return {
         "company": source["company_name"],
         "source_id": source["id"],
         "fetched": len(jobs),
-        "new": len(new_rows),
+        "new": len(new_ids),
         "first_check": first_check,
-        "new_ids": [row["external_job_id"] for row in new_rows],
+        "new_ids": new_ids,
     }
 
 
@@ -527,25 +647,18 @@ async def poll_all_sources(
                 source_results.extend(_quiet_skipped)
             sources = _still_due
 
-        # Tier 2: batch existing_ids after 404 filtering — one async query for
-        # all remaining sources.
-        _existing_map: dict[str, set[str]] = {}
-        if sources:
-            try:
-                _existing_map = await fetch_existing_job_ids_batch(
-                    supabase, [s["id"] for s in sources]
-                )
-            except Exception as e:
-                print(f"batch existing_ids failed, falling back to per-source: {e}")
-                _existing_map = {}
-
+        # New-job detection is database-side per source (INSERT ... ON CONFLICT
+        # ... RETURNING in poll_source), so no preload-all-IDs step is needed:
+        # polls start fetching immediately instead of waiting behind one giant
+        # ID-loading query.
         total_fetched = 0
         total_new = 0
 
         # Tier 2: one shared HTTP client for this poll — reuses TCP/TLS across all boards.
-        # Limits sized for 10-way per-ATS concurrency with overlapping ATS runs.
+        # Limits sized for 20-way workday (271 boards) with overlapping ATS runs.
+        # Was 50/100 for 10-way; bumped to 100/200 so 20-way never hits pool ceiling.
         async with RetryingClient(
-            timeout=30.0, limits=httpx.Limits(max_keepalive_connections=50, max_connections=100)
+            timeout=30.0, limits=httpx.Limits(max_keepalive_connections=100, max_connections=200)
         ) as _shared_client:
 
             async def _poll(source: dict[str, Any]) -> None:
@@ -567,7 +680,6 @@ async def poll_all_sources(
                             adapter,
                             settings.max_posting_age_days,
                             client=_shared_client,
-                            existing_ids=_existing_map.get(source["id"]),
                             geo_settings=geo_settings,
                         )
                         entry["fetched"] = result["fetched"]
