@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Suggest an idea for jobRadar
+about: Suggest an idea for jobQuest
 title: "[feature] "
 labels: enhancement
 assignees: ""

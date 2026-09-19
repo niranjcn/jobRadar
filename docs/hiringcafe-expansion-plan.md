@@ -11,9 +11,9 @@
 |-------|-------|-------------|
 | **Reported on homepage** `https://hiringcafe.com` | **5,978 companies** / 235,321 jobs | SSR prop `ssrCompanyCount` in `__NEXT_DATA__` |
 | **Sampled 0-119 pages** (`_next/data/{buildId}/index.json?page=N`, 40 jobs/page, 15,333 jobs = 6.5% of site) | **5,860 raw rows** (every job occurrence) -> **4,435 unique names** deduped (`backend/data/hiringcafe_companies_deduped.json:1`) | Group by `v5_processed_job_data.company_name` lowercased |
-| **Of those 4,435, mapping to jobRadar `ats_type` `backend/migrations/030_board_ats.sql:4`** | **2,294 supported** (51%) / **2,141 unsupported** | `grnhse->greenhouse`, `lever->lever`, `ashby->ashby`, `workday->workday`, `oraclecloud->oracle`, `icims2->icims`, `successfactors->successfactors`, etc. |
+| **Of those 4,435, mapping to jobQuest `ats_type` `backend/migrations/030_board_ats.sql:4`** | **2,294 supported** (51%) / **2,141 unsupported** | `grnhse->greenhouse`, `lever->lever`, `ashby->ashby`, `workday->workday`, `oraclecloud->oracle`, `icims2->icims`, `successfactors->successfactors`, etc. |
 | **Of 2,294, token directly usable without URL guessing** | **826 feasible now** (`greenhouse 491` + `lever 156` + `ashby 232`) | `board_token="2k"` is board id; `workday` token `"3m-wd1-search"` is `tenant-shard-site` not `https://tenant.shard.myworkdayjobs.com/site` — needs reconstruction |
-| **Overlap with existing `backend/sources.json:1` (129)** | **53 already in jobRadar**, so **826-53=773 truly new** light-ATS companies (or 2,241 new if counting all supported) | Name lower match |
+| **Overlap with existing `backend/sources.json:1` (129)** | **53 already in jobQuest**, so **826-53=773 truly new** light-ATS companies (or 2,241 new if counting all supported) | Name lower match |
 
 **Distribution of the 2,294 supported (deduped):**
 
@@ -25,7 +25,7 @@ ashby          232  (10%)  -> ready
 oracle         204  ( 9%)  -> needs URL
 lever          156  ( 7%)  -> ready
 icims          135  ( 6%)  -> needs URL
-avature         37   -> ready (but HiringCafe shows 37, all 3 existing avature boards already in jobRadar - likely duplicates)
+avature         37   -> ready (but HiringCafe shows 37, all 3 existing avature boards already in jobQuest - likely duplicates)
 google           1
 ```
 
@@ -141,7 +141,7 @@ google           1
 
 | What | Count | Poll time wall (1 global sweep, 8 conc) | Notes |
 |------|-------|------------------------------------------|-------|
-| **Existing jobRadar** | 129 sources (57 GH +3 Lever+40 Ashby+62 WD etc.) | **~1.4 min ideal / ~5-6 min measured** | Current `poll_runs` avg |
+| **Existing jobQuest** | 129 sources (57 GH +3 Lever+40 Ashby+62 WD etc.) | **~1.4 min ideal / ~5-6 min measured** | Current `poll_runs` avg |
 | **HiringCafe reported** | 5,978 companies | — | Site says 5,978 |
 | **Sampled & deduped** | 4,435 unique / 5,860 rows (15k jobs) | — | `hiringcafe_companies_deduped.json` |
 | **Supported ATS (7 ATS)** | 2,294 unique (51%) | — | `grnhse/workday/sf/ashby/oracle/lever/icims` |

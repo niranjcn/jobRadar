@@ -25,7 +25,7 @@ Additional guarantees:
 
 ## 2. Current state (verified)
 
-- **Auth** (`backend/app/auth.py:1`): PBKDF2 passwords, signed session cookie (`jobradar_session`), OTP `login_codes` table, `verify_init_data` for MiniApp initData (HMAC with `WebAppData`). No Telegram Widget verification.
+- **Auth** (`backend/app/auth.py:1`): PBKDF2 passwords, signed session cookie (`jobquest_session`), OTP `login_codes` table, `verify_init_data` for MiniApp initData (HMAC with `WebAppData`). No Telegram Widget verification.
 - **Routes** (`backend/app/api/auth_routes.py:193`): `POST /api/auth/login-telegram` — `verify_init_data(...)` → `fetch_user_by_telegram(id)` → **403 if not linked**. No auto-creation, no widget handler.
 - **Users** (`backend/app/users.py:116`): `create_registered_user` requires email; telegram fields (`telegram_chat_id`, `telegram_user_id`, `telegram_username`) remain null until linked elsewhere.
 - **Bot** (`backend/app/telegram/bot.py:88`): `authorized(chat_id)` checks `settings.telegram_chat_id` — **single-user** check. `dispatch_command` + `handle_update` still reference `DEFAULT_USER_ID` for queries; multi-user bot will reject everyone except the owner.

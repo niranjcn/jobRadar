@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: jobradar
+    name: jobquest
     runtime: docker
     plan: free
     dockerfilePath: backend/Dockerfile
@@ -44,5 +44,5 @@ services:
         sync: false
       - key: SECRET_KEY
         sync: false
-      - key: JOBRADAR_REQUIRE_AUTH
+      - key: JOBQUEST_REQUIRE_AUTH
         value: "true"

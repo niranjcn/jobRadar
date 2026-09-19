@@ -1,7 +1,7 @@
-# Design System — JobRadar
+# Design System — JobQuest
 
 ## Product Context
-- **What this is:** JobRadar is a job discovery and alerting platform that continuously monitors company career pages, detects newly published jobs, deduplicates them, matches them against user preferences, and delivers alerts via Telegram and email.
+- **What this is:** JobQuest is a job discovery and alerting platform that continuously monitors company career pages, detects newly published jobs, deduplicates them, matches them against user preferences, and delivers alerts via Telegram and email.
 - **Who it's for:** A single operator (early stage) — a job hunter who wants a personal radar over the market. Later: individual users of a dashboard.
 - **Space/industry:** Job search / career intelligence tooling. Peers: job boards, ATS dashboards, aggregator tools.
 - **Project type:** Web app / dashboard (Next.js + Tailwind + FastAPI backend).
@@ -63,7 +63,7 @@ Implemented in the Next.js frontend on 2026-08-28:
 - **Buttons:** `.btn-primary` (ink → vermillion on hover) and `.btn-ghost` (white → parchment) use offset shadows and translate press, with disabled states.
 - **Motion:** `rise` keyframes + `animate-rise-*` utilities with stagger delays; `draw-line` for dividers; `pulse-dot` for live indicators. Respects `prefers-reduced-motion`.
 - **Theme:** Warm parchment is default (`data-theme="warm"`); dark glass preserved as `[data-theme="dark"]` opt-in, toggled from sidebar and persisted in `localStorage`.
-- **Preview:** Live at `frontend/design-preview/index.html`; shotgun archives at `~/.gstack/projects/niranjcn-jobRadar/designs/`.
+- **Preview:** Live at `frontend/design-preview/index.html`; shotgun archives at `~/.gstack/projects/niranjcn-jobQuest/designs/`.
 
 ## Decisions Log
 | Date | Decision | Rationale |

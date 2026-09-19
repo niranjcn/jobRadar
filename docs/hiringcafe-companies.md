@@ -30,7 +30,7 @@ HiringCafe SSR via `GET https://hiringcafe.com/_next/data/{buildId}/index.json?p
 - ultipro: 58
 - jobvite: 57
 
-## Overlap with jobRadar `sources.json` (58 overlap)
+## Overlap with jobQuest `sources.json` (58 overlap)
 
 Already covered: Accenture, Adobe, Amazon, Anthropic, Aristocrat, Blue Yonder, Boeing, Cisco, Cloudflare, Cohere, Coinbase, CrowdStrike, Cursor, Datadog, Elastic, ElevenLabs, Fivetran, Flexport, GE HealthCare, ... (full list in JSON).
 

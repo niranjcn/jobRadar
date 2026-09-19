@@ -1,8 +1,8 @@
-# AGENTS.md — JobRadar
+# AGENTS.md — JobQuest
 
 ## 1. Project Overview
 
-JobRadar is a job discovery and alerting platform that continuously monitors company career pages and job platforms, detects newly published jobs, filters them according to user preferences, deduplicates results, and delivers relevant alerts through Telegram and email.
+JobQuest is a job discovery and alerting platform that continuously monitors company career pages and job platforms, detects newly published jobs, filters them according to user preferences, deduplicates results, and delivers relevant alerts through Telegram and email.
 
 The initial goal is to build the system incrementally, starting with reliable job ingestion and normalization before adding advanced matching, notifications, and UI features.
 
@@ -64,7 +64,7 @@ Each milestone must be independently testable.
 
 ### Prefer simple architecture first
 
-JobRadar should begin as a modular monolith with background workers.
+JobQuest should begin as a modular monolith with background workers.
 
 Avoid introducing microservices, Kubernetes, Kafka, or other infrastructure until there is a demonstrated need.
 
@@ -168,7 +168,7 @@ The backend should be organized by responsibility rather than by framework featu
 Suggested structure:
 
 ```text
-jobRadar/
+jobQuest/
 ├── backend/
 │   ├── app/
 │   │   ├── api/
@@ -719,7 +719,7 @@ Important:
 
 ## 19. Scraping Rules
 
-JobRadar should prefer official/public endpoints and APIs when available.
+JobQuest should prefer official/public endpoints and APIs when available.
 
 Before implementing a scraper:
 
@@ -923,7 +923,7 @@ Pull requests should contain:
 
 ## 24. AI-Assisted Development Rules
 
-JobRadar is being developed with AI assistance.
+JobQuest is being developed with AI assistance.
 
 AI agents must:
 
@@ -944,7 +944,7 @@ AI agents must:
 Do not ask an AI agent to:
 
 ```text
-Build the entire JobRadar platform.
+Build the entire JobQuest platform.
 ```
 
 Instead:
@@ -995,7 +995,7 @@ A feature is considered complete when:
 
 ## 26. Current Development Strategy
 
-JobRadar should currently focus on the foundation.
+JobQuest should currently focus on the foundation.
 
 ### Phase 1
 
@@ -1084,7 +1084,7 @@ Scaling
 
 ## 27. Important Architectural Principle
 
-The most important rule in JobRadar is:
+The most important rule in JobQuest is:
 
 > **Sources should be replaceable, but the rest of the system should not care where a job came from.**
 
@@ -1100,6 +1100,6 @@ Ashby ────────┤──> RawJob ──> Normalized Job
 Custom ───────┘
 ```
 
-Once normalized, the rest of JobRadar should not need to know whether a job came from Workday, Greenhouse, Lever, Ashby, or a custom career page.
+Once normalized, the rest of JobQuest should not need to know whether a job came from Workday, Greenhouse, Lever, Ashby, or a custom career page.
 
-This separation is what will allow JobRadar to grow from a personal project into a reliable multi-source job monitoring platform.
+This separation is what will allow JobQuest to grow from a personal project into a reliable multi-source job monitoring platform.

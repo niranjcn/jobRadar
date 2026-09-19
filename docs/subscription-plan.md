@@ -2,7 +2,7 @@
 
 > Status: **Phases 1–6 implemented (backend + frontend); auth enforcement is ON.**
 > Migrations 022–026 applied; per-source fast matching + notification queue live;
-> `SECRET_KEY` generated, `JOBRADAR_REQUIRE_AUTH=true` and
+> `SECRET_KEY` generated, `JOBQUEST_REQUIRE_AUTH=true` and
 > `SESSION_COOKIE_SECURE=true` are set in `.env` — anonymous API access is
 > closed, login is via email OTP (owner) / Telegram initData (once linked), and
 > locked accounts see only the unlock path. Frontend: login / register /
@@ -19,7 +19,7 @@
 
 ## 1. Goals
 
-1. Convert JobRadar from single-user to a **subscription SaaS**.
+1. Convert JobQuest from single-user to a **subscription SaaS**.
 2. **Make matching faster**: today every job waits for *all* sources in a poll run
    to finish before matching + notifying. New jobs must match and enqueue alerts
    **per-source, immediately** after ingestion.
@@ -120,7 +120,7 @@ Register (email → OTP via Resend;  or Telegram /start → initData HMAC)
         ↓
 Account created (role='user', NO access yet) → Lock screen:
         ┌────────────────────────────────────────────┐
-        │  Unlock JobRadar                           │
+        │  Unlock JobQuest                           │
         │  [ Subscribe — ₹/$ per month ]             │
         │  [ Have a coupon? Paste it here ]          │
         └────────────────────────────────────────────┘
