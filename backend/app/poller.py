@@ -343,7 +343,9 @@ def prune_old_jobs(supabase: Client, retention_days: int) -> int:
     # (notifications_sent rows for pruned jobs are intentionally left as history).
     dead = prune_inactive_jobs(load_settings())
     if dead:
-        print(f"retention: deleted {dead} inactive job(s) unseen for {INACTIVE_RETENTION_DAYS} day(s)")
+        print(
+            f"retention: deleted {dead} inactive job(s) unseen for {INACTIVE_RETENTION_DAYS} day(s)"
+        )
     cutoff = datetime.now(UTC) - timedelta(days=retention_days)
     response = supabase.table("jobs").delete().lt("first_seen_at", cutoff.isoformat()).execute()
     deleted = len(response.data or [])

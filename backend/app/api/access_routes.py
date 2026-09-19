@@ -5,7 +5,14 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from app.access import CouponError, create_razorpay_subscription, handle_razorpay_webhook, redeem_coupon, start_checkout, verify_razorpay_signature
+from app.access import (
+    CouponError,
+    create_razorpay_subscription,
+    handle_razorpay_webhook,
+    redeem_coupon,
+    start_checkout,
+    verify_razorpay_signature,
+)
 from app.auth import UserCtx, get_current_user, require_product_access
 from app.config import load_settings
 from app.db import get_supabase, query
@@ -92,7 +99,9 @@ def razorpay_create_subscription(ctx: Annotated[UserCtx, Depends(get_current_use
         raise HTTPException(status_code=401, detail="register or log in first")
     settings = load_settings()
     if settings.billing_provider != "razorpay":
-        raise HTTPException(status_code=400, detail="Razorpay not enabled — set BILLING_PROVIDER=razorpay")
+        raise HTTPException(
+            status_code=400, detail="Razorpay not enabled — set BILLING_PROVIDER=razorpay"
+        )
     try:
         sub = create_razorpay_subscription(settings, ctx.id)
         # also return key for frontend
@@ -104,12 +113,16 @@ def razorpay_create_subscription(ctx: Annotated[UserCtx, Depends(get_current_use
 
 
 @router.post("/billing/razorpay/verify")
-def razorpay_verify(body: RazorpayVerifyBody, ctx: Annotated[UserCtx, Depends(get_current_user)]) -> dict:
+def razorpay_verify(
+    body: RazorpayVerifyBody, ctx: Annotated[UserCtx, Depends(get_current_user)]
+) -> dict:
     if ctx.anonymous:
         raise HTTPException(status_code=401, detail="register or log in first")
     settings = load_settings()
     if not verify_razorpay_signature(settings, body.model_dump()):
-        raise HTTPException(status_code=400, detail="payment verification failed — signature mismatch")
+        raise HTTPException(
+            status_code=400, detail="payment verification failed — signature mismatch"
+        )
     # verified -> provision 30 days (autopay or one-time). Razorpay will send subscription.charged webhook for renewals
     from datetime import UTC, datetime, timedelta
 
@@ -117,9 +130,22 @@ def razorpay_verify(body: RazorpayVerifyBody, ctx: Annotated[UserCtx, Depends(ge
     from app.db import query as db_query
 
     period_end = (datetime.now(UTC) + timedelta(days=30)).isoformat()
-    provider_sub_id = body.razorpay_subscription_id or body.razorpay_order_id or body.razorpay_payment_id
-    provision_subscription(settings, user_id=ctx.id, plan_code="standard", provider="razorpay", period_end=period_end, provider_subscription_id=provider_sub_id)
-    db_query(settings, "update users set access_locked=false, updated_at=now() where id=%s::uuid", (ctx.id,))
+    provider_sub_id = (
+        body.razorpay_subscription_id or body.razorpay_order_id or body.razorpay_payment_id
+    )
+    provision_subscription(
+        settings,
+        user_id=ctx.id,
+        plan_code="standard",
+        provider="razorpay",
+        period_end=period_end,
+        provider_subscription_id=provider_sub_id,
+    )
+    db_query(
+        settings,
+        "update users set access_locked=false, updated_at=now() where id=%s::uuid",
+        (ctx.id,),
+    )
     try:
         from app.matcher import recompute_matches
 
@@ -138,10 +164,17 @@ def razorpay_cancel(ctx: Annotated[UserCtx, Depends(get_current_user)]) -> dict:
     # Razorpay cancel is via dashboard or API; we just mark cancel_at_period_end
     from app.db import query as db_query
 
-    rows = db_query(settings, "update subscriptions set cancel_at_period_end=true, updated_at=now() where user_id=%s::uuid and status='active' and provider='razorpay' returning id", (ctx.id,))
+    rows = db_query(
+        settings,
+        "update subscriptions set cancel_at_period_end=true, updated_at=now() where user_id=%s::uuid and status='active' and provider='razorpay' returning id",
+        (ctx.id,),
+    )
     if not rows:
         raise HTTPException(status_code=404, detail="no active Razorpay subscription to cancel")
-    return {"ok": True, "message": "autopay cancelled — access remains until period end, then revoked"}
+    return {
+        "ok": True,
+        "message": "autopay cancelled — access remains until period end, then revoked",
+    }
 
 
 @router.post("/webhooks/razorpay")

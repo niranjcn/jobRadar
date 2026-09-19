@@ -297,7 +297,6 @@ def public_schema() -> dict:
     """Public DB schema for the standalone visual page — no auth, never fails."""
     from datetime import UTC, datetime
 
-    settings = _settings()
     try:
         from app.api.admin_routes import admin_schema as _admin_schema
 
@@ -308,6 +307,13 @@ def public_schema() -> dict:
         return {
             "generated_at": datetime.now(UTC).isoformat(),
             "tables": [],
-            "issues": [{"level": "info", "table": "_", "title": "Schema fetch fallback", "detail": str(exc)[:300]}],
+            "issues": [
+                {
+                    "level": "info",
+                    "table": "_",
+                    "title": "Schema fetch fallback",
+                    "detail": str(exc)[:300],
+                }
+            ],
             "counts": {"tables": 0, "total_bytes": 0},
         }

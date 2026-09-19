@@ -89,7 +89,9 @@ def needs_rehash(password_hash: str | None) -> bool:
         return True
 
 
-def validate_password_strength(password: str, *, email: str | None = None, display_name: str | None = None) -> list[str]:
+def validate_password_strength(
+    password: str, *, email: str | None = None, display_name: str | None = None
+) -> list[str]:
     """MNC/OWASP ASVS 2.1: 12-128 chars, 3/4 categories, not common/breached, not containing user identity."""
     errors: list[str] = []
     pwd = password or ""
@@ -490,9 +492,7 @@ def is_valid_email(email: str) -> bool:
     pattern = r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$"
     if not re.match(pattern, email):
         return False
-    if not re.match(r"^[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$", domain):
-        return False
-    return True
+    return bool(re.match(r"^[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$", domain))
 
 
 def sanitize_display_name(name: str) -> str:
@@ -513,13 +513,27 @@ def sanitize_display_name(name: str) -> str:
     return raw
 
 
-def log_auth_event(settings: Settings, *, email: str | None, user_id: str | None, event_type: str, ip: str | None, user_agent: str | None = None) -> None:
+def log_auth_event(
+    settings: Settings,
+    *,
+    email: str | None,
+    user_id: str | None,
+    event_type: str,
+    ip: str | None,
+    user_agent: str | None = None,
+) -> None:
     """Best-effort audit log; never raises."""
     try:
         query(
             settings,
             "insert into auth_events (user_id, email, event_type, ip, user_agent) values (%s::uuid, %s, %s, %s, %s)",
-            (user_id, (email or "")[:254] if email else None, event_type, (ip or "")[:64], (user_agent or "")[:256] if user_agent else None),
+            (
+                user_id,
+                (email or "")[:254] if email else None,
+                event_type,
+                (ip or "")[:64],
+                (user_agent or "")[:256] if user_agent else None,
+            ),
         )
     except Exception:
         pass
@@ -596,13 +610,18 @@ def get_current_user(request: Request) -> UserCtx:
                 raise HTTPException(status_code=403, detail="account disabled")
             # enforce lockout at session resolve as well (in case lock happened after cookie issue)
             try:
-                rows = query(settings, "select lockout_until from users where id = %s::uuid", (user_id,))
+                rows = query(
+                    settings, "select lockout_until from users where id = %s::uuid", (user_id,)
+                )
                 if rows and rows[0].get("lockout_until"):
                     lu = rows[0]["lockout_until"]
                     if isinstance(lu, str):
                         lu = datetime.fromisoformat(lu)
                     if lu and lu > datetime.now(UTC):
-                        raise HTTPException(status_code=423, detail="account temporarily locked due to repeated failed logins")
+                        raise HTTPException(
+                            status_code=423,
+                            detail="account temporarily locked due to repeated failed logins",
+                        )
             except HTTPException:
                 raise
             except Exception:

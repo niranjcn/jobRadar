@@ -274,7 +274,12 @@ def create_registered_user(
     password: str | None = None,
 ) -> dict[str, Any]:
     """Register a new account. MNC flow: approved immediately but locked until payment/coupon."""
-    from app.auth import hash_password, is_valid_email, sanitize_display_name, validate_password_strength
+    from app.auth import (
+        hash_password,
+        is_valid_email,
+        sanitize_display_name,
+        validate_password_strength,
+    )
 
     email = (email or "").strip().lower()
     if not is_valid_email(email):

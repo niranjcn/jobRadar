@@ -568,7 +568,9 @@ def egress_overview(days: int = 30) -> dict:
 
     # convenience: jobs table stats for avg row math
     jobs_table = next((t for t in tables if t["name"] == "jobs"), None)
-    avg_job_bytes = int(jobs_table["avg_row_bytes"]) if jobs_table and jobs_table["live_rows"] else 512
+    avg_job_bytes = (
+        int(jobs_table["avg_row_bytes"]) if jobs_table and jobs_table["live_rows"] else 512
+    )
 
     # --- totals / counts ---
     totals: dict[str, Any] = {}
@@ -596,7 +598,11 @@ def egress_overview(days: int = 30) -> dict:
         totals["bytes_7d_est"] = totals.get("jobs_7d", 0) * avg_job_bytes
         totals["bytes_30d_est"] = totals.get("jobs_30d", 0) * avg_job_bytes
         # 30d daily avg -> monthly projection
-        daily_avg_jobs = (totals.get("jobs_30d", 0) / 30) if totals.get("jobs_30d") else (totals.get("jobs_7d", 0) / 7 if totals.get("jobs_7d") else 0)
+        daily_avg_jobs = (
+            (totals.get("jobs_30d", 0) / 30)
+            if totals.get("jobs_30d")
+            else (totals.get("jobs_7d", 0) / 7 if totals.get("jobs_7d") else 0)
+        )
         totals["proj_monthly_jobs"] = int(daily_avg_jobs * 30)
         totals["proj_monthly_bytes"] = int(daily_avg_jobs * 30 * avg_job_bytes)
     except Exception as exc:
@@ -711,7 +717,9 @@ def egress_overview(days: int = 30) -> dict:
                     "jobs_new": new,
                     "bytes_est": new * avg_job_bytes,
                     "duration_ms": int(r.get("dur_ms") or 0) if r.get("dur_ms") else None,
-                    "sources_count": len(r.get("sources") or []) if isinstance(r.get("sources"), list) else None,
+                    "sources_count": len(r.get("sources") or [])
+                    if isinstance(r.get("sources"), list)
+                    else None,
                     "error": r.get("error"),
                 }
             )
@@ -779,7 +787,7 @@ def egress_overview(days: int = 30) -> dict:
             {
                 "level": "warn",
                 "title": "Database over 70% of free tier",
-                "detail": f"{free_pct:.1f}% of 500 MB. At current ingest (~{totals.get('proj_monthly_bytes',0)//(1024*1024)} MB/mo) you have limited headroom.",
+                "detail": f"{free_pct:.1f}% of 500 MB. At current ingest (~{totals.get('proj_monthly_bytes', 0) // (1024 * 1024)} MB/mo) you have limited headroom.",
             }
         )
     # bloat
@@ -800,7 +808,7 @@ def egress_overview(days: int = 30) -> dict:
             {
                 "level": "warn",
                 "title": "Projected to hit limit this month",
-                "detail": f"At ~{proj//1024} KB/mo, DB would reach {(db_size_bytes+proj)/FREE_LIMIT*100:.1f}% of 500 MB in 30 days.",
+                "detail": f"At ~{proj // 1024} KB/mo, DB would reach {(db_size_bytes + proj) / FREE_LIMIT * 100:.1f}% of 500 MB in 30 days.",
             }
         )
     # retention
@@ -809,7 +817,7 @@ def egress_overview(days: int = 30) -> dict:
             {
                 "level": "info",
                 "title": "Retention cleanup available",
-                "detail": f"{retention['reclaimable_jobs']} jobs older than {retention['retention_days']}d (~{retention['reclaimable_bytes_est']//1024} KB) would be removed by the retention job.",
+                "detail": f"{retention['reclaimable_jobs']} jobs older than {retention['retention_days']}d (~{retention['reclaimable_bytes_est'] // 1024} KB) would be removed by the retention job.",
             }
         )
     # jobs dominating
@@ -818,7 +826,7 @@ def egress_overview(days: int = 30) -> dict:
             {
                 "level": "info",
                 "title": "Jobs table dominates storage",
-                "detail": f"Jobs is {(jobs_table['total_bytes']/db_size_bytes*100):.1f}% of DB. Descriptions are already stripped; further savings need lower retention or fewer sources.",
+                "detail": f"Jobs is {(jobs_table['total_bytes'] / db_size_bytes * 100):.1f}% of DB. Descriptions are already stripped; further savings need lower retention or fewer sources.",
             }
         )
     # cache hit
@@ -862,16 +870,25 @@ def admin_schema() -> dict:
     """
     settings = load_settings()
     # --- tables ---
-    tables = query(settings, "select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE' order by table_name")
+    tables = query(
+        settings,
+        "select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE' order by table_name",
+    )
     table_names = [r["table_name"] for r in tables]
     # columns (only base tables — avoid views like v_job_source)
-    cols = query(settings, "select table_name, column_name, data_type, udt_name, is_nullable, column_default from information_schema.columns where table_schema='public' and table_name = any(%s) order by table_name, ordinal_position", (table_names,))
+    cols = query(
+        settings,
+        "select table_name, column_name, data_type, udt_name, is_nullable, column_default from information_schema.columns where table_schema='public' and table_name = any(%s) order by table_name, ordinal_position",
+        (table_names,),
+    )
     cols_by_table: dict[str, list[dict[str, Any]]] = {t: [] for t in table_names}
     for c in cols:
         if c["table_name"] in cols_by_table:
             cols_by_table[c["table_name"]].append(c)
     # constraints
-    fks = query(settings, """
+    fks = query(
+        settings,
+        """
         select tc.table_name, tc.constraint_name, kcu.column_name, ccu.table_name as foreign_table, ccu.column_name as foreign_column, rc.delete_rule
         from information_schema.table_constraints tc
         join information_schema.key_column_usage kcu on tc.constraint_name=kcu.constraint_name and tc.table_schema=kcu.table_schema
@@ -879,36 +896,46 @@ def admin_schema() -> dict:
         left join information_schema.referential_constraints rc on rc.constraint_name=tc.constraint_name and rc.constraint_schema=tc.table_schema
         where tc.table_schema='public' and tc.constraint_type='FOREIGN KEY'
         order by tc.table_name
-    """)
+    """,
+    )
     fks_by_table: dict[str, list[dict[str, Any]]] = {t: [] for t in table_names}
     for fk in fks:
         if fk["table_name"] in fks_by_table:
             fks_by_table[fk["table_name"]].append(fk)
     # pks
-    pks = query(settings, """
+    pks = query(
+        settings,
+        """
         select tc.table_name, kcu.column_name
         from information_schema.table_constraints tc
         join information_schema.key_column_usage kcu on tc.constraint_name=kcu.constraint_name
         where tc.table_schema='public' and tc.constraint_type='PRIMARY KEY'
-    """)
+    """,
+    )
     pks_by_table: dict[str, set[str]] = {t: set() for t in table_names}
     for pk in pks:
         if pk["table_name"] in pks_by_table:
             pks_by_table[pk["table_name"]].add(pk["column_name"])
     # uniques
-    uniques = query(settings, """
+    uniques = query(
+        settings,
+        """
         select tc.table_name, tc.constraint_name, kcu.column_name
         from information_schema.table_constraints tc
         join information_schema.key_column_usage kcu on tc.constraint_name=kcu.constraint_name
         where tc.table_schema='public' and tc.constraint_type='UNIQUE'
         order by tc.table_name
-    """)
+    """,
+    )
     uniques_by_table: dict[str, list[str]] = {t: [] for t in table_names}
     for u in uniques:
         if u["table_name"] in uniques_by_table:
             uniques_by_table[u["table_name"]].append(u["column_name"])
     # indexes
-    idxs = query(settings, "select tablename as table_name, indexname, indexdef from pg_indexes where schemaname='public' order by tablename")
+    idxs = query(
+        settings,
+        "select tablename as table_name, indexname, indexdef from pg_indexes where schemaname='public' order by tablename",
+    )
     idx_by_table: dict[str, list[dict[str, Any]]] = {t: [] for t in table_names}
     for idx in idxs:
         if idx["table_name"] in idx_by_table:
@@ -917,11 +944,19 @@ def admin_schema() -> dict:
     sizes: dict[str, dict[str, Any]] = {}
     for t in table_names:
         try:
-            r = query(settings, "select pg_total_relation_size(%s::regclass)::bigint as total_bytes, pg_relation_size(%s::regclass)::bigint as data_bytes", (f"public.{t}", f"public.{t}"))
+            r = query(
+                settings,
+                "select pg_total_relation_size(%s::regclass)::bigint as total_bytes, pg_relation_size(%s::regclass)::bigint as data_bytes",
+                (f"public.{t}", f"public.{t}"),
+            )
             total = int(r[0]["total_bytes"]) if r else 0
             data = int(r[0]["data_bytes"]) if r else 0
             # estimated rows via n_live_tup, plus exact count for small tables (<100k est)
-            est = query(settings, "select coalesce(n_live_tup,0)::bigint as est from pg_stat_user_tables where relname=%s", (t,))
+            est = query(
+                settings,
+                "select coalesce(n_live_tup,0)::bigint as est from pg_stat_user_tables where relname=%s",
+                (t,),
+            )
             est_rows = int(est[0]["est"]) if est and est[0]["est"] is not None else 0
             exact = None
             if est_rows < 100000:
@@ -932,7 +967,12 @@ def admin_schema() -> dict:
                     exact = int(c2[0]["c"]) if c2 else None
                 except Exception:
                     exact = None
-            sizes[t] = {"total_bytes": total, "data_bytes": data, "est_rows": est_rows, "exact_rows": exact}
+            sizes[t] = {
+                "total_bytes": total,
+                "data_bytes": data,
+                "est_rows": est_rows,
+                "exact_rows": exact,
+            }
         except Exception:
             sizes[t] = {"total_bytes": 0, "data_bytes": 0, "est_rows": 0, "exact_rows": None}
     # --- analysis (MNC checklist) ---
@@ -940,26 +980,73 @@ def admin_schema() -> dict:
     # 1. Missing FKs that logically should exist
     has_job_fk = any(fk["column_name"] == "job_id" for fk in fks_by_table.get("job_matches", []))
     if not has_job_fk:
-        issues.append({"level": "high", "table": "job_matches", "title": "Missing FK job_matches.job_id → jobs.id", "detail": "Orphan job_matches can survive job deletion (jobs ON DELETE CASCADE does not clean them). Add FK with ON DELETE CASCADE."})
-    has_nq_job_fk = any(fk["column_name"] == "job_id" for fk in fks_by_table.get("notification_queue", []))
+        issues.append(
+            {
+                "level": "high",
+                "table": "job_matches",
+                "title": "Missing FK job_matches.job_id → jobs.id",
+                "detail": "Orphan job_matches can survive job deletion (jobs ON DELETE CASCADE does not clean them). Add FK with ON DELETE CASCADE.",
+            }
+        )
+    has_nq_job_fk = any(
+        fk["column_name"] == "job_id" for fk in fks_by_table.get("notification_queue", [])
+    )
     if not has_nq_job_fk:
-        issues.append({"level": "high", "table": "notification_queue", "title": "Missing FK notification_queue.job_id → jobs.id", "detail": "Queue rows can orphan when jobs are pruned (retention). Add FK ON DELETE CASCADE like jobs_source_id_fkey."})
+        issues.append(
+            {
+                "level": "high",
+                "table": "notification_queue",
+                "title": "Missing FK notification_queue.job_id → jobs.id",
+                "detail": "Queue rows can orphan when jobs are pruned (retention). Add FK ON DELETE CASCADE like jobs_source_id_fkey.",
+            }
+        )
     # 2. FK delete rule inconsistency
     for tbl in ("preferences", "subscriptions", "coupon_codes"):
         for fk in fks_by_table.get(tbl, []):
             if fk["delete_rule"] == "NO ACTION":
-                issues.append({"level": "medium", "table": tbl, "title": f"FK {fk['constraint_name']} NO ACTION", "detail": f"{fk['column_name']} → {fk['foreign_table']}.{fk['foreign_column']} is NO ACTION; deleting a user leaves orphan {tbl}. Prefer ON DELETE CASCADE (or SET NULL where nullable like coupon_codes.claimed_by)."})
+                issues.append(
+                    {
+                        "level": "medium",
+                        "table": tbl,
+                        "title": f"FK {fk['constraint_name']} NO ACTION",
+                        "detail": f"{fk['column_name']} → {fk['foreign_table']}.{fk['foreign_column']} is NO ACTION; deleting a user leaves orphan {tbl}. Prefer ON DELETE CASCADE (or SET NULL where nullable like coupon_codes.claimed_by).",
+                    }
+                )
     # 3. Missing FK indexes (Postgres does not auto-index FK columns)
     # Check: job_matches.job_id already has index, notification_queue job_id has no index
     nq_indexes = [idx["indexdef"] for idx in idx_by_table.get("notification_queue", [])]
     if not any("job_id" in d for d in nq_indexes):
-        issues.append({"level": "medium", "table": "notification_queue", "title": "No index on notification_queue.job_id", "detail": "FK without index → slow deletes and JOINs on jobs prune. Add btree(job_id)."})
+        issues.append(
+            {
+                "level": "medium",
+                "table": "notification_queue",
+                "title": "No index on notification_queue.job_id",
+                "detail": "FK without index → slow deletes and JOINs on jobs prune. Add btree(job_id).",
+            }
+        )
     # 4. Naming / standard
     for t in table_names:
-        if any(c["column_name"].endswith("_at") and c["data_type"] != "timestamp with time zone" for c in cols_by_table[t]):
-            issues.append({"level": "low", "table": t, "title": "Timestamp without timestamptz", "detail": f"{t} has _at column not timestamptz — use timestamptz for UTC."})
+        if any(
+            c["column_name"].endswith("_at") and c["data_type"] != "timestamp with time zone"
+            for c in cols_by_table[t]
+        ):
+            issues.append(
+                {
+                    "level": "low",
+                    "table": t,
+                    "title": "Timestamp without timestamptz",
+                    "detail": f"{t} has _at column not timestamptz — use timestamptz for UTC.",
+                }
+            )
     # 5. Users email nullable + unique allows multiple NULLs — intentional for telegram-only accounts, but note
-    issues.append({"level": "info", "table": "users", "title": "users.email nullable + unique (intentional)", "detail": "Allows telegram-only accounts (email NULL). Postgres unique allows many NULLs — correct for this design, not a bug."})
+    issues.append(
+        {
+            "level": "info",
+            "table": "users",
+            "title": "users.email nullable + unique (intentional)",
+            "detail": "Allows telegram-only accounts (email NULL). Postgres unique allows many NULLs — correct for this design, not a bug.",
+        }
+    )
     # 6. Text vs varchar, no length checks
     for t in table_names:
         for c in cols_by_table[t]:
@@ -967,20 +1054,37 @@ def admin_schema() -> dict:
                 pass  # intentional, validated in app layer
     # 7. Row count vs size sanity
     # 8. Missing updated_at trigger (app sets updated_at manually in queries — okay but note)
-    issues.append({"level": "info", "table": "app_settings", "title": "No updated_at trigger", "detail": "updated_at is set by app code (query ... updated_at=now()), not a DB trigger — works but manual."})
+    issues.append(
+        {
+            "level": "info",
+            "table": "app_settings",
+            "title": "No updated_at trigger",
+            "detail": "updated_at is set by app code (query ... updated_at=now()), not a DB trigger — works but manual.",
+        }
+    )
     # Build payload
     payload_tables = []
     for t in table_names:
-        payload_tables.append({
-            "name": t,
-            "columns": cols_by_table[t],
-            "pks": sorted(list(pks_by_table[t])),
-            "fks": fks_by_table[t],
-            "uniques": uniques_by_table[t],
-            "indexes": idx_by_table[t],
-            "size": sizes[t],
-        })
-    return {"generated_at": datetime.now(UTC).isoformat(), "tables": payload_tables, "issues": issues, "counts": {"tables": len(table_names), "total_bytes": sum(s["total_bytes"] for s in sizes.values())}}
+        payload_tables.append(
+            {
+                "name": t,
+                "columns": cols_by_table[t],
+                "pks": sorted(pks_by_table[t]),
+                "fks": fks_by_table[t],
+                "uniques": uniques_by_table[t],
+                "indexes": idx_by_table[t],
+                "size": sizes[t],
+            }
+        )
+    return {
+        "generated_at": datetime.now(UTC).isoformat(),
+        "tables": payload_tables,
+        "issues": issues,
+        "counts": {
+            "tables": len(table_names),
+            "total_bytes": sum(s["total_bytes"] for s in sizes.values()),
+        },
+    }
 
 
 @router.get("/stats")

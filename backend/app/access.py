@@ -273,19 +273,26 @@ def _get_or_create_razorpay_plan(settings: Settings, client) -> str | None:
             pass
     # Create fresh monthly plan from DB plan
     try:
-        rows = query(settings, "select price_cents, currency, name from plans where code='standard' and is_active limit 1")
+        rows = query(
+            settings,
+            "select price_cents, currency, name from plans where code='standard' and is_active limit 1",
+        )
         plan = rows[0] if rows else {"price_cents": 900, "currency": "INR", "name": "Standard"}
         amount = int(plan["price_cents"])
         # Razorpay expects amount in paise for INR (₹9 = 900 paise). Our DB stores cents/paise already (900 = ₹9)
         # Ensure at least 100 paise (₹1) minimum
-        if amount < 100:
-            amount = 100
+        amount = max(amount, 100)
         currency = "INR"
         resp = client.plan.create(
             {
                 "period": "monthly",
                 "interval": 1,
-                "item": {"name": plan.get("name", "Standard"), "amount": amount, "currency": currency, "description": "JobQuest monthly autopay"},
+                "item": {
+                    "name": plan.get("name", "Standard"),
+                    "amount": amount,
+                    "currency": currency,
+                    "description": "JobQuest monthly autopay",
+                },
             }
         )
         return resp.get("id")
@@ -296,14 +303,23 @@ def _get_or_create_razorpay_plan(settings: Settings, client) -> str | None:
 
 def _create_razorpay_order(settings: Settings, client, user_id: str) -> dict[str, Any]:
     """Fallback one-time order when subscriptions not enabled (autopay disabled in dashboard)."""
-    rows = query(settings, "select price_cents, currency from plans where code='standard' and is_active limit 1")
+    rows = query(
+        settings,
+        "select price_cents, currency from plans where code='standard' and is_active limit 1",
+    )
     plan = rows[0] if rows else {"price_cents": 50000, "currency": "INR"}
     amount = int(plan["price_cents"])
-    if amount < 100:
-        amount = 100
+    amount = max(amount, 100)
     # Razorpay order amount is in paise
     try:
-        order = client.order.create({"amount": amount, "currency": "INR", "receipt": f"jq_{user_id[:8]}_{int(datetime.now(UTC).timestamp())}", "notes": {"user_id": user_id, "plan_code": PLAN_STANDARD}})
+        order = client.order.create(
+            {
+                "amount": amount,
+                "currency": "INR",
+                "receipt": f"jq_{user_id[:8]}_{int(datetime.now(UTC).timestamp())}",
+                "notes": {"user_id": user_id, "plan_code": PLAN_STANDARD},
+            }
+        )
         return {"order_id": order.get("id"), "amount": amount, "currency": "INR"}
     except Exception as exc:
         raise CouponError(f"Razorpay order failed: {exc}", status_code=500)
@@ -322,7 +338,9 @@ def create_razorpay_subscription(settings: Settings, user_id: str) -> dict[str, 
     name = rows[0].get("display_name") or email.split("@")[0]
     # create customer
     try:
-        customer = client.customer.create({"name": name, "email": email, "notes": {"user_id": user_id}})
+        customer = client.customer.create(
+            {"name": name, "email": email, "notes": {"user_id": user_id}}
+        )
         customer_id = customer.get("id")
     except Exception as exc:
         print(f"razorpay customer create failed: {exc}")
@@ -393,32 +411,39 @@ def verify_razorpay_signature(settings: Settings, payload: dict[str, Any]) -> bo
     except Exception:
         # fallback manual HMAC
         try:
-            import hmac, hashlib
+            import hashlib
+            import hmac
 
             if payload.get("razorpay_order_id"):
                 msg = f"{payload.get('razorpay_order_id')}|{payload.get('razorpay_payment_id')}"
             else:
                 msg = f"{payload.get('razorpay_subscription_id')}|{payload.get('razorpay_payment_id')}"
                 msg2 = f"{payload.get('razorpay_payment_id')}|{payload.get('razorpay_subscription_id')}"
-                expected2 = hmac.new(settings.razorpay_key_secret.encode(), msg2.encode(), hashlib.sha256).hexdigest()
+                expected2 = hmac.new(
+                    settings.razorpay_key_secret.encode(), msg2.encode(), hashlib.sha256
+                ).hexdigest()
                 if hmac.compare_digest(expected2, payload.get("razorpay_signature") or ""):
                     return True
-            expected = hmac.new(settings.razorpay_key_secret.encode(), msg.encode(), hashlib.sha256).hexdigest()
+            expected = hmac.new(
+                settings.razorpay_key_secret.encode(), msg.encode(), hashlib.sha256
+            ).hexdigest()
             return hmac.compare_digest(expected, payload.get("razorpay_signature") or "")
         except Exception:
             return False
 
 
-def handle_razorpay_webhook(settings: Settings, supabase: Client, raw_body: bytes, signature: str | None) -> dict[str, Any]:
+def handle_razorpay_webhook(
+    settings: Settings, supabase: Client, raw_body: bytes, signature: str | None
+) -> dict[str, Any]:
     """Verify webhook signature, persist billing_event, and provision/cancel subscription."""
     # verify if secret is set
     if settings.razorpay_webhook_secret and signature:
         try:
-            import razorpay
-
             client = _razorpay_client(settings)
             if client:
-                client.utility.verify_webhook_signature(raw_body.decode(), signature, settings.razorpay_webhook_secret)
+                client.utility.verify_webhook_signature(
+                    raw_body.decode(), signature, settings.razorpay_webhook_secret
+                )
         except Exception as exc:
             raise CouponError(f"webhook signature invalid: {exc}", status_code=400)
     try:
@@ -427,14 +452,27 @@ def handle_razorpay_webhook(settings: Settings, supabase: Client, raw_body: byte
         event = json.loads(raw_body.decode())
     except Exception:
         raise CouponError("invalid webhook payload", status_code=400)
-    provider_event_id = str(event.get("event") or "") + ":" + str(event.get("payload", {}).get("payment", {}).get("entity", {}).get("id") or event.get("payload", {}).get("subscription", {}).get("entity", {}).get("id") or "")
+    provider_event_id = (
+        str(event.get("event") or "")
+        + ":"
+        + str(
+            event.get("payload", {}).get("payment", {}).get("entity", {}).get("id")
+            or event.get("payload", {}).get("subscription", {}).get("entity", {}).get("id")
+            or ""
+        )
+    )
     event_type = str(event.get("event") or "unknown")
     # persist raw event idempotently
     try:
         query(
             settings,
             "insert into billing_events (provider, provider_event_id, event_type, payload, status) values (%s,%s,%s,%s::jsonb,'received') on conflict (provider, provider_event_id) do nothing",
-            ("razorpay", provider_event_id or f"evt_{datetime.now(UTC).isoformat()}", event_type, json.dumps(event)),
+            (
+                "razorpay",
+                provider_event_id or f"evt_{datetime.now(UTC).isoformat()}",
+                event_type,
+                json.dumps(event),
+            ),
         )
     except Exception:
         pass
@@ -453,9 +491,20 @@ def handle_razorpay_webhook(settings: Settings, supabase: Client, raw_body: byte
         period_end = (datetime.now(UTC) + timedelta(days=30)).isoformat()
         # subscription.charged is autopay success
         sub_id = sub_entity.get("id") or pay_entity.get("subscription_id") or pay_entity.get("id")
-        provision_subscription(settings, user_id=user_id, plan_code=PLAN_STANDARD, provider="razorpay", period_end=period_end, provider_subscription_id=str(sub_id) if sub_id else None)
+        provision_subscription(
+            settings,
+            user_id=user_id,
+            plan_code=PLAN_STANDARD,
+            provider="razorpay",
+            period_end=period_end,
+            provider_subscription_id=str(sub_id) if sub_id else None,
+        )
         try:
-            query(settings, "update users set access_locked=false, updated_at=now() where id=%s::uuid", (user_id,))
+            query(
+                settings,
+                "update users set access_locked=false, updated_at=now() where id=%s::uuid",
+                (user_id,),
+            )
             from app.users import seed_preferences
 
             seed_preferences(supabase, user_id, load_settings_prefs())
@@ -465,7 +514,11 @@ def handle_razorpay_webhook(settings: Settings, supabase: Client, raw_body: byte
     if event_type in ("subscription.cancelled", "subscription.completed") and user_id:
         # Mark cancel_at_period_end — keep access until period_end, then sweep will revoke
         try:
-            query(settings, "update subscriptions set cancel_at_period_end=true, updated_at=now() where user_id=%s::uuid and status='active' and provider='razorpay'", (user_id,))
+            query(
+                settings,
+                "update subscriptions set cancel_at_period_end=true, updated_at=now() where user_id=%s::uuid and status='active' and provider='razorpay'",
+                (user_id,),
+            )
         except Exception:
             pass
         return {"ok": True, "event": event_type, "user_id": user_id}
@@ -491,9 +544,12 @@ def start_checkout(settings: Settings, user_id: str) -> dict[str, Any]:
         client = _razorpay_client(settings)
         if client is None:
             try:
-                rows = query(settings, "select price_cents, currency from plans where code='standard' and is_active limit 1")
+                rows = query(
+                    settings,
+                    "select price_cents, currency from plans where code='standard' and is_active limit 1",
+                )
                 price = rows[0] if rows else {"price_cents": 900, "currency": "INR"}
-                amt = f"{price['currency']} {(price['price_cents']/100):.2f}"
+                amt = f"{price['currency']} {(price['price_cents'] / 100):.2f}"
             except Exception:
                 amt = "plan price"
             return {
@@ -504,12 +560,17 @@ def start_checkout(settings: Settings, user_id: str) -> dict[str, Any]:
                     "If Razorpay keys are not configured, contact admin for manual unlock."
                 ),
                 "order_id": None,
-                "amount": price.get("price_cents") if 'price' in locals() and isinstance(price, dict) else 900,
+                "amount": price.get("price_cents")
+                if "price" in locals() and isinstance(price, dict)
+                else 900,
             }
         # create subscription for autopay
         try:
             sub = create_razorpay_subscription(settings, user_id)
-            rows = query(settings, "select price_cents, currency from plans where code='standard' and is_active limit 1")
+            rows = query(
+                settings,
+                "select price_cents, currency from plans where code='standard' and is_active limit 1",
+            )
             price = rows[0] if rows else {"price_cents": 900, "currency": "INR"}
             return {
                 "provider": "razorpay",
