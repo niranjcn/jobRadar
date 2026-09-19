@@ -1,6 +1,6 @@
 """REST API for the frontend dashboard.
 
-Identity is resolved per request (session cookie). With JOBRADAR_REQUIRE_AUTH
+Identity is resolved per request (session cookie). With JOBQUEST_REQUIRE_AUTH
 off — the default — anonymous requests act as the owner account, preserving
 the original single-user behavior exactly.
 """
@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from app.adapters import adapter_for
 from app.api.detect import detect_source
-from app.auth import UserCtx, get_current_admin, require_product_access
+from app.auth import UserCtx, get_current_admin, get_current_user, require_product_access
 from app.config import load_settings
 from app.db import get_supabase, query
 from app.geo import load_geo_index, map_location
@@ -118,7 +118,7 @@ def _company_names(supabase) -> dict[str, str]:
 
 
 @router.get("/stats")
-def stats(user: Annotated[UserCtx, Depends(require_product_access)]) -> dict:
+def stats(user: Annotated[UserCtx, Depends(get_current_user)]) -> dict:
     settings = _settings()
     since = (datetime.now(UTC) - timedelta(days=7)).isoformat()
 
@@ -126,11 +126,13 @@ def stats(user: Annotated[UserCtx, Depends(require_product_access)]) -> dict:
         settings,
         """
         select
-          (select count(*)::int from jobs) as jobs_total,
-          (select count(*)::int from jobs where first_seen_at >= %s) as jobs_7d,
+          (select count(*)::int from jobs where is_active) as jobs_total,
+          (select count(*)::int from jobs where is_active and first_seen_at >= %s) as jobs_7d,
           (select count(*)::int from sources where active) as companies,
-          (select count(*)::int from job_matches where user_id = %s) as matches,
-          (select coalesce(round(avg(match_score))::int, 0) from job_matches where user_id = %s) as avg_score
+          (select count(*)::int from job_matches m join jobs j on j.id = m.job_id
+            where m.user_id = %s and j.is_active) as matches,
+          (select coalesce(round(avg(m.match_score))::int, 0) from job_matches m
+            join jobs j on j.id = m.job_id where m.user_id = %s and j.is_active) as avg_score
         """,
         (since, user.id, user.id),
     )[0]
@@ -145,6 +147,35 @@ def stats(user: Annotated[UserCtx, Depends(require_product_access)]) -> dict:
     }
 
 
+@router.get("/stats/daily")
+def stats_daily(user: Annotated[UserCtx, Depends(get_current_user)], days: int = 14) -> dict:
+    """Per-day job + match counts for the dashboard trend chart (zero-filled)."""
+    settings = _settings()
+    days = max(2, min(days, 60))
+    rows = query(
+        settings,
+        """
+        select to_char(day, 'YYYY-MM-DD') as day,
+               (select count(*)::int from jobs
+                 where date_trunc('day', first_seen_at) = day) as jobs,
+               (select count(*)::int from job_matches
+                 where user_id = %s and date_trunc('day', created_at) = day) as matches,
+               (select coalesce(round(avg(match_score))::int, 0) from job_matches
+                 where user_id = %s and date_trunc('day', created_at) = day) as avg_score
+        from generate_series(
+            date_trunc('day', now()) - (%s || ' days')::interval,
+            date_trunc('day', now()), '1 day') as day
+        order by 1
+        """,
+        (user.id, user.id, days - 1),
+    )
+    series = [
+        {"date": r["day"], "jobs": r["jobs"], "matches": r["matches"], "avg_score": r["avg_score"]}
+        for r in rows
+    ]
+    return {"days": series, "total_jobs": sum(r["jobs"] for r in series)}
+
+
 @router.get("/matches/summary")
 def matches_summary(user: Annotated[UserCtx, Depends(require_product_access)]) -> dict:
     """Match counts per company for the matches page."""
@@ -156,7 +187,7 @@ def matches_summary(user: Annotated[UserCtx, Depends(require_product_access)]) -
         from job_matches m
         join jobs j on j.id = m.job_id
         join sources s on s.id = j.source_id
-        where m.user_id = %s
+        where m.user_id = %s and j.is_active
         group by s.company_name, s.domain
         order by matches desc, s.company_name
         """,
@@ -182,7 +213,8 @@ def matches_jobs(
     every matched role for that company (not just the latest N jobs).
     """
     settings = _settings()
-    where = "m.user_id = %s"
+    # Catalog shows open postings only; history (notifications) keeps dead rows.
+    where = "m.user_id = %s and j.is_active"
     params: list[Any] = [user.id]
     if company:
         where += " and s.company_name = %s"
@@ -253,15 +285,15 @@ def job_filters() -> dict:
         for row in query(
             settings,
             "select distinct s.company_name from sources s join jobs j on j.source_id = s.id "
-            "order by s.company_name",
+            "where j.is_active order by s.company_name",
         )
     ]
     countries = [
         row["country"]
         for row in query(
             settings,
-            "select distinct unnest(countries) as country from jobs where countries is not null "
-            "order by 1",
+            "select distinct unnest(countries) as country from jobs "
+            "where is_active and countries is not null order by 1",
         )
     ]
     ats_types = [
@@ -269,7 +301,7 @@ def job_filters() -> dict:
         for row in query(
             settings,
             "select distinct s.ats_type from sources s join jobs j on j.source_id = s.id "
-            "order by s.ats_type",
+            "where j.is_active order by s.ats_type",
         )
     ]
     return {"companies": companies, "countries": countries, "ats_types": ats_types}
@@ -277,7 +309,7 @@ def job_filters() -> dict:
 
 @router.get("/jobs")
 def list_jobs(
-    user: Annotated[UserCtx, Depends(require_product_access)],
+    user: Annotated[UserCtx, Depends(get_current_user)],
     q: str = "",
     ats: str = "",
     company: str = "",
@@ -296,7 +328,8 @@ def list_jobs(
                j.first_seen_at, j.countries, j.is_remote,
                s.company_name, s.ats_type, s.domain
         from jobs j join sources s on s.id = j.source_id
-        where (%s = '' or s.company_name ilike '%%' || %s || '%%')
+        where j.is_active
+          and (%s = '' or s.company_name ilike '%%' || %s || '%%')
           and (%s = '' or s.ats_type = %s)
           and (%s = '' or lower(j.title) ilike lower('%%' || %s || '%%'))
           and (%s = '' or %s = any(j.countries))
@@ -347,7 +380,8 @@ def list_jobs(
 
     total_sql = (
         "select count(*)::int as c from jobs j join sources s on s.id = j.source_id "
-        "where (%s = '' or s.company_name ilike '%%' || %s || '%%') and (%s = '' or s.ats_type = %s) "
+        "where j.is_active "
+        "and (%s = '' or s.company_name ilike '%%' || %s || '%%') and (%s = '' or s.ats_type = %s) "
         "and (%s = '' or lower(j.title) ilike lower('%%' || %s || '%%')) "
         "and (%s = '' or %s = any(j.countries))"
         + (" and j.first_seen_at >= %s::timestamptz" if since else "")
@@ -362,13 +396,13 @@ def list_jobs(
 
 
 @router.get("/jobs/{job_id}")
-def get_job(job_id: str, user: Annotated[UserCtx, Depends(require_product_access)]) -> dict:
+def get_job(job_id: str, user: Annotated[UserCtx, Depends(get_current_user)]) -> dict:
     settings = _settings()
     rows = query(
         settings,
         """
         select j.id, j.source_id, j.external_job_id, j.title, j.location, j.url,
-               j.description, j.first_seen_at, j.countries, j.is_remote,
+               j.description, j.first_seen_at, j.countries, j.is_remote, j.is_active,
                s.company_name, s.ats_type, s.domain
         from jobs j join sources s on s.id = j.source_id
         where j.id = %s::uuid
@@ -398,6 +432,7 @@ def get_job(job_id: str, user: Annotated[UserCtx, Depends(require_product_access
         "domain": row.get("domain"),
         "countries": row["countries"] or [],
         "is_remote": row["is_remote"] or False,
+        "is_active": row["is_active"],
         "match_score": match["match_score"] if match else None,
         "matched_on": match["matched_on"] if match else [],
     }
@@ -413,7 +448,7 @@ def companies() -> dict:
         settings,
         """
         select s.id, s.company_name, s.ats_type, s.domain, s.last_checked_at, s.active,
-               count(j.id)::int as job_count
+               count(j.id) filter (where j.is_active)::int as job_count
         from sources s left join jobs j on j.source_id = s.id
         group by s.id
         order by s.company_name
@@ -433,7 +468,8 @@ def sources(admin: Annotated[UserCtx, Depends(get_current_admin)]) -> dict:
         settings,
         """
         select s.id, s.company_name, s.ats_type, s.domain, s.board_identifier, s.last_checked_at,
-               s.last_error, s.active, s.quiet_runs, count(j.id)::int as job_count
+               s.last_error, s.active, s.quiet_runs,
+               count(j.id) filter (where j.is_active)::int as job_count
         from sources s left join jobs j on j.source_id = s.id
         group by s.id
         order by s.company_name
@@ -815,7 +851,7 @@ def delete_schedule(ats_type: str, admin: Annotated[UserCtx, Depends(get_current
 
 
 @router.get("/preferences")
-def get_preferences(user: Annotated[UserCtx, Depends(require_product_access)]) -> dict:
+def get_preferences(user: Annotated[UserCtx, Depends(get_current_user)]) -> dict:
     settings = _settings()
     rows = query(
         settings,
@@ -866,7 +902,7 @@ def get_preferences(user: Annotated[UserCtx, Depends(require_product_access)]) -
 
 @router.put("/preferences")
 def put_preferences(
-    payload: PreferencesUpdate, user: Annotated[UserCtx, Depends(require_product_access)]
+    payload: PreferencesUpdate, user: Annotated[UserCtx, Depends(get_current_user)]
 ) -> dict:
     settings = _settings()
     supabase = _supabase()
