@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { CountryBadges, MatchBadge } from "@/components/job-card";
 import { CompanyLogo } from "@/components/company-logo";
@@ -40,11 +40,40 @@ function referralMessage(job: Job): string {
 
 export default function JobDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const from = searchParams.get("from");
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [referral, setReferral] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  function handleBack() {
+    if (from && from.startsWith("/") && !from.startsWith("//")) {
+      router.push(from);
+      return;
+    }
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
+      return;
+    }
+    router.push("/jobs");
+  }
+
+  function backLabel(): string {
+    if (!from) return "← Back";
+    if (from.startsWith("/new-matches")) return "← Back to New Matches";
+    if (from.startsWith("/matches")) return "← Back to Matches";
+    if (from.startsWith("/new-jobs")) return "← Back to New Jobs";
+    if (from.startsWith("/jobs")) return "← Back to Jobs";
+    return "← Back";
+  }
+
+  function backHref(): string {
+    if (from && from.startsWith("/") && !from.startsWith("//")) return from;
+    return "/jobs";
+  }
 
   useEffect(() => {
     api
@@ -77,9 +106,19 @@ export default function JobDetailPage() {
 
   return (
     <div className="mx-auto max-w-3xl p-8">
-      <Link href="/jobs" className="text-sm text-text-secondary hover:text-text">
-        ← Back to Jobs
-      </Link>
+      {from ? (
+        <Link href={backHref()} className="text-sm text-text-secondary hover:text-text">
+          {backLabel()}
+        </Link>
+      ) : (
+        <button
+          type="button"
+          onClick={handleBack}
+          className="text-sm text-text-secondary hover:text-text"
+        >
+          {backLabel()}
+        </button>
+      )}
 
       <div className="mt-6 flex items-start justify-between gap-6">
         <div className="flex items-center gap-4">
