@@ -1155,10 +1155,15 @@ def db_observability() -> dict:
     except Exception as exc:
         print(f"db-observability: country sanity failed: {exc}")
     # Highlight unused indexes (>5 MB and idx_scan=0)
-    unused = [ix for ix in indexes if int(ix.get("idx_scan") or 0) == 0 and int(ix.get("bytes") or 0) > 5 * 1024 * 1024]
+    unused = [
+        ix
+        for ix in indexes
+        if int(ix.get("idx_scan") or 0) == 0 and int(ix.get("bytes") or 0) > 5 * 1024 * 1024
+    ]
     # Highlight bloat candidates (dead >15% of live or >5k dead)
     bloat = [
-        t for t in tables
+        t
+        for t in tables
         if int(t.get("n_dead_tup") or 0) > max(5000, int(t.get("n_live_tup") or 0) * 0.15)
     ]
     return {

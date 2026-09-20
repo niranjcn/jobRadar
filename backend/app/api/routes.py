@@ -616,7 +616,9 @@ async def run_source(source_id: str, admin: Annotated[UserCtx, Depends(get_curre
     supabase = _supabase()
     response = (
         supabase.table("sources")
-        .select("id, company_name, ats_type, board_identifier, active, last_checked_at, last_error, quiet_runs")
+        .select(
+            "id, company_name, ats_type, board_identifier, active, last_checked_at, last_error, quiet_runs"
+        )
         .eq("id", source_id)
         .execute()
     )

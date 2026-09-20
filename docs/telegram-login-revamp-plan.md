@@ -194,7 +194,7 @@ Offer **both first-class Telegram methods** under one hero section, then email a
 
 - Add `verify_telegram_widget(bot_token, data_dict)` — implement Telegram Login Widget HMAC verification:
   ```py
-  check_string = "\n".join(f"{k}={v}" for k,v in sorted(data.items()) if k != "hash")
+  check_string = "\n".join(f"{k}={v}" for k, v in sorted(data.items()) if k != "hash")
   secret = hashlib.sha256(bot_token.encode()).digest()
   expected = hmac.new(secret, check_string.encode(), hashlib.sha256).hexdigest()
   ```
@@ -230,7 +230,10 @@ Offer **both first-class Telegram methods** under one hero section, then email a
   - If plain `/start` → if user not in DB → auto-create (like widget) OR reply "Welcome — account created, open app to finish setup" depending on phase. Otherwise existing welcome + menu.
 - Fix `authorized(chat_id, settings)` — replace single-id check with DB membership check:
   ```py
-  def is_registered(chat_id): return query(..., "select 1 from users where telegram_chat_id=%s or telegram_user_id=%s", ...)
+  def is_registered(chat_id):
+      return query(
+          ..., "select 1 from users where telegram_chat_id=%s or telegram_user_id=%s", ...
+      )
   ```
   plus `status != 'disabled'` gate. Keep owner (`settings.telegram_chat_id`) as super-admin bypass for backwards compat when DB empty.
 - Dispatch must route queries by `user_id` (telegram caller) not just `DEFAULT_USER_ID`; reading/writing job_matches etc. becomes per-user where relevant (already handled via user_id param in many queries, but verify).

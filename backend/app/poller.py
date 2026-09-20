@@ -21,12 +21,14 @@ SOURCE_CONCURRENCY = 8  # fallback when ats_type not in ATS_CONCURRENCY
 MAX_POSTING_AGE_DAYS = 90
 SOURCES_FILE = Path(__file__).resolve().parent.parent / "sources.json"
 
+
 # Advisory lock key for poll runs: per-ATS and global, to prevent concurrent
 # scheduler instances from running the same ATS simultaneously. Held on a
 # dedicated connection for the duration of the poll, auto-released on
 # disconnect (so crashes self-heal, unlike poll_runs status).
 def _poll_lock_key(ats_type: str | None) -> str:
     return f"poll-{ats_type or 'global'}"
+
 
 # Backoff for recently 404'd boards — skip re-poll for 12h to save egress and avoid hammering dead boards.
 NOT_FOUND_BACKOFF_SECONDS = 12 * 3600
@@ -103,7 +105,9 @@ def fetch_sources(supabase: Client) -> list[dict[str, Any]]:
     # 60: explicit columns (not SELECT *) — small table but hot polled path
     response = (
         supabase.table("sources")
-        .select("id, company_name, ats_type, board_identifier, active, last_checked_at, last_error, quiet_runs")
+        .select(
+            "id, company_name, ats_type, board_identifier, active, last_checked_at, last_error, quiet_runs"
+        )
         .eq("active", True)
         .execute()
     )
@@ -575,50 +579,66 @@ async def poll_source(
     if has_pool:
         try:
             with get_pool(settings).connection() as conn, conn.transaction(), conn.cursor() as cur:
-                    reactivated_rows = cur.execute(
+                reactivated_rows = (
+                    cur.execute(
                         "update jobs set is_active = true, last_seen_at = now(), last_updated_at = now() "
                         "where source_id = %s::uuid and external_job_id = any(%s) and is_active = false "
                         "returning external_job_id",
                         (source["id"], seen_ids),
-                    ).fetchall() if seen_ids else []
-                    if seen_ids:
-                        cur.execute(
-                            "update jobs set last_seen_at = now() "
-                            "where source_id = %s::uuid and external_job_id = any(%s) "
-                            "and last_seen_at < now() - (%s || ' hours')::interval",
-                            (source["id"], seen_ids, TOUCH_STALE_HOURS),
-                        )
-                    swept_rows = cur.execute(
-                        "update jobs set is_active = false "
-                        "where source_id = %s::uuid and is_active "
-                        "and last_seen_at < now() - (%s || ' hours')::interval "
-                        "returning external_job_id",
-                        (source["id"], LIFECYCLE_GRACE_HOURS),
                     ).fetchall()
-                    reactivated = [r[0] for r in reactivated_rows]
-                    swept = [r[0] for r in swept_rows]
-                    if swept:
-                        print(f"{source['company_name']}: {len(swept)} posting(s) no longer listed (deactivated)")
-                    new_ids = outcome["new_ids"] + reactivated
-                    duration_ms = int((asyncio.get_event_loop().time() - t0) * 1000)
+                    if seen_ids
+                    else []
+                )
+                if seen_ids:
                     cur.execute(
-                        "update sources set last_checked_at = now(), last_error = null, last_error_code = null, last_error_type = null, quiet_runs = %s,"
-                        " last_success_at = now(), consecutive_failures = 0,"
-                        " consecutive_empty_runs = case when %s = 0 then consecutive_empty_runs + 1 else 0 end,"
-                        " last_http_status = 200, last_duration_ms = %s,"
-                        " jobs_last_seen = case when %s > 0 then now() else jobs_last_seen end"
-                        " where id = %s::uuid",
-                        (next_quiet_runs(source, first_check, len(new_ids)), len(jobs), duration_ms, len(new_ids), source["id"]),
+                        "update jobs set last_seen_at = now() "
+                        "where source_id = %s::uuid and external_job_id = any(%s) "
+                        "and last_seen_at < now() - (%s || ' hours')::interval",
+                        (source["id"], seen_ids, TOUCH_STALE_HOURS),
                     )
+                swept_rows = cur.execute(
+                    "update jobs set is_active = false "
+                    "where source_id = %s::uuid and is_active "
+                    "and last_seen_at < now() - (%s || ' hours')::interval "
+                    "returning external_job_id",
+                    (source["id"], LIFECYCLE_GRACE_HOURS),
+                ).fetchall()
+                reactivated = [r[0] for r in reactivated_rows]
+                swept = [r[0] for r in swept_rows]
+                if swept:
+                    print(
+                        f"{source['company_name']}: {len(swept)} posting(s) no longer listed (deactivated)"
+                    )
+                new_ids = outcome["new_ids"] + reactivated
+                duration_ms = int((asyncio.get_event_loop().time() - t0) * 1000)
+                cur.execute(
+                    "update sources set last_checked_at = now(), last_error = null, last_error_code = null, last_error_type = null, quiet_runs = %s,"
+                    " last_success_at = now(), consecutive_failures = 0,"
+                    " consecutive_empty_runs = case when %s = 0 then consecutive_empty_runs + 1 else 0 end,"
+                    " last_http_status = 200, last_duration_ms = %s,"
+                    " jobs_last_seen = case when %s > 0 then now() else jobs_last_seen end"
+                    " where id = %s::uuid",
+                    (
+                        next_quiet_runs(source, first_check, len(new_ids)),
+                        len(jobs),
+                        duration_ms,
+                        len(new_ids),
+                        source["id"],
+                    ),
+                )
         except Exception as exc:
-            raise RuntimeError(f"DB transaction failed for {source['company_name']}: {exc}") from exc
+            raise RuntimeError(
+                f"DB transaction failed for {source['company_name']}: {exc}"
+            ) from exc
     else:
         # Test / stubbed settings: use the query-based helpers (monkeypatched in tests)
         reactivated = reactivate_jobs(settings, source["id"], seen_ids)
         touch_seen_jobs(settings, source["id"], seen_ids)
         swept = sweep_missing_jobs(settings, source["id"])
         if swept:
-            print(f"{source['company_name']}: {len(swept)} posting(s) no longer listed (deactivated)")
+            print(
+                f"{source['company_name']}: {len(swept)} posting(s) no longer listed (deactivated)"
+            )
         new_ids = outcome["new_ids"] + reactivated
         duration_ms = int((asyncio.get_event_loop().time() - t0) * 1000)
         mark_checked(

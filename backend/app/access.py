@@ -137,7 +137,9 @@ def redeem_coupon(settings: Settings, supabase: Client, user_id: str, code: str)
     grants_role = grant["grants_role"]
     period_end: str | None = None
     if grant["grant_duration_days"]:
-        period_end = (datetime.now(UTC) + timedelta(days=int(grant["grant_duration_days"]))).isoformat()
+        period_end = (
+            datetime.now(UTC) + timedelta(days=int(grant["grant_duration_days"]))
+        ).isoformat()
 
     query(
         settings,
@@ -277,7 +279,9 @@ def _get_or_create_razorpay_plan(settings: Settings, client) -> str | None:
             settings,
             "select price_minor_units, currency, name from plans where code='standard' and is_active limit 1",
         )
-        plan = rows[0] if rows else {"price_minor_units": 900, "currency": "INR", "name": "Standard"}
+        plan = (
+            rows[0] if rows else {"price_minor_units": 900, "currency": "INR", "name": "Standard"}
+        )
         amount = int(plan["price_minor_units"])
         # Razorpay expects amount in paise for INR (₹9 = 900 paise). Our DB stores cents/paise already (900 = ₹9)
         # Ensure at least 100 paise (₹1) minimum

@@ -213,8 +213,7 @@ Example conceptual interface:
 
 ```python
 class JobSourceAdapter:
-    async def fetch_jobs(self) -> list[RawJob]:
-        ...
+    async def fetch_jobs(self) -> list[RawJob]: ...
 ```
 
 Adapters are responsible only for:
