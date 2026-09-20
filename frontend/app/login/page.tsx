@@ -61,7 +61,7 @@ export default function LoginPage() {
   return (
     <div className={styles.ink}>
       <div className={`${styles.shell} items-center justify-center`}>
-      <div className="w-full max-w-sm">
+      <div className="w-full max-w-[400px]">
         <div className="mb-8 flex flex-col items-center gap-3">
           <RadarMark />
           <span className="font-display text-lg font-bold tracking-[0.14em]">JOBQUEST</span>
