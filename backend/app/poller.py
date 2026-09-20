@@ -347,7 +347,15 @@ def prune_old_jobs(supabase: Client, retention_days: int) -> int:
             f"retention: deleted {dead} inactive job(s) unseen for {INACTIVE_RETENTION_DAYS} day(s)"
         )
     cutoff = datetime.now(UTC) - timedelta(days=retention_days)
-    response = supabase.table("jobs").delete().lt("first_seen_at", cutoff.isoformat()).execute()
+    # Age AND abandonment: an old-but-still-seen posting stays (Job-A rule).
+    # first_seen_at alone must never delete a live job.
+    response = (
+        supabase.table("jobs")
+        .delete()
+        .lt("first_seen_at", cutoff.isoformat())
+        .lt("last_seen_at", cutoff.isoformat())
+        .execute()
+    )
     deleted = len(response.data or [])
     if deleted:
         print(f"retention: deleted {deleted} job(s) older than {retention_days} day(s)")

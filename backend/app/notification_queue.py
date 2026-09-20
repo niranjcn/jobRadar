@@ -19,7 +19,12 @@ from app.entitlements import (
     delivery_delay_minutes,
     is_deliverable,
 )
-from app.matcher import compute_match_score, job_matches_preferences
+from app.matcher import (
+    evaluate_normalized_jobs,
+    lowered_term_lists,
+    normalize_job_for_matching,
+    preference_signature,
+)
 from app.notify import _send_email
 from app.telegram.messages import build_html, build_text_sections, build_text_summary
 from app.telegram.notifications import MAX_MESSAGE_LENGTH, _chunk_sections, _send_message
@@ -142,23 +147,26 @@ def evaluate_jobs_for_user(
 ) -> tuple[list[dict[str, Any]], set[str]]:
     """Match one user against fetched job rows. Pure given inputs.
 
-    Returns (job_matches upsert rows, matched job-id set).
+    Returns (job_matches upsert rows, matched job-id set). Single-user entry
+    point kept for compatibility; the hot path groups users first (see
+    match_and_enqueue) and shares one evaluation per preference signature.
     """
-    match_rows: list[dict[str, Any]] = []
-    matched_ids: set[str] = set()
-    for job in jobs:
-        is_match, reasons = job_matches_preferences(job, user.prefs, geo_settings)
-        if not is_match:
-            continue
-        matched_ids.add(job["id"])
-        match_rows.append(
-            {
-                "user_id": user.id,
-                "job_id": job["id"],
-                "matched_on": reasons,
-                "match_score": compute_match_score(job, user.prefs, geo_settings),
-            }
-        )
+    lowered = lowered_term_lists(user.prefs)
+    templates, matched_ids = evaluate_normalized_jobs(
+        [normalize_job_for_matching(job) for job in jobs],
+        user.prefs,
+        lowered,
+        geo_settings,
+    )
+    match_rows = [
+        {
+            "user_id": user.id,
+            "job_id": template["job_id"],
+            "matched_on": template["matched_on"],
+            "match_score": template["match_score"],
+        }
+        for template in templates
+    ]
     return match_rows, matched_ids
 
 
@@ -167,7 +175,7 @@ def build_queue_rows(
     now: datetime,
     candidate_job_ids: list[str],
     user: AudienceUser,
-    matched_ids: set[str],
+    matched_ids: set[str] | frozenset[str],
     channels: list[str],
 ) -> list[dict[str, Any]]:
     """Rows to enqueue for one user. Scope flags decide matched-only vs all."""
@@ -251,12 +259,35 @@ def match_and_enqueue(
     considered = len(jobs)
 
     all_match_rows: list[dict[str, Any]] = []
-    matched_by_user: dict[str, set[str]] = {}
+    matched_by_user: dict[str, frozenset] = {}
     candidate_ids = [job["id"] for job in jobs]
+    # Group byte-identical preference sets: one evaluation fans out to the whole
+    # group, so cost is O(jobs x distinct_profiles) instead of O(jobs x users).
+    # Shared sets/lists are read-only downstream (queue builder only iterates).
+    norm_jobs = [normalize_job_for_matching(job) for job in jobs]
+    groups: dict[tuple, list[AudienceUser]] = {}
     for user in deliverable:
-        match_rows, matched_ids = evaluate_jobs_for_user(jobs, user, geo_settings)
-        matched_by_user[user.id] = matched_ids
-        all_match_rows.extend(match_rows)
+        groups.setdefault(preference_signature(user.prefs), []).append(user)
+    for members in groups.values():
+        representative = members[0]
+        templates, matched = evaluate_normalized_jobs(
+            norm_jobs,
+            representative.prefs,
+            lowered_term_lists(representative.prefs),
+            geo_settings,
+        )
+        frozen = frozenset(matched)
+        for user in members:
+            matched_by_user[user.id] = frozen
+            for template in templates:
+                all_match_rows.append(
+                    {
+                        "user_id": user.id,
+                        "job_id": template["job_id"],
+                        "matched_on": template["matched_on"],
+                        "match_score": template["match_score"],
+                    }
+                )
 
     if all_match_rows:
         matched_new = len(all_match_rows)
@@ -395,7 +426,11 @@ def drain_due_notifications(
             failed += _record_failure(settings, supabase, rows, exc)
             continue
         _mark_rows(supabase, [r["id"] for r in rows], status="sent")
-        _record_ledger(supabase, rows)
+        # Ledger only what was actually communicated: a job pruned between
+        # enqueue and drain loads no item, and the 042 FK forbids ledger rows
+        # for nonexistent jobs. Queue rows are still marked sent (processed).
+        communicated = {item["id"] for item in items}
+        _record_ledger(supabase, [r for r in rows if r["job_id"] in communicated])
 
     return {
         "sent_telegram": sent["telegram"],

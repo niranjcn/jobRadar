@@ -19,66 +19,169 @@ def fetch_sources(supabase: Client) -> list[dict[str, Any]]:
     return response.data
 
 
-def _needles(match_in: str, needles: list[str]) -> list[str]:
-    lowered = match_in.lower()
-    return [n for n in needles if n.lower() in lowered]
+_MATCH_KEYS = (
+    "roles",
+    "keywords",
+    "locations",
+    "seniority",
+    "excluded_companies",
+    "excluded_roles",
+)
 
 
-def job_matches_preferences(
-    job: dict[str, Any], preferences: dict[str, Any], geo_settings: dict[str, Any] | None = None
-) -> tuple[bool, list[str]]:
-    title = (job.get("title") or "").lower()
-    description = (job.get("description") or "").lower()
-    location = (job.get("location") or "").lower()
+def preference_signature(preferences: dict[str, Any]) -> tuple:
+    """Hashable evaluation-identity for a preference set.
+
+    Exact raw lists (order- and duplicate-sensitive): matched_on reasons embed
+    the user's own strings in list order, so only byte-identical preference
+    lists may share one evaluation. None and [] are equivalent (every access
+    goes through `or []`).
+    """
+    return tuple(tuple(preferences.get(key) or []) for key in _MATCH_KEYS)
+
+
+def normalize_job_for_matching(job: dict[str, Any]) -> dict[str, Any]:
+    """Job-side one-time view for matching.
+
+    Lowercased text plus resolved countries, computed once per job per run
+    instead of once per (job, user). Pure derivation — the same values the
+    per-pair path recomputed every time.
+    """
+    title = job.get("title") or ""
+    description = job.get("description") or ""
+    title_l = title.lower()
     company = job.get("company_name") or ""
+    return {
+        "id": job.get("id"),
+        "title_l": title_l,
+        "text_l": f"{title_l} {description.lower()}",
+        "location_l": (job.get("location") or "").lower(),
+        "company": company,
+        "company_l": company.lower(),
+        "countries": country_stored_variants([c for c in (job.get("countries") or []) if c]),
+        "is_remote": bool(job.get("is_remote")),
+    }
 
-    job_countries = country_stored_variants([c for c in (job.get("countries") or []) if c])
-    job_is_remote = bool(job.get("is_remote"))
 
+def lowered_term_lists(preferences: dict[str, Any]) -> dict[str, list[str]]:
+    """Lowercased copies of the six matching lists, computed once per user-group
+    per run. Reasons still use the original strings (see _match_core)."""
+    return {key: [term.lower() for term in (preferences.get(key) or [])] for key in _MATCH_KEYS}
+
+
+def _score_from_hits(
+    roles: list,
+    roles_hit: list,
+    keywords: list,
+    keywords_hit: list,
+    locations: list,
+    locations_hit: list,
+    seniority: list,
+    seniority_hit: list,
+) -> int:
+    """Deterministic 0-100 score: share of active preference categories hit."""
+    categories = 0
+    hits = 0
+    if roles:
+        categories += 1
+        if roles_hit:
+            hits += 1
+    if keywords:
+        categories += 1
+        if keywords_hit:
+            hits += 1
+    if locations:
+        categories += 1
+        if locations_hit:
+            hits += 1
+    if seniority:
+        categories += 1
+        if seniority_hit:
+            hits += 1
+    if categories == 0:
+        return 100
+    return round((hits / categories) * 100)
+
+
+def _match_core(
+    norm: dict[str, Any],
+    preferences: dict[str, Any],
+    lowered: dict[str, list[str]],
+    geo_settings: dict[str, Any] | None,
+) -> tuple[bool, list[str], int]:
+    """Shared heart of matching and scoring over normalized inputs.
+
+    Returns (is_match, reasons, score). Reasons assemble in canonical
+    role/keyword/seniority/location order with the user's original strings —
+    byte-identical to the legacy per-pair path regardless of evaluation order.
+    The location hard filter runs before the content scans (same outcome, skips
+    expensive scans on mismatches); the score ignores exclusions, also as before.
+    """
     roles = preferences.get("roles") or []
     keywords = preferences.get("keywords") or []
     locations = preferences.get("locations") or []
     seniority = preferences.get("seniority") or []
-    excluded = preferences.get("excluded_companies") or []
-    excluded_roles = preferences.get("excluded_roles") or []
 
-    if company.lower() in [e.lower() for e in excluded]:
-        return False, []
+    if norm["company_l"] in lowered["excluded_companies"]:
+        excluded_hit = True
+    else:
+        excluded_hit = any(term in norm["title_l"] for term in lowered["excluded_roles"])
 
-    if any(er.lower() in title for er in excluded_roles):
-        return False, []
+    roles_hit = [orig for orig, low in zip(roles, lowered["roles"]) if low in norm["title_l"]]
+    keywords_hit = [
+        orig for orig, low in zip(keywords, lowered["keywords"]) if low in norm["text_l"]
+    ]
+    seniority_hit = [
+        orig
+        for orig, low in zip(seniority, lowered["seniority"])
+        if low in norm["title_l"] or low == "any"
+    ]
+
+    # Location is a hard filter: when any location preference is set, the job
+    # must actually match it (raw text or mapped country/remote fallback).
+    locations_hit: list[str] = []
+    if locations:
+        locations_hit = [
+            orig
+            for orig, low in zip(locations, lowered["locations"])
+            if low in norm["location_l"] or (low == "remote" and "remote" in norm["location_l"])
+        ]
+        # country-aware: also accept a job whose mapped countries cover a
+        # preference that resolves to a country (India, Dubai -> AE, BLR -> IN).
+        if norm["countries"]:
+            locations_hit = list(locations_hit) or [
+                loc
+                for loc in locations
+                if location_matches_preference(
+                    norm["countries"], norm["is_remote"], loc, geo_settings
+                )
+            ]
+
+    score = _score_from_hits(
+        roles,
+        roles_hit,
+        keywords,
+        keywords_hit,
+        locations,
+        locations_hit,
+        seniority,
+        seniority_hit,
+    )
+
+    if excluded_hit:
+        return False, [], score
 
     reasons: list[str] = []
-
-    roles_hit = _needles(title, roles)
-    keywords_hit = _needles(f"{title} {description}", keywords)
     if roles_hit:
         reasons.append("role:" + ",".join(roles_hit))
     if keywords_hit:
         reasons.append("keyword:" + ",".join(keywords_hit))
-
-    seniority_hit = [s for s in seniority if s.lower() in title or s.lower() == "any"]
     if seniority_hit:
         reasons.append("seniority:" + ",".join(seniority_hit))
 
-    # Location is a hard filter: when any location preference is set, the job
-    # must actually match it (raw text or mapped country/remote fallback).
     if locations:
-        locations_hit = [
-            loc
-            for loc in locations
-            if loc.lower() in location or (loc.lower() == "remote" and "remote" in location)
-        ]
-        # country-aware: also accept a job whose mapped countries cover a
-        # preference that resolves to a country (India, Dubai -> AE, BLR -> IN).
-        if job_countries:
-            locations_hit = list(locations_hit) or [
-                loc
-                for loc in locations
-                if location_matches_preference(job_countries, job_is_remote, loc, geo_settings)
-            ]
         if not locations_hit:
-            return False, []
+            return False, [], score
         reasons.append("location:" + ",".join(locations_hit))
 
     # Content is OR: the job must hit at least one role / keyword / seniority
@@ -86,61 +189,49 @@ def job_matches_preferences(
     content_configured = bool(roles or keywords or seniority)
     content_hit = bool(roles_hit or keywords_hit or seniority_hit)
     if content_configured and not content_hit:
-        return False, []
-    return True, reasons
+        return False, [], score
+    return True, reasons, score
+
+
+def evaluate_normalized_jobs(
+    norm_jobs: list[dict[str, Any]],
+    preferences: dict[str, Any],
+    lowered: dict[str, list[str]],
+    geo_settings: dict[str, Any] | None,
+) -> tuple[list[dict[str, Any]], set[str]]:
+    """Evaluate pre-normalized jobs for one preference set.
+
+    Returns (templates, matched_ids): templates carry matched_on + match_score
+    without user_id so one evaluation fans out to every group member.
+    """
+    templates: list[dict[str, Any]] = []
+    matched: set[str] = set()
+    for norm in norm_jobs:
+        is_match, reasons, score = _match_core(norm, preferences, lowered, geo_settings)
+        if not is_match:
+            continue
+        matched.add(norm["id"])
+        templates.append({"job_id": norm["id"], "matched_on": reasons, "match_score": score})
+    return templates, matched
+
+
+def job_matches_preferences(
+    job: dict[str, Any], preferences: dict[str, Any], geo_settings: dict[str, Any] | None = None
+) -> tuple[bool, list[str]]:
+    norm = normalize_job_for_matching(job)
+    is_match, reasons, _ = _match_core(
+        norm, preferences, lowered_term_lists(preferences), geo_settings
+    )
+    return is_match, reasons
 
 
 def compute_match_score(
     job: dict[str, Any], preferences: dict[str, Any], geo_settings: dict[str, Any] | None = None
 ) -> int:
     """Deterministic 0-100 score: share of active preference categories hit."""
-    title = (job.get("title") or "").lower()
-    description = (job.get("description") or "").lower()
-    location = (job.get("location") or "").lower()
-
-    job_countries = country_stored_variants([c for c in (job.get("countries") or []) if c])
-    job_is_remote = bool(job.get("is_remote"))
-
-    categories = 0
-    hits = 0
-
-    roles = preferences.get("roles") or []
-    keywords = preferences.get("keywords") or []
-    locations = preferences.get("locations") or []
-    seniority = preferences.get("seniority") or []
-
-    if roles:
-        categories += 1
-        if _needles(title, roles):
-            hits += 1
-
-    if keywords:
-        categories += 1
-        if _needles(f"{title} {description}", keywords):
-            hits += 1
-
-    if locations:
-        categories += 1
-        if any(
-            loc.lower() in location or (loc.lower() == "remote" and "remote" in location)
-            for loc in locations
-        ) or (
-            job_countries
-            and any(
-                location_matches_preference(job_countries, job_is_remote, loc, geo_settings)
-                for loc in locations
-            )
-        ):
-            hits += 1
-
-    if seniority:
-        categories += 1
-        if _needles(title, seniority):
-            hits += 1
-
-    if categories == 0:
-        return 100
-    return round((hits / categories) * 100)
+    norm = normalize_job_for_matching(job)
+    _, _, score = _match_core(norm, preferences, lowered_term_lists(preferences), geo_settings)
+    return score
 
 
 def sync_preferences(
