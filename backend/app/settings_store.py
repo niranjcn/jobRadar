@@ -32,7 +32,15 @@ def load_location_mapping(supabase: Client) -> dict[str, Any]:
 
 
 def save_location_mapping(supabase: Client, value: dict[str, Any]) -> None:
-    merged = {**DEFAULT_SETTINGS, **value}
+    # Every save mints a new mapping generation: jobs stamped with older
+    # versions (see jobs.geo_version) are identifiable as stale without
+    # re-reading history. Placed last so callers can never inject it.
+    existing = load_app_settings(supabase, SETTINGS_KEY) or {}
+    try:
+        generation = int(existing.get("version") or 0) + 1
+    except (TypeError, ValueError):
+        generation = 1
+    merged = {**DEFAULT_SETTINGS, **value, "version": generation}
     save_app_settings(supabase, SETTINGS_KEY, merged)
 
 
