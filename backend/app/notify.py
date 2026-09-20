@@ -92,14 +92,20 @@ def _send_email(
     to_addresses: list[str],
     subject: str,
     html: str,
+    idempotency_key: str | None = None,
 ) -> None:
+    """Send via Resend. idempotency_key (when given) makes crash-retries safe:
+    Resend dedups redeliveries of the same logical send server-side."""
     with httpx.Client(timeout=30.0) as client:
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        if idempotency_key:
+            headers["Idempotency-Key"] = idempotency_key
         response = client.post(
             RESEND_API_URL,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
+            headers=headers,
             content=json.dumps(
                 {
                     "from": TEST_MODE_FROM,
