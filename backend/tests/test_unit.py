@@ -1901,6 +1901,46 @@ def test_prune_inactive_jobs_counts_deletes(monkeypatch):
     assert poller_module.prune_inactive_jobs(object()) == 7
 
 
+def test_prune_old_jobs_requires_abandonment_not_just_age(monkeypatch):
+    """Item 12 (Job-A rule): the age prune must filter on last_seen_at too,
+    so an old-but-still-seen posting is never deleted for age alone."""
+    import app.poller as poller_module
+
+    chains: list[list[tuple[str, str]]] = []
+
+    class FakeResponse:
+        data: tuple = ()
+
+    class FakeDelete:
+        def __init__(self):
+            self.filters: list[tuple[str, str]] = []
+
+        def lt(self, column, value):
+            self.filters.append((column, value))
+            return self
+
+        def execute(self):
+            chains.append(self.filters)
+            return FakeResponse()
+
+    class FakeTable:
+        def delete(self):
+            return FakeDelete()
+
+    class FakeSupabase:
+        def table(self, name):
+            assert name == "jobs"
+            return FakeTable()
+
+    monkeypatch.setattr(poller_module, "load_settings", lambda: object())
+    monkeypatch.setattr(poller_module, "query", lambda settings, sql, params=(): [{"c": 0}])
+    assert poller_module.prune_old_jobs(FakeSupabase(), 30) == 0
+    assert len(chains) == 1
+    cols = [column for column, _ in chains[0]]
+    assert "first_seen_at" in cols and "last_seen_at" in cols
+    assert chains[0][0][1] == chains[0][1][1]  # one cutoff for both guards
+
+
 def test_quiet_runs_counter():
     """Quiet counter resets on first check / new jobs, else increments."""
     from app.poller import next_quiet_runs
