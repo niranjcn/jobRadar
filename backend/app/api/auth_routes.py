@@ -50,11 +50,10 @@ def _me_payload(ctx: UserCtx) -> dict[str, Any]:
 
         rows = fetch_user(settings, ctx.id)
         payload["has_password"] = bool(rows[0].get("password_hash") if rows else None)
-        payload["telegram_username"] = rows[0].get("telegram_username") if rows else None
-        payload["telegram_photo_url"] = rows[0].get("telegram_photo_url") if rows else None
         payload["telegram_chat_id"] = (
             rows[0].get("telegram_chat_id") if rows else ctx.telegram_chat_id
         )
+        payload["telegram_linked"] = payload["telegram_chat_id"] is not None
         payload["needs_onboarding"] = not bool(rows[0].get("email") if rows else True)
         from app.access import active_subscription
 
@@ -370,7 +369,7 @@ def set_telegram_chat_id(
         # clear
         query(
             load_settings(),
-            "update users set telegram_chat_id=null, telegram_user_id=null, updated_at=now() where id=%s::uuid",
+            "update users set telegram_chat_id=null, updated_at=now() where id=%s::uuid",
             (ctx.id,),
         )
         return {"ok": True, "telegram_chat_id": None}
@@ -386,8 +385,8 @@ def set_telegram_chat_id(
         raise HTTPException(status_code=422, detail="invalid telegram chat ID")
     query(
         load_settings(),
-        "update users set telegram_chat_id=%s, telegram_user_id=%s, updated_at=now() where id=%s::uuid",
-        (chat_id, chat_id if chat_id > 0 else None, ctx.id),
+        "update users set telegram_chat_id=%s, updated_at=now() where id=%s::uuid",
+        (chat_id, ctx.id),
     )
     return {"ok": True, "telegram_chat_id": chat_id}
 

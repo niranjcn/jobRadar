@@ -41,7 +41,7 @@ export default function AdminCouponsPage() {
       const days = parseInt(durationDays, 10);
       const coupon = await api.mintCoupon({
         grants_role: grantsRole,
-        duration_days: Number.isFinite(days) && days > 0 ? days : null,
+        grant_duration_days: Number.isFinite(days) && days > 0 ? days : null,
         note: note.trim() || undefined,
       });
       setMinted(coupon);
@@ -168,7 +168,7 @@ export default function AdminCouponsPage() {
                   {c.claimed_at ? `1 / 1 · ${c.claimed_by_email ?? "(account deleted)"}` : "0 / 1"}
                 </td>
                 <td style={{ color: "var(--ink-text2)" }}>
-                  Single use{c.duration_days ? ` · ${c.duration_days}d access` : ""}
+                  Single use{c.grant_duration_days ? ` · ${c.grant_duration_days}d access` : ""}
                 </td>
                 <td style={{ color: "var(--ink-text2)", whiteSpace: "nowrap" }} title={formatDateTime(c.created_at)}>
                   {c.claimed_at ? "—" : timeLeft(c.expires_at)}

@@ -106,7 +106,12 @@ def snapshot_user_preferences(
 ) -> dict[str, Any]:
     """Create a preset by copying a user's CURRENT preferences (used to seed
     'Admin Preference' and for the admin's snapshot button)."""
-    response = supabase.table("preferences").select("*").eq("user_id", source_user_id).execute()
+    response = (
+        supabase.table("preferences")
+        .select("roles, keywords, locations, seniority, excluded_companies, excluded_roles")
+        .eq("user_id", source_user_id)
+        .execute()
+    )
     if not response.data:
         raise LookupError("source user has no preferences row")
     source = response.data[0]

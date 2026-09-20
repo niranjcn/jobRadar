@@ -89,7 +89,7 @@ def public_list_jobs(
     """Public job listing with every available filter. No auth required.
 
     q is a multi-keyword search: comma-separated terms, any term matching
-    the company name or the combined title + location + description text
+    the company name or the combined title + location text
     includes the job (OR/union semantics). loc/locs narrow to location
     substring(s); company/companies to company name(s); sources to ATS
     type(s); country/countries to country code(s). types/exp/skills/cats
@@ -231,7 +231,7 @@ def public_get_job(job_id: str) -> dict:
         settings,
         """
         select j.id, j.source_id, j.external_job_id, j.title, j.location, j.url,
-               j.description, j.first_seen_at, j.countries, j.is_remote, j.is_active,
+               j.first_seen_at, j.countries, j.is_remote, j.is_active,
                s.company_name, s.ats_type, s.domain
         from jobs j join sources s on s.id = j.source_id
         where j.id = %s::uuid
@@ -248,7 +248,8 @@ def public_get_job(job_id: str) -> dict:
         "title": row["title"],
         "location": row["location"],
         "url": row["url"],
-        "description": row["description"],
+        # Descriptions are not stored; key kept null so clients keep fallbacks.
+        "description": None,
         "first_seen_at": row["first_seen_at"].isoformat() if row["first_seen_at"] else None,
         "company": row["company_name"],
         "ats_type": row["ats_type"],

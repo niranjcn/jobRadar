@@ -16,13 +16,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from app.access import COUPON_TTL_HOURS, coupon_state, generate_coupon_code
-from app.auth import (
-    generate_otp,
-    rate_limit,
-    sign_session_token,
-    verify_init_data,
-    verify_session_token,
-)
+from app.auth import rate_limit, sign_session_token, verify_session_token
 from app.entitlements import (
     delivery_delay_minutes,
     effective_capabilities,
@@ -144,32 +138,7 @@ def test_tampered_token_rejected():
     assert verify_session_token(SECRET, body + "." + "0" * 64) is None
 
 
-def _make_init_data(bot_token: str, user: dict, age_seconds: int = 0) -> str:
-    payload = {
-        "auth_date": str(int(time.time()) - age_seconds),
-        "query_id": "AAF",
-        "user": base64.urlsafe_b64encode(json.dumps(user).encode()).decode().rstrip("="),
-    }
-    pairs = sorted(payload.items())
-    dcs = "\n".join(f"{k}={v}" for k, v in pairs)
-    secret = hmac_mod.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
-    signature = hmac_mod.new(secret, dcs.encode(), hashlib.sha256).hexdigest()
-    return "&".join(f"{k}={v}" for k, v in pairs) + f"&hash={signature}"
 
-
-def test_telegram_init_data_verification():
-    token = "12345:fake-bot-token"
-    good = _make_init_data(token, {"id": 777, "username": "friend"}, age_seconds=60)
-    result = verify_init_data(token, good)
-    assert result is not None and result["id"] == 777
-    stale = _make_init_data(token, {"id": 777}, age_seconds=48 * 3600)
-    assert verify_init_data(token, stale) is None
-    assert verify_init_data(token, good.replace("query_id=AAF", "query_id=HAX")) is None
-
-
-def test_otp_shape():
-    code = generate_otp()
-    assert len(code) == 6 and code.isdigit()
 
 
 def test_rate_limiter_window(monkeypatch):

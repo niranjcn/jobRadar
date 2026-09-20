@@ -6,10 +6,12 @@ drain_due_notifications() releases rows whose scheduled_for has passed
 (scheduled_for = enqueue time + users.alert_delay_minutes).
 """
 
+import hashlib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import psycopg
 from supabase import Client
 
 from app.config import Settings
@@ -32,6 +34,14 @@ from app.telegram.notifications import MAX_MESSAGE_LENGTH, _chunk_sections, _sen
 IN_BATCH = 200
 DRAIN_BATCH = 400
 MAX_ATTEMPTS = 3
+
+# Single-flight key for the drain (stable sha256, never Python hash()).
+# The advisory lock serializes scheduler ticks, poll-end drains, threads and
+# future processes against one database; a crashed holder releases on
+# disconnect, so stale-lock recovery is a non-problem by construction.
+DRAIN_ADVISORY_LOCK_KEY = int.from_bytes(
+    hashlib.sha256(b"jobquest:notify-drain").digest()[:8], "big", signed=True
+)
 
 
 @dataclass
@@ -248,7 +258,7 @@ def match_and_enqueue(
         batch = external_ids[start : start + IN_BATCH]
         response = (
             supabase.table("jobs")
-            .select("id, source_id, title, location, description, countries, is_remote")
+            .select("id, source_id, title, location, countries, is_remote")
             .eq("source_id", source_id)
             .in_("external_job_id", batch)
             .execute()
@@ -325,11 +335,104 @@ def retry_decision(attempts_after_increment: int) -> str:
     return "failed" if attempts_after_increment >= MAX_ATTEMPTS else "pending"
 
 
+def _acquire_drain_lock(settings: Settings):
+    """Try to take the drain advisory lock without blocking.
+
+    Returns the open connection (lock held) or None (skip this tick). Uses a
+    dedicated connection, never the shared pool: the lock must survive across
+    the HTTP sends inside the drain. Any failure degrades to skipping.
+    """
+    database_url = getattr(settings, "database_url", None)
+    if not database_url:
+        return None
+    try:
+        conn = psycopg.connect(database_url, connect_timeout=5)
+    except Exception as exc:
+        print(f"notify-drain: lock connection failed, skipping tick ({exc})")
+        return None
+    try:
+        with conn.cursor() as cur:
+            cur.execute("select pg_try_advisory_lock(%s)", (DRAIN_ADVISORY_LOCK_KEY,))
+            held = bool(cur.fetchone()[0])
+        if not held:
+            conn.close()
+            return None
+        return conn
+    except Exception as exc:
+        print(f"notify-drain: lock acquire failed, skipping tick ({exc})")
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return None
+
+
+def _release_drain_lock(conn) -> None:
+    """Release the advisory lock and connection. Never raises (unlock also
+    happens implicitly on close, so a crash can never leave it stale)."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute("select pg_advisory_unlock(%s)", (DRAIN_ADVISORY_LOCK_KEY,))
+    except Exception:
+        pass
+    try:
+        conn.close()
+    except Exception:
+        pass
+
+
+def _fetch_recorded_job_ids(
+    settings: Settings, user_id: str, channel: str, job_ids: list[str]
+) -> set[str]:
+    """Ledger rows already sent (crash-window dedup before resend).
+
+    Covers send-OK/crash-before-mark: the row is still pending, but the message
+    went out, so resending would duplicate. One indexed lookup per group.
+    """
+    if not job_ids:
+        return set()
+    rows = query(
+        settings,
+        "select job_id from notifications_sent "
+        "where user_id = %s and channel = %s and job_id = any(%s::uuid[])",
+        (user_id, channel, job_ids),
+    )
+    return {row["job_id"] for row in rows}
+
+
+def _email_idempotency_key(user_id: str, channel: str, job_ids: list[str]) -> str:
+    """Stable across retries of the same logical batch (same user, channel and
+    job set always hash identically — order-insensitive). Resend dedups
+    redeliveries server-side for the crash window the ledger cannot see
+    (accepted-by-provider but not yet recorded)."""
+    digest = hashlib.sha256("|".join([user_id, channel, *sorted(set(job_ids))]).encode())
+    return f"jq-{digest.hexdigest()}"
+
+
 def drain_due_notifications(
     settings: Settings, supabase: Client, *, limit: int = DRAIN_BATCH, now: datetime | None = None
 ) -> dict[str, int]:
     """Send every due queue row. Groups by (user, channel) so each person gets
-    one consolidated message per channel per drain tick."""
+    one consolidated message per channel per drain tick.
+
+    Single-flight: a loser skips the tick with an all-zeros result (same
+    shape), so overlapping scheduler ticks, poll-end drains, threads and
+    future processes can never double-send.
+    """
+    lock_conn = _acquire_drain_lock(settings)
+    if lock_conn is None:
+        print("notify-drain: another drain holds the lock, skipping tick")
+        return {"sent_telegram": 0, "sent_email": 0, "failed": 0}
+    try:
+        return _drain_locked(settings, supabase, limit=limit, now=now)
+    finally:
+        _release_drain_lock(lock_conn)
+
+
+def _drain_locked(
+    settings: Settings, supabase: Client, *, limit: int, now: datetime | None
+) -> dict[str, int]:
+    """Drain body; the caller must hold the advisory lock (see above)."""
     now = now or datetime.now(UTC)
     # Exclude rows whose user has no destination for that channel – they would
     # otherwise occupy the LIMIT window forever and starve deliverable users
@@ -406,6 +509,16 @@ def drain_due_notifications(
             continue
 
         job_ids = [r["job_id"] for r in rows]
+        # Crash-window dedup: rows recorded in the ledger were already sent
+        # (send succeeded, mark was lost). Close them out silently instead of
+        # resending; only unrecorded rows proceed to delivery.
+        recorded = _fetch_recorded_job_ids(settings, user_id, channel, job_ids)
+        if recorded:
+            _mark_rows(supabase, [r["id"] for r in rows if r["job_id"] in recorded], status="sent")
+            rows = [r for r in rows if r["job_id"] not in recorded]
+            if not rows:
+                continue
+            job_ids = [r["job_id"] for r in rows]
         items = _load_job_items(settings, job_ids, user_id)
         try:
             if channel == "telegram":
@@ -420,7 +533,13 @@ def drain_due_notifications(
                 subject = (
                     f"📡 JobQuest: {len(items)} new matching job(s) — {datetime.now(UTC):%b %d}"
                 )
-                _send_email(settings.resend_api_key, [destination], subject, html)
+                _send_email(
+                    settings.resend_api_key,
+                    [destination],
+                    subject,
+                    html,
+                    idempotency_key=_email_idempotency_key(user_id, channel, job_ids),
+                )
                 sent["email"] += len(rows)
         except Exception as exc:
             failed += _record_failure(settings, supabase, rows, exc)

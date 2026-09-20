@@ -86,80 +86,25 @@ def parse_command(text: str) -> tuple[str, str]:
 
 
 def authorized(chat_id: Any, settings: Settings) -> bool:
-    """Multi-user aware: admin env id bypasses, otherwise DB row with that telegram id and approved status."""
-    # Admin bypass (single owner)
+    """Check if chat_id is allowed: must have telegram_chat_id set via preferences and be approved."""
     admin_id = getattr(settings, "admin_chat_id", "") or settings.telegram_chat_id
     if admin_id and str(chat_id) == str(admin_id):
         return True
     try:
         rows = query(
             settings,
-            "select 1 from users where (telegram_chat_id = %s or telegram_user_id = %s) and status != 'disabled' limit 1",
-            (int(chat_id), int(chat_id)),
+            "select 1 from users where telegram_chat_id = %s and status != 'disabled' limit 1",
+            (int(chat_id),),
         )
         return bool(rows)
     except Exception:
-        # If DB unavailable or chat_id not numeric, deny
         return False
-
-
-def _ensure_telegram_user(
-    settings: Settings, chat_id: Any, from_user: dict[str, Any]
-) -> dict[str, Any] | None:
-    """Create a normal user on first /start if missing. Returns user row or None."""
-    try:
-        cid = int(chat_id)
-        uid = int(from_user.get("id") or chat_id)
-    except (TypeError, ValueError):
-        return None
-    # Already exists?
-    existing = query(
-        settings,
-        "select id, role, telegram_chat_id from users where telegram_chat_id = %s or telegram_user_id = %s limit 1",
-        (cid, uid),
-    )
-    if existing:
-        return existing[0]
-    # Determine role: admin if matches ADMIN_CHAT_ID, else normal (instant active per plan)
-    admin_id = getattr(settings, "admin_chat_id", "") or settings.telegram_chat_id
-    is_admin = admin_id and str(cid) == str(admin_id)
-    role = "admin" if is_admin else "user"
-    username = from_user.get("username")
-    first = from_user.get("first_name") or ""
-    last = from_user.get("last_name") or ""
-    display = f"{first} {last}".strip() or username or f"tg_{cid}"
-    # Insert new user
-    try:
-        rows = query(
-            settings,
-            """
-            insert into users (telegram_chat_id, telegram_user_id, telegram_username, display_name, role, status, access_locked, is_owner)
-            values (%s, %s, %s, %s, %s, 'approved', false, %s)
-            returning id, role
-            """,
-            (cid, uid, username, display, role, is_admin),
-        )
-        # Create empty preferences row for isolated prefs (so Mini App can edit)
-        if rows:
-            user_id = rows[0]["id"]
-            try:
-                query(
-                    settings,
-                    "insert into preferences (user_id) values (%s) on conflict (user_id) do nothing",
-                    (user_id,),
-                )
-            except Exception:
-                pass
-            return rows[0]
-    except Exception as exc:
-        print(f"ensure user failed for {cid}: {exc}")
-    return None
 
 
 def _resolve_user_id_for_chat(
     settings: Settings, chat_id: Any, from_user_id: Any = None
 ) -> str | None:
-    """Return the users.id for a Telegram chat/user id, or None if unknown."""
+    """Return the users.id for a Telegram chat_id, or None if unknown."""
     for ident in (chat_id, from_user_id):
         if ident is None:
             continue
@@ -170,66 +115,14 @@ def _resolve_user_id_for_chat(
         try:
             rows = query(
                 settings,
-                "select id from users where telegram_user_id = %s or telegram_chat_id = %s limit 1",
-                (iid, iid),
+                "select id from users where telegram_chat_id = %s limit 1",
+                (iid,),
             )
             if rows:
                 return str(rows[0]["id"])
         except Exception:
             continue
     return None
-
-
-def _handle_login_nonce(
-    settings: Settings, token: str, from_user: dict[str, Any], chat_id: Any
-) -> str:
-    """Attempt to authenticate a deep-link nonce. Returns a human reply."""
-    if not token:
-        return "❌ Invalid login link."
-    try:
-        from app.auth import authenticate_telegram_login_token
-
-        tg_identity = {
-            "id": int(from_user.get("id") or chat_id),
-            "chat_id": int(chat_id),
-            "username": from_user.get("username"),
-            "first_name": from_user.get("first_name") or "",
-            "last_name": from_user.get("last_name") or "",
-            "photo_url": None,
-        }
-        ok = authenticate_telegram_login_token(settings, token, tg_identity)
-        if ok:
-            return (
-                "✅ Telegram connected!\n\n"
-                "Return to your browser — you're now logged in.\n"
-                "If you're creating a new account, you'll be guided to set your name and email next."
-            )
-        # Check why it failed: already authenticated / expired / missing
-        from app.auth import get_telegram_login_token
-
-        row = get_telegram_login_token(settings, token)
-        if not row:
-            return "❌ This login link is invalid or has been removed."
-        if row.get("consumed_at"):
-            return "⚠️ This link has already been used."
-        if row.get("authenticated_at"):
-            return "ℹ️ This link is already authenticated — return to your browser and refresh."
-        # Check expiry
-        exp = row.get("expires_at")
-        if exp:
-            from datetime import datetime
-
-            if isinstance(exp, str):
-                try:
-                    exp = datetime.fromisoformat(exp)
-                except ValueError:
-                    exp = None
-            if exp and exp < datetime.now(UTC):
-                return "⏰ This login link has expired. Generate a new one on the website and try again."
-        return "❌ Could not authenticate this link. Please generate a new one."
-    except Exception as exc:
-        print(f"telegram login nonce error: {exc}")
-        return "⚠️ Could not process the login link. Please try again or use the website login."
 
 
 # ---------- API helpers ----------
@@ -554,7 +447,7 @@ def _cmd_companies(settings: Settings, supabase: Client, args: str) -> str:
 
 
 def _cmd_sources(settings: Settings, supabase: Client, args: str) -> str:
-    rows = supabase.table("sources").select("*").eq("active", True).execute().data or []
+    rows = supabase.table("sources").select("id, company_name, ats_type, last_checked_at, last_error").eq("active", True).execute().data or []
     intervals = settings.ats_intervals
     now = datetime.now(UTC)
     lines = [f"🩺 Source health ({len(rows)})", ""]
@@ -915,41 +808,14 @@ async def handle_update(
         return
     token = settings.telegram_bot_token
     command, args = parse_command(text)
-    # /start is always allowed — it creates the user (instant active per plan)
     if command == "start":
-        # Deep-link login nonce still handled first
-        if args.startswith("login_"):
-            nonce = args[len("login_") :].strip()
-            reply = _handle_login_nonce(settings, nonce, from_user, chat_id)
-            await _send_message(client, token, chat_id, reply)
-            if "connected" in reply.lower():
-                try:
-                    supabase = get_supabase(settings)
-                    welcome = _cmd_start(settings, supabase, "")
-                    await _send_message(
-                        client,
-                        token,
-                        chat_id,
-                        welcome,
-                        reply_markup=_menu_markup(settings.telegram_mini_app_url),
-                    )
-                except Exception:
-                    pass
-            return
-        # Normal /start — ensure user exists (instant active, isolated prefs)
-        _ensure_telegram_user(settings, chat_id, from_user)
         supabase = get_supabase(settings)
-        # Personal welcome
-        admin_id = getattr(settings, "admin_chat_id", "") or settings.telegram_chat_id
-        is_admin = admin_id and str(chat_id) == str(admin_id)
-        role_label = "admin" if is_admin else "normal"
         welcome = _cmd_start(settings, supabase, "")
-        # Add role + mini app hint
+        # Inform user to set chat ID via website preferences
         extra = (
-            f"\n\n✅ You are registered as **{role_label}**.\n"
-            "Tap below to open the Mini App and set your preferences — you will only get jobs that match *your* settings."
+            "\n\nTo receive job alerts, set your Telegram Chat ID in Preferences on the website, "
+            "then use /help to see commands."
         )
-        # Simple markdown-like, no parse_mode needed
         await _send_message(
             client,
             token,
@@ -963,7 +829,7 @@ async def handle_update(
             client,
             token,
             chat_id,
-            "Not authorized. Tap /start to register, or ask an admin to link your Telegram.",
+            "Not authorized. Please set your Telegram Chat ID in Preferences on the website (via your browser), then try again.",
         )
         return
     supabase = get_supabase(settings)

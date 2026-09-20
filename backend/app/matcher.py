@@ -15,7 +15,13 @@ IN_BATCH = 200
 
 
 def fetch_sources(supabase: Client) -> list[dict[str, Any]]:
-    response = supabase.table("sources").select("*").eq("active", True).execute()
+    # 60: explicit columns for determinism
+    response = (
+        supabase.table("sources")
+        .select("id, company_name")
+        .eq("active", True)
+        .execute()
+    )
     return response.data
 
 
@@ -48,13 +54,14 @@ def normalize_job_for_matching(job: dict[str, Any]) -> dict[str, Any]:
     per-pair path recomputed every time.
     """
     title = job.get("title") or ""
-    description = job.get("description") or ""
     title_l = title.lower()
     company = job.get("company_name") or ""
     return {
         "id": job.get("id"),
         "title_l": title_l,
-        "text_l": f"{title_l} {description.lower()}",
+        # Keyword matching is title-only by product decision (descriptions are
+        # not stored); legacy dicts carrying a description key behave the same.
+        "text_l": title_l,
         "location_l": (job.get("location") or "").lower(),
         "company": company,
         "company_l": company.lower(),
@@ -269,7 +276,12 @@ def sync_preferences(
 
 
 def load_preferences(supabase: Client, user_id: str = DEFAULT_USER_ID) -> dict[str, Any]:
-    response = supabase.table("preferences").select("*").eq("user_id", user_id).execute()
+    response = (
+        supabase.table("preferences")
+        .select("roles, keywords, locations, seniority, excluded_companies, excluded_roles, notify_telegram, notify_email, alert_frequency, telegram_scope, email_scope, notify_first_check")
+        .eq("user_id", user_id)
+        .execute()
+    )
     if not response.data:
         return {}
     row = response.data[0]
@@ -328,7 +340,7 @@ def match_all(
             batch = external_ids[start : start + IN_BATCH]
             response = (
                 supabase.table("jobs")
-                .select("id, source_id, title, location, description, countries, is_remote")
+                .select("id, source_id, title, location, countries, is_remote")
                 .eq("source_id", source_id)
                 .in_("external_job_id", batch)
                 .execute()

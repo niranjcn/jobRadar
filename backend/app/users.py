@@ -29,17 +29,15 @@ def ensure_owner(settings: Settings) -> dict[str, Any]:
     if settings.telegram_chat_id:
         try:
             chat_id = int(settings.telegram_chat_id)
-            # For private chats chat_id == user_id, so stamp both columns when empty.
             query(
                 settings,
                 """
                 update users set
                     telegram_chat_id = coalesce(telegram_chat_id, %s),
-                    telegram_user_id = coalesce(telegram_user_id, %s),
                     updated_at = now()
-                where id = %s and (telegram_chat_id is null or telegram_user_id is null)
+                where id = %s and telegram_chat_id is null
                 """,
-                (chat_id, chat_id, DEFAULT_USER_ID),
+                (chat_id, DEFAULT_USER_ID),
             )
         except ValueError:
             pass
@@ -58,7 +56,7 @@ def ensure_owner(settings: Settings) -> dict[str, Any]:
 def fetch_user(settings: Settings, user_id: str) -> list[dict[str, Any]]:
     return query(
         settings,
-        "select id, email, telegram_chat_id, telegram_user_id, telegram_username, "
+        "select id, email, telegram_chat_id, "
         "display_name, role, status, capabilities, alert_delay_minutes, access_locked, "
         "is_owner, password_hash, last_login_at, created_at from users where id = %s::uuid",
         (user_id,),
@@ -76,122 +74,14 @@ def fetch_user_by_email(settings: Settings, email: str) -> list[dict[str, Any]]:
     )
 
 
-def fetch_user_by_telegram(settings: Settings, telegram_user_id: int) -> list[dict[str, Any]]:
-    return query(
-        settings,
-        "select id, email, telegram_chat_id, telegram_user_id, telegram_username, telegram_photo_url, "
-        "display_name, role, status, capabilities, "
-        "alert_delay_minutes, access_locked, is_owner from users where telegram_user_id = %s",
-        (telegram_user_id,),
-    )
-
-
-def fetch_user_by_telegram_any(settings: Settings, telegram_id: int) -> list[dict[str, Any]]:
-    """Lookup by either telegram_user_id or telegram_chat_id (covers legacy owner rows where only chat_id was stamped)."""
-    return query(
-        settings,
-        "select id, email, telegram_chat_id, telegram_user_id, telegram_username, telegram_photo_url, "
-        "display_name, role, status, capabilities, alert_delay_minutes, access_locked, is_owner "
-        "from users where telegram_user_id = %s or telegram_chat_id = %s limit 1",
-        (telegram_id, telegram_id),
-    )
-
-
 def fetch_user_by_telegram_chat(settings: Settings, telegram_chat_id: int) -> list[dict[str, Any]]:
     return query(
         settings,
-        "select id, email, telegram_chat_id, telegram_user_id, telegram_username, telegram_photo_url, "
+        "select id, email, telegram_chat_id, "
         "display_name, role, status, capabilities, "
         "alert_delay_minutes, access_locked, is_owner from users where telegram_chat_id = %s",
         (telegram_chat_id,),
     )
-
-
-def _tg_display_name(tg: dict[str, Any]) -> str:
-    first = (tg.get("first_name") or "").strip()
-    last = (tg.get("last_name") or "").strip()
-    full = f"{first} {last}".strip()
-    if full:
-        return full
-    if tg.get("username"):
-        return str(tg["username"])
-    if tg.get("id"):
-        return f"tg_{tg['id']}"
-    return "telegram_user"
-
-
-def create_user_from_telegram(
-    settings: Settings,
-    supabase: Client,
-    tg: dict[str, Any],
-) -> dict[str, Any]:
-    """Create a new account from a verified Telegram identity.
-
-    Telegram-only accounts have email=None; the onboarding flow will prompt
-    for it later. They start as approved but access_locked (same gate as
-    email registration) so billing still applies.
-    """
-    tg_id = int(tg["id"])
-    # Conflict check: telegram_user_id is unique
-    existing = fetch_user_by_telegram(settings, tg_id)
-    if existing:
-        raise ValueError("this Telegram account is already linked to another profile")
-    payload: dict[str, Any] = {
-        "telegram_user_id": tg_id,
-        "telegram_chat_id": int(tg.get("chat_id") or tg_id),
-        "telegram_username": tg.get("username"),
-        "telegram_photo_url": tg.get("photo_url"),
-        "display_name": _tg_display_name(tg),
-        "role": "user",
-        "status": "approved",
-        "access_locked": True,
-        "capabilities": ["dashboard", "preferences", "telegram_alerts"],
-    }
-    # Keep email null for now — onboarding may fill it
-    response = supabase.table("users").insert(payload).execute()
-    if not response.data:
-        raise RuntimeError("failed to create telegram user")
-    row = response.data[0]
-    seed_preferences(supabase, row["id"], settings.preferences)
-    return row
-
-
-def link_telegram_to_user(
-    settings: Settings,
-    user_id: str,
-    tg: dict[str, Any],
-) -> dict[str, Any]:
-    """Link a verified Telegram identity to an existing user. Raises if already taken."""
-    tg_id = int(tg["id"])
-    chat_id = int(tg.get("chat_id") or tg_id)
-    # If someone else already owns this telegram_user_id, refuse
-    owner = fetch_user_by_telegram(settings, tg_id)
-    if owner and str(owner[0]["id"]) != str(user_id):
-        raise ValueError("this Telegram account is already linked to another profile")
-    # Also guard chat_id uniqueness across other users
-    chat_owner = fetch_user_by_telegram_chat(settings, chat_id)
-    if chat_owner and str(chat_owner[0]["id"]) != str(user_id):
-        raise ValueError("this Telegram chat is already linked to another profile")
-    rows = query(
-        settings,
-        """
-        update users
-        set telegram_user_id = %s,
-            telegram_chat_id = %s,
-            telegram_username = %s,
-            telegram_photo_url = coalesce(%s, telegram_photo_url),
-            -- Fill display_name only if currently empty/owner-like
-            display_name = case when display_name in ('', 'owner') then %s else display_name end,
-            updated_at = now()
-        where id = %s::uuid
-        returning id, email, telegram_chat_id, telegram_user_id, telegram_username, telegram_photo_url,
-                  display_name, role, status, capabilities, alert_delay_minutes, access_locked, is_owner
-        """,
-        (tg_id, chat_id, tg.get("username"), tg.get("photo_url"), _tg_display_name(tg), user_id),
-    )
-    if not rows:
-        raise LookupError("user not found")
-    return rows[0]
 
 
 def update_user_profile(
@@ -222,7 +112,7 @@ def update_user_profile(
     params = [*fields.values(), user_id]
     rows = query(
         settings,
-        f"update users set {sets}, updated_at = now() where id = %s::uuid returning id, email, telegram_chat_id, telegram_user_id, telegram_username, display_name, role, status, capabilities, alert_delay_minutes, access_locked, is_owner",
+        f"update users set {sets}, updated_at = now() where id = %s::uuid returning id, email, telegram_chat_id, display_name, role, status, capabilities, alert_delay_minutes, access_locked, is_owner",
         tuple(params),
     )
     if not rows:

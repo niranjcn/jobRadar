@@ -214,7 +214,7 @@ def unlock_user(user_id: str) -> dict:
 
 class CompBody(BaseModel):
     plan_code: str = "standard"
-    duration_days: int | None = None
+    grant_duration_days: int | None = None
 
 
 @router.put("/users/{user_id}/subscription")
@@ -224,8 +224,8 @@ def comp_subscription(user_id: str, body: CompBody) -> dict:
     if not exists:
         raise HTTPException(status_code=404, detail="user not found")
     period_end = None
-    if body.duration_days:
-        period_end = (datetime.now(UTC) + timedelta(days=body.duration_days)).isoformat()
+    if body.grant_duration_days:
+        period_end = (datetime.now(UTC) + timedelta(days=body.grant_duration_days)).isoformat()
     sub = provision_subscription(
         settings,
         user_id=user_id,
@@ -268,7 +268,7 @@ def apply_preset(user_id: str, body: ApplyPresetBody) -> dict:
 
 class CouponMintBody(BaseModel):
     grants_role: str
-    duration_days: int | None = None
+    grant_duration_days: int | None = None
     note: str | None = None
 
 
@@ -282,7 +282,7 @@ def create_coupon(
             settings,
             created_by=admin.id,
             grants_role=body.grants_role,
-            duration_days=body.duration_days,
+            grant_duration_days=body.grant_duration_days,
             note=body.note,
         )
     except ValueError as exc:
@@ -313,7 +313,7 @@ def list_coupons(state: str = "", limit: int = 50) -> dict:
     rows = query(
         settings,
         f"""
-        select c.id, c.code, c.grants_role, c.duration_days, c.note,
+        select c.id, c.code, c.grants_role, c.grant_duration_days, c.note,
                c.created_at, c.expires_at, c.claimed_at,
                u.email as claimed_by_email, cu.email as created_by_email
         from coupon_codes c
@@ -1087,6 +1087,92 @@ def admin_schema() -> dict:
     }
 
 
+@router.get("/db-observability")
+def db_observability() -> dict:
+    """pg_stat observability for 56/57: table scans, index usage, bloat.
+
+    Returns pg_stat_user_tables (seq_scan/idx_scan/n_tup_*/n_dead_tup) and
+    pg_stat_user_indexes (idx_scan) for the hot tables plus a country sanity
+    check (64) and index bloat hints. All queries best-effort — a failing
+    stat table never breaks the page.
+    """
+    settings = load_settings()
+    tables: list[dict[str, Any]] = []
+    indexes: list[dict[str, Any]] = []
+    country_sanity: list[dict[str, Any]] = []
+    try:
+        tables = query(
+            settings,
+            """
+            select relname,
+                   seq_scan, seq_tup_read, idx_scan,
+                   n_tup_ins, n_tup_upd, n_tup_del, n_tup_hot_upd,
+                   n_live_tup, n_dead_tup, vacuum_count, autovacuum_count,
+                   last_vacuum, last_autovacuum, last_analyze, last_autoanalyze,
+                   pg_size_pretty(pg_total_relation_size(relid)) as total_size,
+                   pg_total_relation_size(relid)::bigint as total_bytes
+            from pg_stat_user_tables
+            where schemaname = 'public'
+            order by pg_total_relation_size(relid) desc
+            """,
+        )
+        for r in tables:
+            for k in ("last_vacuum", "last_autovacuum", "last_analyze", "last_autoanalyze"):
+                v = r.get(k)
+                if isinstance(v, datetime):
+                    r[k] = v.isoformat()
+                elif v is not None:
+                    r[k] = str(v)
+    except Exception as exc:
+        print(f"db-observability: tables failed: {exc}")
+    try:
+        indexes = query(
+            settings,
+            """
+            select schemaname, relname as table_name, indexrelname,
+                   pg_size_pretty(pg_relation_size(indexrelid)) as size,
+                   pg_relation_size(indexrelid)::bigint as bytes,
+                   idx_scan, idx_tup_read, idx_tup_fetch
+            from pg_stat_user_indexes
+            where schemaname = 'public'
+            order by pg_relation_size(indexrelid) desc
+            """,
+        )
+    except Exception as exc:
+        print(f"db-observability: indexes failed: {exc}")
+    try:
+        country_sanity = query(
+            settings,
+            """
+            select distinct unnest(countries) as code,
+                   count(*)::int as jobs
+            from jobs
+            where countries is not null and array_length(countries,1) > 0
+            group by 1
+            order by 1
+            """,
+        )
+    except Exception as exc:
+        print(f"db-observability: country sanity failed: {exc}")
+    # Highlight unused indexes (>5 MB and idx_scan=0)
+    unused = [ix for ix in indexes if int(ix.get("idx_scan") or 0) == 0 and int(ix.get("bytes") or 0) > 5 * 1024 * 1024]
+    # Highlight bloat candidates (dead >15% of live or >5k dead)
+    bloat = [
+        t for t in tables
+        if int(t.get("n_dead_tup") or 0) > max(5000, int(t.get("n_live_tup") or 0) * 0.15)
+    ]
+    return {
+        "generated_at": datetime.now(UTC).isoformat(),
+        "tables": tables,
+        "indexes": indexes,
+        "country_sanity": country_sanity,
+        "hints": {
+            "unused_indexes": unused,
+            "bloat_candidates": bloat,
+        },
+    }
+
+
 @router.get("/stats")
 def admin_stats() -> dict:
     settings = load_settings()
@@ -1100,7 +1186,7 @@ def admin_stats() -> dict:
           (select count(*)::int from users where status = 'disabled') as disabled,
           (select count(*)::int from subscriptions where status = 'active') as active_subs,
           (select count(*)::int from coupon_codes where claimed_at is null and expires_at > now()) as coupons_open,
-          (select coalesce(sum(price_cents),0)::int from subscriptions s
+          (select coalesce(sum(price_minor_units),0)::int from subscriptions s
              join plans p on p.code = s.plan_code
             where s.status = 'active' and p.interval = 'month') as mrr_cents,
           (select count(*)::int from notifications_sent where sent_at >= now() - interval '7 days') as alerts_7d

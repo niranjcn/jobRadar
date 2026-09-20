@@ -51,7 +51,7 @@ export default function PricingPage() {
             <div key={plan.code} className="card flex flex-col p-6">
               <span className="font-mono text-xs uppercase tracking-widest text-text-muted">{plan.name}</span>
               <div className="mt-2 text-4xl font-bold">
-                {formatPrice(plan.price_cents, plan.currency)}
+                {formatPrice(plan.price_minor_units, plan.currency)}
                 <span className="text-base font-normal text-text-muted">/{plan.interval}</span>
               </div>
               <ul className="mt-4 flex-1 space-y-2 text-sm text-text-secondary">
