@@ -21,6 +21,13 @@ SOURCE_CONCURRENCY = 8  # fallback when ats_type not in ATS_CONCURRENCY
 MAX_POSTING_AGE_DAYS = 90
 SOURCES_FILE = Path(__file__).resolve().parent.parent / "sources.json"
 
+# Advisory lock key for poll runs: per-ATS and global, to prevent concurrent
+# scheduler instances from running the same ATS simultaneously. Held on a
+# dedicated connection for the duration of the poll, auto-released on
+# disconnect (so crashes self-heal, unlike poll_runs status).
+def _poll_lock_key(ats_type: str | None) -> str:
+    return f"poll-{ats_type or 'global'}"
+
 # Backoff for recently 404'd boards — skip re-poll for 12h to save egress and avoid hammering dead boards.
 NOT_FOUND_BACKOFF_SECONDS = 12 * 3600
 
@@ -30,6 +37,45 @@ NOT_FOUND_BACKOFF_SECONDS = 12 * 3600
 # and global runs always poll everything).
 QUIET_RUNS_THRESHOLD = 5
 QUIET_SKIP_MULTIPLE = 3
+
+
+def try_acquire_poll_lock(settings: Settings, ats_type: str | None):
+    """Try to acquire advisory lock for poll run. Returns connection holding lock or None if busy.
+    Lock is session-level, held until connection closes (auto-released on crash)."""
+    from app.db import get_pool
+
+    try:
+        # Use a dedicated connection that stays open for the poll duration
+        conn = get_pool(settings).connection(timeout=5)
+        # Don't use context manager here; caller must close to release lock
+        # We need to keep connection open, so we enter it manually
+        conn.__enter__()
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_try_advisory_lock(hashtext(%s))", (_poll_lock_key(ats_type),))
+            acquired = cur.fetchone()[0]
+            if not acquired:
+                conn.__exit__(None, None, None)
+                return None
+            return conn
+    except Exception:
+        try:
+            conn.__exit__(None, None, None)
+        except Exception:
+            pass
+        return None
+
+
+def release_poll_lock(conn, ats_type: str | None) -> None:
+    """Release advisory lock and close connection. Never raises."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_unlock(hashtext(%s))", (_poll_lock_key(ats_type),))
+    except Exception:
+        pass
+    try:
+        conn.__exit__(None, None, None)
+    except Exception:
+        pass
 
 
 def load_source_config() -> list[dict[str, Any]]:
@@ -54,7 +100,13 @@ def sync_sources(supabase: Client) -> None:
 
 
 def fetch_sources(supabase: Client) -> list[dict[str, Any]]:
-    response = supabase.table("sources").select("*").eq("active", True).execute()
+    # 60: explicit columns (not SELECT *) — small table but hot polled path
+    response = (
+        supabase.table("sources")
+        .select("id, company_name, ats_type, board_identifier, active, last_checked_at, last_error, quiet_runs")
+        .eq("active", True)
+        .execute()
+    )
     return response.data
 
 
@@ -120,7 +172,7 @@ def unhealthy_sources(supabase: Client, intervals: dict[str, int]) -> list[dict[
     return result
 
 
-UPSERT_CHUNK_ROWS = 500  # 500 rows x 7 cols = 3500 params, far below the 65535 protocol limit
+UPSERT_CHUNK_ROWS = 500  # 500 rows x 8 cols = 4000 params, far below the 65535 protocol limit
 # Invariant: placeholder count in _ROW_SQL == len(_UPSERT_COLS), or every
 # poll's upserts fail loudly. Covered by test_upsert_placeholders_match_columns.
 
@@ -140,6 +192,9 @@ _UPSERT_COLS = (
     "url",
     "countries",
     "is_remote",
+    # Insert-only stamp of the mapping generation (see jobs.geo_version):
+    # never in _UPDATE_COLS, remapping stays a deliberate separate job.
+    "geo_version",
 )
 
 # Columns refreshed when a row already exists. Description is intentionally
@@ -150,10 +205,12 @@ _UPDATE_COLS = ("title", "location", "url", "countries", "is_remote")
 
 # One row of placeholders. uuid/text[] casts keep psycopg param typing exact.
 # Placeholder count must equal len(_UPSERT_COLS) (verified by test).
-_ROW_SQL = "(%s::uuid, %s, %s, %s, %s, %s::text[], %s)"
+_ROW_SQL = "(%s::uuid, %s, %s, %s, %s, %s::text[], %s, %s)"
 
 
-def upsert_jobs_returning(settings: Settings, rows: list[dict[str, Any]]) -> dict[str, Any]:
+def upsert_jobs_returning(
+    settings: Settings, rows: list[dict[str, Any]], geo_version: int | None = None
+) -> dict[str, Any]:
     """Bulk insert with database-side dedup. Returns {"new_ids", "failed_chunks"}.
 
     Chunked INSERT ... ON CONFLICT DO UPDATE ... RETURNING replaces the old
@@ -195,6 +252,7 @@ def upsert_jobs_returning(settings: Settings, rows: list[dict[str, Any]]) -> dic
                     row["url"],
                     row.get("countries") or [],
                     bool(row.get("is_remote")),
+                    geo_version,
                 ]
             )
         sql = (
@@ -275,14 +333,34 @@ def prune_inactive_jobs(settings: Settings, days: int = INACTIVE_RETENTION_DAYS)
     return rows[0]["c"] if rows else 0
 
 
-def mark_checked(supabase: Client, source_id: str, quiet_runs: int = 0) -> None:
-    supabase.table("sources").update(
-        {
-            "last_checked_at": datetime.now(UTC).isoformat(),
-            "last_error": None,
-            "quiet_runs": quiet_runs,
-        }
-    ).eq("id", source_id).execute()
+def mark_checked(
+    settings: Settings,
+    source_id: str,
+    quiet_runs: int = 0,
+    *,
+    fetched: int = 0,
+    new: int = 0,
+    duration_ms: int | None = None,
+) -> None:
+    """Record a successful poll: success timestamps plus health counters, atomically.
+
+    Single raw UPDATE (not read-modify-write) so overlapping manual/scheduled
+    runs can't lose increments. consecutive_empty_runs counts fetched-nothing
+    polls and is distinct from quiet_runs (fetched plenty, nothing new);
+    errors never touch it. last_http_status is 200 by construction here —
+    any failed request raises into mark_error instead.
+    """
+    query(
+        settings,
+        "update sources set last_checked_at = now(), last_error = null, last_error_code = null, last_error_type = null, quiet_runs = %s,"
+        " last_success_at = now(), consecutive_failures = 0,"
+        " consecutive_empty_runs = case when %s = 0"
+        " then consecutive_empty_runs + 1 else 0 end,"
+        " last_http_status = 200, last_duration_ms = %s,"
+        " jobs_last_seen = case when %s > 0 then now() else jobs_last_seen end"
+        " where id = %s::uuid",
+        (quiet_runs, fetched, duration_ms, new, source_id),
+    )
 
 
 def next_quiet_runs(source: dict[str, Any], first_check: bool, new_count: int) -> int:
@@ -331,17 +409,59 @@ def quiet_due(
     return True, None
 
 
-def mark_error(supabase: Client, source: dict[str, Any], exc: Exception) -> None:
+def _classify_error(exc: Exception) -> tuple[int | None, str | None]:
+    """Map exception to (code, type) for structured error state. Keeps last_error text for humans."""
+    msg = str(exc).lower()
+    response = getattr(exc, "response", None)
+    http_status = getattr(response, "status_code", None) if response else None
+    try:
+        http_status = int(http_status) if http_status is not None else None
+    except (TypeError, ValueError):
+        http_status = None
+    if http_status == 404:
+        return 404, "board_not_found"
+    if http_status == 429:
+        return 429, "rate_limit"
+    if http_status in (500, 502, 503, 504):
+        return http_status, "server_error"
+    if http_status is not None:
+        return http_status, "http_error"
+    if "timeout" in msg or "timed out" in msg:
+        return None, "timeout"
+    if "network" in msg or "connection" in msg or "dns" in msg:
+        return None, "network_error"
+    if "not found" in msg:
+        return 404, "board_not_found"
+    return None, "unknown"
+
+
+def mark_error(settings: Settings, source: dict[str, Any], exc: Exception) -> None:
+    """Record a failed poll. Failure timestamps advance; success fields and the
+    empty counter are deliberately untouched (errors are tracked by
+    consecutive_failures, and a failed poll says nothing about emptiness)."""
     message = str(exc).strip().replace("\n", " ")[:500] or exc.__class__.__name__
-    supabase.table("sources").update(
-        {"last_checked_at": datetime.now(UTC).isoformat(), "last_error": message}
-    ).eq("id", source["id"]).execute()
+    response = getattr(exc, "response", None)
+    http_status = getattr(response, "status_code", None)
+    try:
+        http_status = int(http_status) if http_status is not None else None
+    except (TypeError, ValueError):
+        http_status = None
+    code, typ = _classify_error(exc)
+    # Use HTTP status as code if classified didn't provide one
+    if code is None and http_status is not None:
+        code = http_status
+    query(
+        settings,
+        "update sources set last_checked_at = now(), last_error = %s,"
+        " last_failure_at = now(), consecutive_failures = consecutive_failures + 1,"
+        " last_http_status = %s, last_error_code = %s, last_error_type = %s where id = %s::uuid",
+        (message, http_status, code, typ, source["id"]),
+    )
 
 
 def prune_old_jobs(supabase: Client, retention_days: int) -> int:
     # Dead postings go first and fast (inactive 7d); open ones keep full retention.
-    # Both cascades clean job_matches/notification_queue via the 035 FKs
-    # (notifications_sent rows for pruned jobs are intentionally left as history).
+    # The 035/042 cascades clean job_matches/notification_queue/notifications_sent.
     dead = prune_inactive_jobs(load_settings())
     if dead:
         print(
@@ -415,6 +535,7 @@ async def poll_source(
     mapping from the DB (one fewer query per source per poll).
     New-job detection is database-side: chunked INSERT ... ON CONFLICT DO UPDATE
     ... RETURNING (xmax = 0) replaces the old preload-all-IDs + Python diff."""
+    t0 = asyncio.get_event_loop().time()
     jobs = await adapter.fetch_jobs(source["board_identifier"], client=client)
     first_check = source.get("last_checked_at") is None
     if geo_settings is None:
@@ -429,19 +550,85 @@ async def poll_source(
     # VALUES rows for one conflict target would abort the whole INSERT chunk.
     rows = dedupe_rows([job.to_row(source_id=source["id"]) for job in jobs])
     settings = load_settings()
-    outcome = upsert_jobs_returning(settings, rows)
-    # Lifecycle, in dependency order (success path only — this function is never
-    # reached on fetch errors, and skipped/errored polls never call it):
-    # upsert -> reactivate reposts -> touch sightings -> sweep the unseen.
-    # Reactivate runs before touch so reactivated rows aren't written twice.
+    try:
+        mapping_version = geo_settings.get("version")
+        geo_version = int(mapping_version) if mapping_version is not None else None
+    except (TypeError, ValueError):
+        geo_version = None
+    # Short DB transaction for lifecycle + health: reactivate/touch/sweep/mark_checked
+    # are one atomic unit. HTTP fetch already finished, so transaction holds no network.
+    # Upsert stays per-chunk transactional (self-healing on bad rows) and runs
+    # outside this block; the lifecycle steps are small and safe to bundle.
+    outcome = upsert_jobs_returning(settings, rows, geo_version=geo_version)
     seen_ids = [row["external_job_id"] for row in rows]
-    reactivated = reactivate_jobs(settings, source["id"], seen_ids)
-    touch_seen_jobs(settings, source["id"], seen_ids)
-    swept = sweep_missing_jobs(settings, source["id"])
-    if swept:
-        print(f"{source['company_name']}: {len(swept)} posting(s) no longer listed (deactivated)")
-    new_ids = outcome["new_ids"] + reactivated
-    mark_checked(supabase, source["id"], next_quiet_runs(source, first_check, len(new_ids)))
+    # Lifecycle steps are small, so we bundle them in one transaction for atomicity:
+    # if any fails, the source's health is not partially updated.
+    # Try the short transactional path (real DB). In unit tests load_settings is
+    # stubbed to a sentinel (no database_url) and query is monkeypatched, so
+    # get_pool will fail — fall back to the helper path that goes through query.
+    try:
+        from app.db import get_pool
+
+        has_pool = hasattr(settings, "database_url") and isinstance(settings.database_url, str)
+    except Exception:
+        has_pool = False
+    if has_pool:
+        try:
+            with get_pool(settings).connection() as conn, conn.transaction(), conn.cursor() as cur:
+                    reactivated_rows = cur.execute(
+                        "update jobs set is_active = true, last_seen_at = now(), last_updated_at = now() "
+                        "where source_id = %s::uuid and external_job_id = any(%s) and is_active = false "
+                        "returning external_job_id",
+                        (source["id"], seen_ids),
+                    ).fetchall() if seen_ids else []
+                    if seen_ids:
+                        cur.execute(
+                            "update jobs set last_seen_at = now() "
+                            "where source_id = %s::uuid and external_job_id = any(%s) "
+                            "and last_seen_at < now() - (%s || ' hours')::interval",
+                            (source["id"], seen_ids, TOUCH_STALE_HOURS),
+                        )
+                    swept_rows = cur.execute(
+                        "update jobs set is_active = false "
+                        "where source_id = %s::uuid and is_active "
+                        "and last_seen_at < now() - (%s || ' hours')::interval "
+                        "returning external_job_id",
+                        (source["id"], LIFECYCLE_GRACE_HOURS),
+                    ).fetchall()
+                    reactivated = [r[0] for r in reactivated_rows]
+                    swept = [r[0] for r in swept_rows]
+                    if swept:
+                        print(f"{source['company_name']}: {len(swept)} posting(s) no longer listed (deactivated)")
+                    new_ids = outcome["new_ids"] + reactivated
+                    duration_ms = int((asyncio.get_event_loop().time() - t0) * 1000)
+                    cur.execute(
+                        "update sources set last_checked_at = now(), last_error = null, last_error_code = null, last_error_type = null, quiet_runs = %s,"
+                        " last_success_at = now(), consecutive_failures = 0,"
+                        " consecutive_empty_runs = case when %s = 0 then consecutive_empty_runs + 1 else 0 end,"
+                        " last_http_status = 200, last_duration_ms = %s,"
+                        " jobs_last_seen = case when %s > 0 then now() else jobs_last_seen end"
+                        " where id = %s::uuid",
+                        (next_quiet_runs(source, first_check, len(new_ids)), len(jobs), duration_ms, len(new_ids), source["id"]),
+                    )
+        except Exception as exc:
+            raise RuntimeError(f"DB transaction failed for {source['company_name']}: {exc}") from exc
+    else:
+        # Test / stubbed settings: use the query-based helpers (monkeypatched in tests)
+        reactivated = reactivate_jobs(settings, source["id"], seen_ids)
+        touch_seen_jobs(settings, source["id"], seen_ids)
+        swept = sweep_missing_jobs(settings, source["id"])
+        if swept:
+            print(f"{source['company_name']}: {len(swept)} posting(s) no longer listed (deactivated)")
+        new_ids = outcome["new_ids"] + reactivated
+        duration_ms = int((asyncio.get_event_loop().time() - t0) * 1000)
+        mark_checked(
+            settings,
+            source["id"],
+            next_quiet_runs(source, first_check, len(new_ids)),
+            fetched=len(jobs),
+            new=len(new_ids),
+            duration_ms=duration_ms,
+        )
     return {
         "company": source["company_name"],
         "source_id": source["id"],
@@ -540,10 +727,17 @@ async def poll_all_sources(
 ) -> dict[str, Any]:
     """Run the full ingestion pipeline and return a per-run status summary.
 
-    Every invocation (scheduled cron or manual button) records a poll_runs row
-    so the UI can show new jobs, new matches, and per-channel alert sends.
+    Advisory lock (54/55) is the primary mutex: per-ATS, held on a dedicated
+    connection for the whole run, auto-released on disconnect. poll_runs remains
+    pure history. Every invocation records a poll_runs row so the UI can show
+    new jobs, new matches, and per-channel alert sends.
     """
     settings = load_settings()
+    # Advisory lock is the primary distributed mutex (54/55); poll_runs is history only.
+    lock_conn = try_acquire_poll_lock(settings, ats_type)
+    if lock_conn is None:
+        print(f"scheduler: skipping {ats_type or 'all'} poll, advisory lock held")
+        return {"run_id": run_id, "status": "skipped", "jobs_new": 0, "matches_new": 0}
     supabase = get_supabase(settings)
 
     if run_id is None:
@@ -603,7 +797,6 @@ async def poll_all_sources(
         _filtered_sources: list[dict[str, Any]] = []
         _skipped: list[dict[str, Any]] = []
         for _s in sources:
-            _err = _s.get("last_error") or ""
             _last = _s.get("last_checked_at")
             if _last is None:
                 _filtered_sources.append(_s)
@@ -614,7 +807,13 @@ async def poll_all_sources(
                 except ValueError:
                     _filtered_sources.append(_s)
                     continue
-            if "404" in _err and (_now - _last).total_seconds() < NOT_FOUND_BACKOFF_SECONDS:
+            # Structured check: 404 board_not_found backoff, fallback to text for old rows
+            is_404 = (
+                _s.get("last_error_code") == 404 or _s.get("last_error_type") == "board_not_found"
+            )
+            if not is_404 and _s.get("last_error_code") is None:
+                is_404 = "404" in (_s.get("last_error") or "")
+            if is_404 and (_now - _last).total_seconds() < NOT_FOUND_BACKOFF_SECONDS:
                 _skipped.append(
                     {
                         "company": _s["company_name"],
@@ -723,7 +922,7 @@ async def poll_all_sources(
                         entry["error"] = str(exc)[:300]
                         print(f"{source['company_name']}: FAILED - {exc}")
                         try:
-                            mark_error(supabase, source, exc)
+                            mark_error(settings, source, exc)
                         except Exception as mark_err:
                             print(f"{source['company_name']}: could not record error - {mark_err}")
                     finally:
@@ -776,6 +975,10 @@ async def poll_all_sources(
             pass
         return {"run_id": run_id, "status": "failed", "error": str(exc)[:500]}
     finally:
+        try:
+            release_poll_lock(lock_conn, ats_type)
+        except Exception as exc:
+            print(f"poll run {run_id}: advisory lock release failed: {exc}")
         try:
             await close_async_pool()
         except Exception as exc:
