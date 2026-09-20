@@ -12,7 +12,7 @@ from app.adapters.http import RetryingClient
 from app.config import Settings, load_settings
 from app.db import close_async_pool, get_supabase, open_async_pool, query
 from app.geo import map_location
-from app.matcher import load_notification_settings, sync_preferences
+from app.matcher import sync_preferences
 from app.models import NormalizedJob
 from app.notification_queue import drain_due_notifications, load_audience, match_and_enqueue
 from app.settings_store import load_location_mapping
@@ -795,8 +795,6 @@ async def poll_all_sources(
         # Preferences must exist before the audience snapshot so a fresh
         # deployment matches on its very first poll.
         sync_preferences(supabase, settings.preferences)
-        notify_settings = load_notification_settings(supabase)
-        notify_first_check = notify_settings.get("notify_first_check", True)
         geo_settings = load_location_mapping(supabase)
         company_by_source = {source["id"]: source["company_name"] for source in sources}
         audience = load_audience(settings)
@@ -935,7 +933,9 @@ async def poll_all_sources(
                         )
                         # Match + enqueue IMMEDIATELY for this source — a slow board
                         # elsewhere no longer delays these alerts (per-source pipeline).
-                        suppress = result["first_check"] and not notify_first_check
+                        # User requested: never send alerts on a company's first poll (first_check),
+                        # regardless of notify_first_check setting — first fetch is backfill, not news.
+                        suppress = bool(result["first_check"])
                         new_ids = [] if suppress else list(result["new_ids"])
                         if new_ids:
                             outcome = match_and_enqueue(
