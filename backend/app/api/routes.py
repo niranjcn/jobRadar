@@ -805,6 +805,8 @@ def schedule(admin: Annotated[UserCtx, Depends(get_current_admin)]) -> dict:
         "custom",
         "remotive",
         "weworkremotely",
+        "workable",
+        "smartrecruiters",
     ]
     entries = []
     for ats in ats_order:

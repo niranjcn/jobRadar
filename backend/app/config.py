@@ -20,6 +20,8 @@ ATS_DEFAULT_SECONDS = {
     "amazon": 3600,
     "remotive": 3600,
     "weworkremotely": 3600,
+    "workable": 3600,
+    "smartrecruiters": 3600,
 }
 
 # Per-ATS concurrency for Tier 1: light boards handle 16 parallel. Heavy boards
@@ -35,6 +37,10 @@ ATS_CONCURRENCY = {
     "ashby": 16,
     "remotive": 16,
     "weworkremotely": 16,
+    # Single shared API hosts (apply.workable.com, api.smartrecruiters.com):
+    # low concurrency, unlike per-tenant hosts (workday) that scale wide.
+    "workable": 6,
+    "smartrecruiters": 6,
     "workday": 20,
     "oracle": 10,
     "successfactors": 10,

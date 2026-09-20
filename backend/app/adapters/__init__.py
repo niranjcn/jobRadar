@@ -11,8 +11,10 @@ from app.adapters.lever import LeverAdapter
 from app.adapters.oracle import OracleAdapter
 from app.adapters.phenom import PhenomAdapter
 from app.adapters.remotive import RemotiveAdapter
+from app.adapters.smartrecruiters import SmartRecruitersAdapter
 from app.adapters.successfactors import SuccessFactorsAdapter
 from app.adapters.weworkremotely import WeworkremotelyAdapter
+from app.adapters.workable import WorkableAdapter
 from app.adapters.workday import WorkdayAdapter
 
 
@@ -43,6 +45,10 @@ def adapter_for(ats_type: str) -> JobSourceAdapter:
         return RemotiveAdapter()
     if ats_type == WeworkremotelyAdapter.ats_type:
         return WeworkremotelyAdapter()
+    if ats_type == WorkableAdapter.ats_type:
+        return WorkableAdapter()
+    if ats_type == SmartRecruitersAdapter.ats_type:
+        return SmartRecruitersAdapter()
     if ats_type == CustomAdapter.ats_type:
         return CustomAdapter()
     if ats_type == EmiratesAdapter.ats_type:

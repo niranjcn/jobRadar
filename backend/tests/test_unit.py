@@ -2469,3 +2469,119 @@ def test_stats_daily_shapes_series(monkeypatch):
     # 61: optimized to GROUP BY: now 2 placeholders (days, user_id) not 3
     assert sql.count("%s") == len(params) == 2
     assert params[1] == "user-1"
+
+
+def _load_workable_fixture():
+    with open(FIXTURES / "workable" / "accellor_jobs.json", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def test_workable_public_api_shape():
+    """Public accounts endpoint returns the whole board in one response."""
+    payload = _load_workable_fixture()
+    assert isinstance(payload.get("jobs"), list) and len(payload["jobs"]) > 0
+
+
+def test_workable_normalize_multilocation():
+    """One shortcode repeated per location -> one row per location, stable ids."""
+    from app.adapters.workable import WorkableAdapter
+
+    rows = WorkableAdapter._normalize(_load_workable_fixture()["jobs"][0])
+    assert len(rows) == 2
+    assert rows[0].external_job_id == "9D7A608A44:IN:Hyderabad"
+    assert rows[1].external_job_id == "9D7A608A44:IN:Bengaluru"
+    assert rows[0].title == "AI Developer"
+    assert rows[0].location == "Hyderabad, Telangana, India"
+    assert rows[0].countries == ["IN"]
+    assert rows[0].url == "https://apply.workable.com/j/9D7A608A44"
+    assert rows[0].posted_at == "2026-03-13"
+
+
+def test_workable_remote_no_city():
+    from app.adapters.workable import WorkableAdapter
+
+    rows = WorkableAdapter._normalize(_load_workable_fixture()["jobs"][1])
+    assert len(rows) == 1
+    assert rows[0].is_remote is True
+    assert "United States" in (rows[0].location or "")
+
+
+def test_workable_missing_shortcode_skipped():
+    """Empty shortcode has no stable key -> dropped, never stored."""
+    from app.adapters.workable import WorkableAdapter
+
+    assert WorkableAdapter._normalize(_load_workable_fixture()["jobs"][2]) == []
+
+
+def test_workable_follows_widget_redirect():
+    """Boards that 302 to apply.workable.com/api/v1/widget/... are followed."""
+    import asyncio
+
+    import httpx
+
+    from app.adapters.http import RetryingClient
+    from app.adapters.workable import WorkableAdapter
+
+    payload = _load_workable_fixture()
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if "www.workable.com" in str(request.url):
+            return httpx.Response(
+                302,
+                headers={"location": "https://apply.workable.com/api/v1/widget/accounts/accellor"},
+                request=request,
+            )
+        return httpx.Response(200, json=payload, request=request)
+
+    async def run():
+        async with RetryingClient(transport=httpx.MockTransport(handler), timeout=30.0) as client:
+            return await WorkableAdapter().fetch_jobs("accellor", client=client)
+
+    jobs = asyncio.run(run())
+    assert len(jobs) == 3  # 2 locations + 1 remote, empty-shortcode dropped
+    assert jobs[0].external_job_id == "9D7A608A44:IN:Hyderabad"
+
+
+def _load_sr_fixture():
+    with open(FIXTURES / "smartrecruiters" / "abbvie_postings.json", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def test_sr_normalize():
+    from app.adapters.smartrecruiters import SmartRecruitersAdapter
+
+    payload = _load_sr_fixture()
+    assert payload["totalFound"] > 0
+    job = SmartRecruitersAdapter._normalize("abbvie", payload["content"][0])
+    assert job is not None
+    assert job.external_job_id == "3743990015437012"
+    assert job.title == "Manufacturing Supervisor I"
+    assert job.location == "Cincinnati, OH, United States"
+    assert job.url == "https://jobs.smartrecruiters.com/AbbVie/3743990015437012"
+    assert job.posted_at == "2026-09-19T16:22:40.579Z"
+    assert job.countries == ["US"]
+    assert job.is_remote is False
+
+
+def test_sr_remote_flag():
+    from app.adapters.smartrecruiters import SmartRecruitersAdapter
+
+    job = SmartRecruitersAdapter._normalize("abbvie", _load_sr_fixture()["content"][1])
+    assert job is not None
+    assert job.is_remote is True
+
+
+def test_sr_missing_id_skipped():
+    from app.adapters.smartrecruiters import SmartRecruitersAdapter
+
+    assert SmartRecruitersAdapter._normalize("abbvie", _load_sr_fixture()["content"][2]) is None
+
+
+def test_sr_pagination_arithmetic():
+    """offset += len(page) with limit=100 covers totalFound exactly."""
+    from app.adapters.smartrecruiters import PAGE_SIZE
+
+    total = _load_sr_fixture()["totalFound"]
+    pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
+    assert pages * PAGE_SIZE >= total
+    assert PAGE_SIZE == 100
