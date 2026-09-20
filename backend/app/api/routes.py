@@ -149,25 +149,47 @@ def stats(user: Annotated[UserCtx, Depends(get_current_user)]) -> dict:
 
 @router.get("/stats/daily")
 def stats_daily(user: Annotated[UserCtx, Depends(get_current_user)], days: int = 14) -> dict:
-    """Per-day job + match counts for the dashboard trend chart (zero-filled)."""
+    """Per-day job + match counts for the dashboard trend chart (zero-filled).
+
+    61: single-pass GROUP BY + LEFT JOIN instead of 3 correlated subqueries
+    per day (60 days = 180 scans). Scans jobs/job_matches once each.
+    """
     settings = _settings()
     days = max(2, min(days, 60))
     rows = query(
         settings,
         """
-        select to_char(day, 'YYYY-MM-DD') as day,
-               (select count(*)::int from jobs
-                 where date_trunc('day', first_seen_at) = day) as jobs,
-               (select count(*)::int from job_matches
-                 where user_id = %s and date_trunc('day', created_at) = day) as matches,
-               (select coalesce(round(avg(match_score))::int, 0) from job_matches
-                 where user_id = %s and date_trunc('day', created_at) = day) as avg_score
-        from generate_series(
-            date_trunc('day', now()) - (%s || ' days')::interval,
-            date_trunc('day', now()), '1 day') as day
+        with days as (
+            select generate_series(
+                date_trunc('day', now()) - (%s || ' days')::interval,
+                date_trunc('day', now()), '1 day')::date as d
+        ),
+        jobs_agg as (
+            select date_trunc('day', first_seen_at)::date as d,
+                   count(*)::int as c
+            from jobs
+            where first_seen_at >= (select min(d) from days)
+            group by 1
+        ),
+        matches_agg as (
+            select date_trunc('day', created_at)::date as d,
+                   count(*)::int as c,
+                   coalesce(round(avg(match_score))::int, 0) as avg_score
+            from job_matches
+            where user_id = %s
+              and created_at >= (select min(d) from days)
+            group by 1
+        )
+        select to_char(days.d, 'YYYY-MM-DD') as day,
+               coalesce(jobs_agg.c, 0) as jobs,
+               coalesce(matches_agg.c, 0) as matches,
+               coalesce(matches_agg.avg_score, 0) as avg_score
+        from days
+        left join jobs_agg on jobs_agg.d = days.d
+        left join matches_agg on matches_agg.d = days.d
         order by 1
         """,
-        (user.id, user.id, days - 1),
+        (days - 1, user.id),
     )
     series = [
         {"date": r["day"], "jobs": r["jobs"], "matches": r["matches"], "avg_score": r["avg_score"]}
@@ -592,7 +614,12 @@ def update_source(
 async def run_source(source_id: str, admin: Annotated[UserCtx, Depends(get_current_admin)]) -> dict:
     settings = _settings()
     supabase = _supabase()
-    response = supabase.table("sources").select("*").eq("id", source_id).execute()
+    response = (
+        supabase.table("sources")
+        .select("id, company_name, ats_type, board_identifier, active, last_checked_at, last_error, quiet_runs")
+        .eq("id", source_id)
+        .execute()
+    )
     if not response.data:
         raise HTTPException(status_code=404, detail="source not found")
     source = response.data[0]
