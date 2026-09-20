@@ -34,6 +34,24 @@ def _detect_from_url(url: str) -> dict | None:
         parts = [s for s in urlparse(url).path.strip("/").split("/") if s]
         if parts:
             return {"ats_type": "smartrecruiters", "board_identifier": parts[0].lower()}
+    if host.endswith(".breezy.hr"):
+        return {"ats_type": "breezy", "board_identifier": host.split(".")[0]}
+    if host == "jobs.jobvite.com":
+        parts = [s for s in urlparse(url).path.strip("/").split("/") if s]
+        if parts:
+            return {"ats_type": "jobvite", "board_identifier": parts[0].lower()}
+    if host.endswith(".applytojob.com"):
+        return {"ats_type": "jazzhr", "board_identifier": host.split(".")[0]}
+    if host.endswith(".bamboohr.com"):
+        return {"ats_type": "bamboohr", "board_identifier": host.split(".")[0]}
+    if host.endswith(".teamtailor.com"):
+        return {"ats_type": "teamtailor", "board_identifier": host.split(".")[0]}
+    if host == "ats.rippling.com":
+        parts = [s for s in urlparse(url).path.strip("/").split("/") if s]
+        if parts:
+            return {"ats_type": "rippling", "board_identifier": parts[0]}
+    if host.endswith(".eightfold.ai"):
+        return {"ats_type": "eightfold", "board_identifier": host.split(".")[0]}
     if "myworkdayjobs.com" in host:
         return {"ats_type": "workday", "board_identifier": url.rstrip("/")}
     if "taleo.net" in host or "/careersection" in url:

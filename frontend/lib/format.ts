@@ -90,11 +90,18 @@ export function atsLabel(ats: string): string {
     weworkremotely: "We Work Remotely",
     workable: "Workable",
     smartrecruiters: "SmartRecruiters",
+    breezy: "Breezy HR",
+    jobvite: "Jobvite",
+    jazzhr: "JazzHR",
+    bamboohr: "BambooHR",
+    teamtailor: "Teamtailor",
+    rippling: "Rippling",
+    eightfold: "Eightfold",
   };
   return map[ats] || ats;
 }
 
-export const ATS_ORDER = ["workday", "greenhouse", "lever", "ashby", "oracle", "icims", "successfactors", "phenom", "avature", "emirates", "google", "amazon", "remotive", "weworkremotely", "workable", "smartrecruiters", "custom"];
+export const ATS_ORDER = ["workday", "greenhouse", "lever", "ashby", "oracle", "icims", "successfactors", "phenom", "avature", "emirates", "google", "amazon", "remotive", "weworkremotely", "workable", "smartrecruiters", "breezy", "jobvite", "jazzhr", "bamboohr", "teamtailor", "rippling", "eightfold", "custom"];
 
 export function formatDuration(ms: number | null | undefined): string {
   if (ms == null || Number.isNaN(ms)) return "—";

@@ -107,19 +107,45 @@ def load_source_config() -> list[dict[str, Any]]:
 
 
 def sync_sources(supabase: Client) -> None:
-    for entry in load_source_config():
-        supabase.table("sources").upsert(
-            [
-                {
-                    "company_name": entry["company_name"],
-                    "ats_type": entry["ats_type"],
-                    "board_identifier": entry["board_identifier"],
-                    "domain": (entry.get("domain") or "").strip().lower() or None,
-                    "active": entry.get("active", True),
-                }
-            ],
-            on_conflict="company_name",
-        ).execute()
+    """Seed sources.json into the DB, upserting only changed/new rows.
+
+    A blind upsert per entry costs a REST round-trip each (~8 min at 2500 rows
+    on every poll start). One SELECT + diff keeps the common no-change case to
+    a single query; health columns (last_checked_at, counters) are never
+    touched here.
+    """
+    entries = load_source_config()
+    try:
+        existing = {
+            row["company_name"]: row
+            for row in (
+                supabase.table("sources")
+                .select("company_name, ats_type, board_identifier, domain, active")
+                .execute()
+                .data
+                or []
+            )
+        }
+    except Exception:
+        existing = {}
+    for entry in entries:
+        desired = {
+            "company_name": entry["company_name"],
+            "ats_type": entry["ats_type"],
+            "board_identifier": entry["board_identifier"],
+            "domain": (entry.get("domain") or "").strip().lower() or None,
+            "active": entry.get("active", True),
+        }
+        current = existing.get(entry["company_name"])
+        if (
+            current is not None
+            and current.get("ats_type") == desired["ats_type"]
+            and (current.get("board_identifier") or "") == desired["board_identifier"]
+            and (current.get("domain") or None) == desired["domain"]
+            and current.get("active", True) == desired["active"]
+        ):
+            continue
+        supabase.table("sources").upsert([desired], on_conflict="company_name").execute()
 
 
 def fetch_sources(supabase: Client) -> list[dict[str, Any]]:

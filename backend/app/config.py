@@ -22,6 +22,13 @@ ATS_DEFAULT_SECONDS = {
     "weworkremotely": 3600,
     "workable": 3600,
     "smartrecruiters": 3600,
+    "breezy": 3600,
+    "jobvite": 3600,
+    "jazzhr": 3600,
+    "bamboohr": 3600,
+    "teamtailor": 3600,
+    "rippling": 3600,
+    "eightfold": 3600,
 }
 
 # Per-ATS concurrency for Tier 1: light boards handle 16 parallel. Heavy boards
@@ -41,6 +48,15 @@ ATS_CONCURRENCY = {
     # low concurrency, unlike per-tenant hosts (workday) that scale wide.
     "workable": 6,
     "smartrecruiters": 6,
+    # Per-company subdomains but HTML-heavy pages: moderate concurrency.
+    "breezy": 10,
+    "bamboohr": 10,
+    "teamtailor": 10,
+    "jazzhr": 10,
+    "eightfold": 10,
+    # Single shared hosts: low concurrency.
+    "rippling": 6,
+    "jobvite": 6,
     "workday": 20,
     "oracle": 10,
     "successfactors": 10,
