@@ -757,6 +757,19 @@ async def poll_all_sources(
     lock_conn = try_acquire_poll_lock(settings, ats_type)
     if lock_conn is None:
         print(f"scheduler: skipping {ats_type or 'all'} poll, advisory lock held")
+        # Manual runs already created a poll_runs row with status running — mark it
+        # skipped so it doesn't stay orphaned (and block the 45m stale check).
+        if run_id is not None:
+            try:
+                supabase = get_supabase(settings)
+                finish_poll_run(
+                    supabase,
+                    run_id,
+                    status="skipped",
+                    error="advisory lock held — another poll in progress",
+                )
+            except Exception as exc:
+                print(f"poll run {run_id}: failed to mark skipped: {exc}")
         return {"run_id": run_id, "status": "skipped", "jobs_new": 0, "matches_new": 0}
     supabase = get_supabase(settings)
 
