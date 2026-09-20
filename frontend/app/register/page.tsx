@@ -109,7 +109,7 @@ export default function RegisterPage() {
 
   if (success) {
     return (
-      <div className={styles.ink}>
+      <div className={styles.ink} style={{ zoom: 1 }}>
       <div className={`${styles.shell} items-center justify-center`}>
         <div className="w-full max-w-sm">
           <div className="mb-8 flex flex-col items-center gap-3">
@@ -134,7 +134,7 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className={styles.ink}>
+    <div className={styles.ink} style={{ zoom: 1 }}>
       <div className={`${styles.shell} items-center justify-center`}>
       <div className="w-full max-w-[400px]">
         <div className="mb-5 flex flex-col items-center gap-2">

@@ -32,7 +32,7 @@ export default function PricingPage() {
   const ctaLabel = !me ? "Get started" : me.access_locked ? "Unlock now" : "Manage billing";
 
   return (
-    <div className={styles.ink}>
+    <div className={styles.ink} style={{ zoom: 1 }}>
       <div className={`${styles.shell} flex-col items-center px-6 py-14`}>
       <Link href="/" className="mb-10 flex flex-col items-center gap-3">
         <RadarMark size={32} />
