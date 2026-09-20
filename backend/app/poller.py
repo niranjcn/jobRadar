@@ -42,40 +42,61 @@ QUIET_SKIP_MULTIPLE = 3
 
 
 def try_acquire_poll_lock(settings: Settings, ats_type: str | None):
-    """Try to acquire advisory lock for poll run. Returns connection holding lock or None if busy.
-    Lock is session-level, held until connection closes (auto-released on crash)."""
+    """Try to acquire advisory lock for poll run.
+
+    Returns a (manager, connection) holder on success, None when another poll
+    holds the lock. The holder keeps one pool connection checked out for the
+    whole poll; checking it back in (release_poll_lock) frees the session-level
+    lock even on crash (locks die with the connection).
+    """
     from app.db import get_pool
 
+    mgr = None
     try:
-        # Use a dedicated connection that stays open for the poll duration
-        conn = get_pool(settings).connection(timeout=5)
-        # Don't use context manager here; caller must close to release lock
-        # We need to keep connection open, so we enter it manually
-        conn.__enter__()
-        with conn.cursor() as cur:
+        # ConnectionPool.connection() is a context MANAGER — __enter__ returns the
+        # raw psycopg connection which must be used for queries (the manager itself
+        # has no .cursor()). Keep both so release can unlock + check the slot back in.
+        mgr = get_pool(settings).connection(timeout=5)
+        raw = mgr.__enter__()
+        with raw.cursor() as cur:
             cur.execute("SELECT pg_try_advisory_lock(hashtext(%s))", (_poll_lock_key(ats_type),))
             acquired = cur.fetchone()[0]
             if not acquired:
-                conn.__exit__(None, None, None)
+                mgr.__exit__(None, None, None)
                 return None
-            return conn
-    except Exception:
+            return (mgr, raw)
+    except Exception as exc:
+        # Never misreport an internal error as "lock held" silently — log it.
+        print(f"poll lock {_poll_lock_key(ats_type)} acquire failed (treated as busy): {exc}")
         try:
-            conn.__exit__(None, None, None)
+            if mgr is not None:
+                mgr.__exit__(None, None, None)
         except Exception:
             pass
         return None
 
 
-def release_poll_lock(conn, ats_type: str | None) -> None:
-    """Release advisory lock and close connection. Never raises."""
+def release_poll_lock(holder, ats_type: str | None) -> None:
+    """Release advisory lock and check the pool connection back in. Never raises."""
+    if holder is None:
+        return
     try:
-        with conn.cursor() as cur:
+        mgr, raw = holder
+    except (TypeError, ValueError):
+        mgr, raw = None, holder
+    try:
+        with raw.cursor() as cur:
             cur.execute("SELECT pg_advisory_unlock(hashtext(%s))", (_poll_lock_key(ats_type),))
     except Exception:
         pass
     try:
-        conn.__exit__(None, None, None)
+        if mgr is not None:
+            mgr.__exit__(None, None, None)
+        else:
+            try:
+                raw.close()
+            except Exception:
+                pass
     except Exception:
         pass
 
