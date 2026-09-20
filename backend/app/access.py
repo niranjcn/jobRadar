@@ -36,7 +36,7 @@ class CouponError(Exception):
 class CouponGrant:
     code_id: str
     grants_role: str
-    duration_days: int | None
+    grant_duration_days: int | None
 
 
 # ---------- pure helpers (unit-tested offline) ----------
@@ -84,19 +84,19 @@ def mint_coupon(
     *,
     created_by: str,
     grants_role: str,
-    duration_days: int | None = None,
+    grant_duration_days: int | None = None,
     note: str | None = None,
 ) -> dict[str, Any]:
     import secrets as _secrets
 
     if grants_role not in ("user", "privileged"):
         raise ValueError("grants_role must be 'user' or 'privileged'")
-    if duration_days is not None:
+    if grant_duration_days is not None:
         try:
-            duration_days = int(duration_days)
+            grant_duration_days = int(grant_duration_days)
         except (TypeError, ValueError):
             raise ValueError("duration must be 1-12 months (30-365 days)")
-        if duration_days < 30 or duration_days > 365:
+        if grant_duration_days < 30 or grant_duration_days > 365:
             raise ValueError("coupon duration must be 1-12 months (30-365 days)")
         # normalize to months: 30,60,90,120,150,180,210,240,270,300,330,365
         # keep as-is for flexibility but enforce bounds
@@ -106,11 +106,11 @@ def mint_coupon(
     rows = query(
         settings,
         """
-        insert into coupon_codes (code, grants_role, duration_days, note, created_by, expires_at)
+        insert into coupon_codes (code, grants_role, grant_duration_days, note, created_by, expires_at)
         values (%s, %s, %s, %s, %s::uuid, %s)
-        returning id, code, grants_role, duration_days, note, created_at, expires_at
+        returning id, code, grants_role, grant_duration_days, note, created_at, expires_at
         """,
-        (code, grants_role, duration_days, note, created_by, expires_at.isoformat()),
+        (code, grants_role, grant_duration_days, note, created_by, expires_at.isoformat()),
     )
     return rows[0]
 
@@ -127,7 +127,7 @@ def redeem_coupon(settings: Settings, supabase: Client, user_id: str, code: str)
            and claimed_by is null
            and claimed_at is null
            and expires_at > now()
-        returning id, grants_role, duration_days
+        returning id, grants_role, grant_duration_days
         """,
         (user_id, code),
     )
@@ -136,8 +136,8 @@ def redeem_coupon(settings: Settings, supabase: Client, user_id: str, code: str)
     grant = claimed[0]
     grants_role = grant["grants_role"]
     period_end: str | None = None
-    if grant["duration_days"]:
-        period_end = (datetime.now(UTC) + timedelta(days=int(grant["duration_days"]))).isoformat()
+    if grant["grant_duration_days"]:
+        period_end = (datetime.now(UTC) + timedelta(days=int(grant["grant_duration_days"]))).isoformat()
 
     query(
         settings,
@@ -155,7 +155,7 @@ def redeem_coupon(settings: Settings, supabase: Client, user_id: str, code: str)
     from app.users import seed_preferences
 
     seed_preferences(supabase, user_id, load_settings_prefs())
-    return {"role": grants_role, "duration_days": grant["duration_days"]}
+    return {"role": grants_role, "grant_duration_days": grant["grant_duration_days"]}
 
 
 def load_settings_prefs() -> dict[str, list[str]]:
@@ -275,10 +275,10 @@ def _get_or_create_razorpay_plan(settings: Settings, client) -> str | None:
     try:
         rows = query(
             settings,
-            "select price_cents, currency, name from plans where code='standard' and is_active limit 1",
+            "select price_minor_units, currency, name from plans where code='standard' and is_active limit 1",
         )
-        plan = rows[0] if rows else {"price_cents": 900, "currency": "INR", "name": "Standard"}
-        amount = int(plan["price_cents"])
+        plan = rows[0] if rows else {"price_minor_units": 900, "currency": "INR", "name": "Standard"}
+        amount = int(plan["price_minor_units"])
         # Razorpay expects amount in paise for INR (₹9 = 900 paise). Our DB stores cents/paise already (900 = ₹9)
         # Ensure at least 100 paise (₹1) minimum
         amount = max(amount, 100)
@@ -305,10 +305,10 @@ def _create_razorpay_order(settings: Settings, client, user_id: str) -> dict[str
     """Fallback one-time order when subscriptions not enabled (autopay disabled in dashboard)."""
     rows = query(
         settings,
-        "select price_cents, currency from plans where code='standard' and is_active limit 1",
+        "select price_minor_units, currency from plans where code='standard' and is_active limit 1",
     )
-    plan = rows[0] if rows else {"price_cents": 50000, "currency": "INR"}
-    amount = int(plan["price_cents"])
+    plan = rows[0] if rows else {"price_minor_units": 50000, "currency": "INR"}
+    amount = int(plan["price_minor_units"])
     amount = max(amount, 100)
     # Razorpay order amount is in paise
     try:
@@ -546,10 +546,10 @@ def start_checkout(settings: Settings, user_id: str) -> dict[str, Any]:
             try:
                 rows = query(
                     settings,
-                    "select price_cents, currency from plans where code='standard' and is_active limit 1",
+                    "select price_minor_units, currency from plans where code='standard' and is_active limit 1",
                 )
-                price = rows[0] if rows else {"price_cents": 900, "currency": "INR"}
-                amt = f"{price['currency']} {(price['price_cents'] / 100):.2f}"
+                price = rows[0] if rows else {"price_minor_units": 900, "currency": "INR"}
+                amt = f"{price['currency']} {(price['price_minor_units'] / 100):.2f}"
             except Exception:
                 amt = "plan price"
             return {
@@ -560,7 +560,7 @@ def start_checkout(settings: Settings, user_id: str) -> dict[str, Any]:
                     "If Razorpay keys are not configured, contact admin for manual unlock."
                 ),
                 "order_id": None,
-                "amount": price.get("price_cents")
+                "amount": price.get("price_minor_units")
                 if "price" in locals() and isinstance(price, dict)
                 else 900,
             }
@@ -569,16 +569,16 @@ def start_checkout(settings: Settings, user_id: str) -> dict[str, Any]:
             sub = create_razorpay_subscription(settings, user_id)
             rows = query(
                 settings,
-                "select price_cents, currency from plans where code='standard' and is_active limit 1",
+                "select price_minor_units, currency from plans where code='standard' and is_active limit 1",
             )
-            price = rows[0] if rows else {"price_cents": 900, "currency": "INR"}
+            price = rows[0] if rows else {"price_minor_units": 900, "currency": "INR"}
             return {
                 "provider": "razorpay",
                 "subscription_id": sub["subscription_id"],
                 "plan_id": sub["plan_id"],
                 "customer_id": sub["customer_id"],
                 "key_id": settings.razorpay_key_id,
-                "amount": price["price_cents"],
+                "amount": price["price_minor_units"],
                 "currency": price.get("currency", "INR"),
                 "instructions": "Razorpay autopay — subscription created, complete authentication to activate monthly billing. Access unlocks only after successful payment.",
             }

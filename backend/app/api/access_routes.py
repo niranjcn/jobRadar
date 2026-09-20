@@ -34,7 +34,7 @@ def plans() -> dict:
     settings = load_settings()
     rows = query(
         settings,
-        "select code, name, price_cents, currency, interval from plans "
+        "select code, name, price_minor_units, currency, interval from plans "
         "where is_active order by sort_order",
     )
     return {"plans": rows}
