@@ -447,7 +447,14 @@ def _cmd_companies(settings: Settings, supabase: Client, args: str) -> str:
 
 
 def _cmd_sources(settings: Settings, supabase: Client, args: str) -> str:
-    rows = supabase.table("sources").select("id, company_name, ats_type, last_checked_at, last_error").eq("active", True).execute().data or []
+    rows = (
+        supabase.table("sources")
+        .select("id, company_name, ats_type, last_checked_at, last_error")
+        .eq("active", True)
+        .execute()
+        .data
+        or []
+    )
     intervals = settings.ats_intervals
     now = datetime.now(UTC)
     lines = [f"🩺 Source health ({len(rows)})", ""]

@@ -136,9 +136,6 @@ def test_tampered_token_rejected():
     assert verify_session_token(SECRET, body + "." + "0" * 64) is None
 
 
-
-
-
 def test_rate_limiter_window(monkeypatch):
     monkeypatch.setattr("app.auth._rate_buckets", {})
     assert rate_limit("k", max_events=2, window_seconds=60)
