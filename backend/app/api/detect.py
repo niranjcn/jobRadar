@@ -12,6 +12,8 @@ import httpx
 GREENHOUSE = "https://boards-api.greenhouse.io/v1/boards/{slug}/jobs"
 LEVER = "https://api.lever.co/v0/postings/{slug}?mode=json"
 ASHBY = "https://api.ashbyhq.com/posting-api/job-board/{slug}"
+WORKABLE = "https://www.workable.com/api/accounts/{slug}"
+SMARTRECRUITERS = "https://api.smartrecruiters.com/v1/companies/{slug}/postings?limit=1"
 PROBE_TIMEOUT = 8.0
 
 
@@ -24,6 +26,32 @@ def _detect_from_url(url: str) -> dict | None:
     if "emiratesgroupcareers.com" in host:
         root = f"{urlparse(url).scheme or 'https'}://{host}".rstrip("/")
         return {"ats_type": "emirates", "board_identifier": root}
+    if host.endswith(".workable.com") or host == "apply.workable.com":
+        slug = host.split(".")[0] if host.endswith(".workable.com") else ""
+        if slug and slug not in ("www", "apply"):
+            return {"ats_type": "workable", "board_identifier": slug}
+    if host == "jobs.smartrecruiters.com":
+        parts = [s for s in urlparse(url).path.strip("/").split("/") if s]
+        if parts:
+            return {"ats_type": "smartrecruiters", "board_identifier": parts[0].lower()}
+    if host.endswith(".breezy.hr"):
+        return {"ats_type": "breezy", "board_identifier": host.split(".")[0]}
+    if host == "jobs.jobvite.com":
+        parts = [s for s in urlparse(url).path.strip("/").split("/") if s]
+        if parts:
+            return {"ats_type": "jobvite", "board_identifier": parts[0].lower()}
+    if host.endswith(".applytojob.com"):
+        return {"ats_type": "jazzhr", "board_identifier": host.split(".")[0]}
+    if host.endswith(".bamboohr.com"):
+        return {"ats_type": "bamboohr", "board_identifier": host.split(".")[0]}
+    if host.endswith(".teamtailor.com"):
+        return {"ats_type": "teamtailor", "board_identifier": host.split(".")[0]}
+    if host == "ats.rippling.com":
+        parts = [s for s in urlparse(url).path.strip("/").split("/") if s]
+        if parts:
+            return {"ats_type": "rippling", "board_identifier": parts[0]}
+    if host.endswith(".eightfold.ai"):
+        return {"ats_type": "eightfold", "board_identifier": host.split(".")[0]}
     if "myworkdayjobs.com" in host:
         return {"ats_type": "workday", "board_identifier": url.rstrip("/")}
     if "taleo.net" in host or "/careersection" in url:
@@ -65,4 +93,8 @@ async def detect_source(company_name: str, url: str = "") -> dict | None:
             return {"ats_type": "lever", "board_identifier": slug}
         if await _probe(client, ASHBY.format(slug=slug)):
             return {"ats_type": "ashby", "board_identifier": slug}
+        if await _probe(client, WORKABLE.format(slug=slug)):
+            return {"ats_type": "workable", "board_identifier": slug}
+        if await _probe(client, SMARTRECRUITERS.format(slug=slug)):
+            return {"ats_type": "smartrecruiters", "board_identifier": slug}
     return None

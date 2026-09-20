@@ -12,7 +12,7 @@ from app.adapters.http import RetryingClient
 from app.config import Settings, load_settings
 from app.db import close_async_pool, get_supabase, open_async_pool, query
 from app.geo import map_location
-from app.matcher import load_notification_settings, sync_preferences
+from app.matcher import sync_preferences
 from app.models import NormalizedJob
 from app.notification_queue import drain_due_notifications, load_audience, match_and_enqueue
 from app.settings_store import load_location_mapping
@@ -42,40 +42,61 @@ QUIET_SKIP_MULTIPLE = 3
 
 
 def try_acquire_poll_lock(settings: Settings, ats_type: str | None):
-    """Try to acquire advisory lock for poll run. Returns connection holding lock or None if busy.
-    Lock is session-level, held until connection closes (auto-released on crash)."""
+    """Try to acquire advisory lock for poll run.
+
+    Returns a (manager, connection) holder on success, None when another poll
+    holds the lock. The holder keeps one pool connection checked out for the
+    whole poll; checking it back in (release_poll_lock) frees the session-level
+    lock even on crash (locks die with the connection).
+    """
     from app.db import get_pool
 
+    mgr = None
     try:
-        # Use a dedicated connection that stays open for the poll duration
-        conn = get_pool(settings).connection(timeout=5)
-        # Don't use context manager here; caller must close to release lock
-        # We need to keep connection open, so we enter it manually
-        conn.__enter__()
-        with conn.cursor() as cur:
+        # ConnectionPool.connection() is a context MANAGER — __enter__ returns the
+        # raw psycopg connection which must be used for queries (the manager itself
+        # has no .cursor()). Keep both so release can unlock + check the slot back in.
+        mgr = get_pool(settings).connection(timeout=5)
+        raw = mgr.__enter__()
+        with raw.cursor() as cur:
             cur.execute("SELECT pg_try_advisory_lock(hashtext(%s))", (_poll_lock_key(ats_type),))
             acquired = cur.fetchone()[0]
             if not acquired:
-                conn.__exit__(None, None, None)
+                mgr.__exit__(None, None, None)
                 return None
-            return conn
-    except Exception:
+            return (mgr, raw)
+    except Exception as exc:
+        # Never misreport an internal error as "lock held" silently — log it.
+        print(f"poll lock {_poll_lock_key(ats_type)} acquire failed (treated as busy): {exc}")
         try:
-            conn.__exit__(None, None, None)
+            if mgr is not None:
+                mgr.__exit__(None, None, None)
         except Exception:
             pass
         return None
 
 
-def release_poll_lock(conn, ats_type: str | None) -> None:
-    """Release advisory lock and close connection. Never raises."""
+def release_poll_lock(holder, ats_type: str | None) -> None:
+    """Release advisory lock and check the pool connection back in. Never raises."""
+    if holder is None:
+        return
     try:
-        with conn.cursor() as cur:
+        mgr, raw = holder
+    except (TypeError, ValueError):
+        mgr, raw = None, holder
+    try:
+        with raw.cursor() as cur:
             cur.execute("SELECT pg_advisory_unlock(hashtext(%s))", (_poll_lock_key(ats_type),))
     except Exception:
         pass
     try:
-        conn.__exit__(None, None, None)
+        if mgr is not None:
+            mgr.__exit__(None, None, None)
+        else:
+            try:
+                raw.close()
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -86,19 +107,45 @@ def load_source_config() -> list[dict[str, Any]]:
 
 
 def sync_sources(supabase: Client) -> None:
-    for entry in load_source_config():
-        supabase.table("sources").upsert(
-            [
-                {
-                    "company_name": entry["company_name"],
-                    "ats_type": entry["ats_type"],
-                    "board_identifier": entry["board_identifier"],
-                    "domain": (entry.get("domain") or "").strip().lower() or None,
-                    "active": entry.get("active", True),
-                }
-            ],
-            on_conflict="company_name",
-        ).execute()
+    """Seed sources.json into the DB, upserting only changed/new rows.
+
+    A blind upsert per entry costs a REST round-trip each (~8 min at 2500 rows
+    on every poll start). One SELECT + diff keeps the common no-change case to
+    a single query; health columns (last_checked_at, counters) are never
+    touched here.
+    """
+    entries = load_source_config()
+    try:
+        existing = {
+            row["company_name"]: row
+            for row in (
+                supabase.table("sources")
+                .select("company_name, ats_type, board_identifier, domain, active")
+                .execute()
+                .data
+                or []
+            )
+        }
+    except Exception:
+        existing = {}
+    for entry in entries:
+        desired = {
+            "company_name": entry["company_name"],
+            "ats_type": entry["ats_type"],
+            "board_identifier": entry["board_identifier"],
+            "domain": (entry.get("domain") or "").strip().lower() or None,
+            "active": entry.get("active", True),
+        }
+        current = existing.get(entry["company_name"])
+        if (
+            current is not None
+            and current.get("ats_type") == desired["ats_type"]
+            and (current.get("board_identifier") or "") == desired["board_identifier"]
+            and (current.get("domain") or None) == desired["domain"]
+            and current.get("active", True) == desired["active"]
+        ):
+            continue
+        supabase.table("sources").upsert([desired], on_conflict="company_name").execute()
 
 
 def fetch_sources(supabase: Client) -> list[dict[str, Any]]:
@@ -757,6 +804,19 @@ async def poll_all_sources(
     lock_conn = try_acquire_poll_lock(settings, ats_type)
     if lock_conn is None:
         print(f"scheduler: skipping {ats_type or 'all'} poll, advisory lock held")
+        # Manual runs already created a poll_runs row with status running — mark it
+        # skipped so it doesn't stay orphaned (and block the 45m stale check).
+        if run_id is not None:
+            try:
+                supabase = get_supabase(settings)
+                finish_poll_run(
+                    supabase,
+                    run_id,
+                    status="skipped",
+                    error="advisory lock held — another poll in progress",
+                )
+            except Exception as exc:
+                print(f"poll run {run_id}: failed to mark skipped: {exc}")
         return {"run_id": run_id, "status": "skipped", "jobs_new": 0, "matches_new": 0}
     supabase = get_supabase(settings)
 
@@ -782,8 +842,6 @@ async def poll_all_sources(
         # Preferences must exist before the audience snapshot so a fresh
         # deployment matches on its very first poll.
         sync_preferences(supabase, settings.preferences)
-        notify_settings = load_notification_settings(supabase)
-        notify_first_check = notify_settings.get("notify_first_check", True)
         geo_settings = load_location_mapping(supabase)
         company_by_source = {source["id"]: source["company_name"] for source in sources}
         audience = load_audience(settings)
@@ -922,7 +980,9 @@ async def poll_all_sources(
                         )
                         # Match + enqueue IMMEDIATELY for this source — a slow board
                         # elsewhere no longer delays these alerts (per-source pipeline).
-                        suppress = result["first_check"] and not notify_first_check
+                        # User requested: never send alerts on a company's first poll (first_check),
+                        # regardless of notify_first_check setting — first fetch is backfill, not news.
+                        suppress = bool(result["first_check"])
                         new_ids = [] if suppress else list(result["new_ids"])
                         if new_ids:
                             outcome = match_and_enqueue(

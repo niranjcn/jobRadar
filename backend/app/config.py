@@ -12,14 +12,23 @@ ATS_DEFAULT_SECONDS = {
     "workday": 3600,
     "oracle": 3600,
     "icims": 3600,
-    "successfactors": 7200,
+    "successfactors": 3600,
     "phenom": 3600,
-    "avature": 21600,
+    "avature": 3600,
     "emirates": 3600,
     "google": 3600,
     "amazon": 3600,
     "remotive": 3600,
     "weworkremotely": 3600,
+    "workable": 3600,
+    "smartrecruiters": 3600,
+    "breezy": 3600,
+    "jobvite": 3600,
+    "jazzhr": 3600,
+    "bamboohr": 3600,
+    "teamtailor": 3600,
+    "rippling": 3600,
+    "eightfold": 3600,
 }
 
 # Per-ATS concurrency for Tier 1: light boards handle 16 parallel. Heavy boards
@@ -35,6 +44,19 @@ ATS_CONCURRENCY = {
     "ashby": 16,
     "remotive": 16,
     "weworkremotely": 16,
+    # Single shared API hosts (apply.workable.com, api.smartrecruiters.com):
+    # low concurrency, unlike per-tenant hosts (workday) that scale wide.
+    "workable": 6,
+    "smartrecruiters": 6,
+    # Per-company subdomains but HTML-heavy pages: moderate concurrency.
+    "breezy": 10,
+    "bamboohr": 10,
+    "teamtailor": 10,
+    "jazzhr": 10,
+    "eightfold": 10,
+    # Single shared hosts: low concurrency.
+    "rippling": 6,
+    "jobvite": 6,
     "workday": 20,
     "oracle": 10,
     "successfactors": 10,

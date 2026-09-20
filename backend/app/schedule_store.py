@@ -69,9 +69,10 @@ def set_interval_override(supabase: Client, ats_type: str, interval_seconds: int
 def next_run_at(interval_seconds: int, last_checked_at: str | None) -> str | None:
     """Estimate when the next poll for this ATS will run, in IST.
 
-    The scheduler runs cron-aligned jobs (e.g. every 1h on the hour, IST), so
-    the next run is the next boundary strictly after max(now, last_checked_at),
-    not last_run + interval.
+    Scheduler now uses IntervalTrigger (every `interval_seconds` wall-clock,
+    not cron-aligned), so the estimate is max(now, last_checked_at) + interval.
+    Jitter ±120s is ignored for the estimate — ground truth is
+    `scheduler_next_run()` from the live APScheduler.
     """
     if interval_seconds <= 0:
         return None
@@ -86,23 +87,7 @@ def next_run_at(interval_seconds: int, last_checked_at: str | None) -> str | Non
             base = max(base, last)
         except (ValueError, TypeError):
             return None
-    if interval_seconds % 3600 == 0:
-        hours = interval_seconds // 3600
-        ts = base.replace(minute=0, second=0, microsecond=0)
-        hour_block = (ts.hour // hours) * hours
-        nxt = ts.replace(hour=hour_block)
-        if nxt <= base:
-            nxt = nxt + timedelta_seconds(hours * 3600)
-    elif interval_seconds % 60 == 0:
-        minutes = interval_seconds // 60
-        ts = base.replace(second=0, microsecond=0)
-        nxt = datetime(
-            ts.year, ts.month, ts.day, ts.hour, (ts.minute // minutes) * minutes, 0, tzinfo=IST
-        )
-        if nxt <= base:
-            nxt = nxt + timedelta_seconds(minutes * 60)
-    else:
-        nxt = base + timedelta_seconds(interval_seconds)
+    nxt = base + timedelta_seconds(interval_seconds)
     return nxt.isoformat()
 
 

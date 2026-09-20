@@ -1,18 +1,27 @@
 from app.adapters.amazon import AmazonAdapter
 from app.adapters.ashby import AshbyAdapter
 from app.adapters.avature import AvatureAdapter
+from app.adapters.bamboohr import BamboohrAdapter
 from app.adapters.base import JobSourceAdapter
+from app.adapters.breezy import BreezyAdapter
 from app.adapters.custom import CustomAdapter
+from app.adapters.eightfold import EightfoldAdapter
 from app.adapters.emirates import EmiratesAdapter
 from app.adapters.google import GoogleAdapter
 from app.adapters.greenhouse import GreenhouseAdapter
 from app.adapters.icims import IcimsAdapter
+from app.adapters.jazzhr import JazzhrAdapter
+from app.adapters.jobvite import JobviteAdapter
 from app.adapters.lever import LeverAdapter
 from app.adapters.oracle import OracleAdapter
 from app.adapters.phenom import PhenomAdapter
 from app.adapters.remotive import RemotiveAdapter
+from app.adapters.rippling import RipplingAdapter
+from app.adapters.smartrecruiters import SmartRecruitersAdapter
 from app.adapters.successfactors import SuccessFactorsAdapter
+from app.adapters.teamtailor import TeamtailorAdapter
 from app.adapters.weworkremotely import WeworkremotelyAdapter
+from app.adapters.workable import WorkableAdapter
 from app.adapters.workday import WorkdayAdapter
 
 
@@ -43,6 +52,24 @@ def adapter_for(ats_type: str) -> JobSourceAdapter:
         return RemotiveAdapter()
     if ats_type == WeworkremotelyAdapter.ats_type:
         return WeworkremotelyAdapter()
+    if ats_type == WorkableAdapter.ats_type:
+        return WorkableAdapter()
+    if ats_type == SmartRecruitersAdapter.ats_type:
+        return SmartRecruitersAdapter()
+    if ats_type == BreezyAdapter.ats_type:
+        return BreezyAdapter()
+    if ats_type == JobviteAdapter.ats_type:
+        return JobviteAdapter()
+    if ats_type == JazzhrAdapter.ats_type:
+        return JazzhrAdapter()
+    if ats_type == BamboohrAdapter.ats_type:
+        return BamboohrAdapter()
+    if ats_type == TeamtailorAdapter.ats_type:
+        return TeamtailorAdapter()
+    if ats_type == RipplingAdapter.ats_type:
+        return RipplingAdapter()
+    if ats_type == EightfoldAdapter.ats_type:
+        return EightfoldAdapter()
     if ats_type == CustomAdapter.ats_type:
         return CustomAdapter()
     if ats_type == EmiratesAdapter.ats_type:

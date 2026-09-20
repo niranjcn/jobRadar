@@ -17,14 +17,17 @@ OWNER_DISPLAY_NAME = "owner"
 
 def ensure_owner(settings: Settings) -> dict[str, Any]:
     """Seed the owner row (idempotent) and stamp env identities when missing."""
+    # 049 made users.email NOT NULL — the insert must provide a value even when
+    # the row already exists (PG checks NOT NULL before ON CONFLICT).
+    owner_email = (settings.notify_to[0] if settings.notify_to else "owner@jobradar.local").lower()
     query(
         settings,
         """
-        insert into users (id, role, status, access_locked, is_owner, display_name)
-        values (%s, 'admin', 'approved', false, true, %s)
+        insert into users (id, email, role, status, access_locked, is_owner, display_name)
+        values (%s, %s, 'admin', 'approved', false, true, %s)
         on conflict (id) do nothing
         """,
-        (DEFAULT_USER_ID, OWNER_DISPLAY_NAME),
+        (DEFAULT_USER_ID, owner_email, OWNER_DISPLAY_NAME),
     )
     if settings.telegram_chat_id:
         try:

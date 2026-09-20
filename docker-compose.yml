@@ -54,6 +54,10 @@ services:
       postgrest:
         condition: service_started
     restart: "no"
+    profiles: ["manual"]
+    # Manual one-off: `docker compose --profile manual run poll` or `docker compose run poll`.
+    # Not started on plain `docker compose up` — web's IntervalTrigger (1h) is the scheduler.
+    # Exit 0 after skip (advisory lock held) is success, not an error.
 
   web:
     build: ./backend
