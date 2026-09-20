@@ -1,8 +1,13 @@
-export function RadarMark() {
+import Image from "next/image";
+
+export function RadarMark({ size = 24 }: { size?: number }) {
   return (
-    <span className="relative inline-flex h-6 w-6 items-center justify-center rounded-full border-2 border-border bg-surface shadow-offset-sm">
-      <span className="absolute inset-[3px] rounded-full border border-primary/30" />
-      <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-    </span>
+    <Image
+      src="/logo.png"
+      alt="JobQuest"
+      width={size}
+      height={size}
+      style={{ borderRadius: "50%" }}
+    />
   );
 }

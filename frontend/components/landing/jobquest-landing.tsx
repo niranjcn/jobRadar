@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import styles from "./jobquest-landing.module.css";
@@ -98,13 +99,13 @@ function SparkleIcon() {
 
 function LogoMark() {
   return (
-    <svg width="40" height="40" viewBox="0 0 40 40" fill="none" aria-hidden>
-      <circle cx="20" cy="20" r="18" stroke="#0b1b33" strokeWidth="2.4" />
-      <circle cx="20" cy="20" r="12.5" stroke="#22c55e" strokeWidth="2.4" />
-      <circle cx="20" cy="20" r="7" stroke="#3b82f6" strokeWidth="2.4" />
-      <circle cx="20" cy="20" r="2.6" fill="#0b1b33" />
-      <path d="M20 2a18 18 0 0112.7 5.3" stroke="#22c55e" strokeWidth="2.4" strokeLinecap="round" />
-    </svg>
+    <Image
+      src="/logo.png"
+      alt="JobQuest"
+      width={40}
+      height={40}
+      style={{ borderRadius: "50%" }}
+    />
   );
 }
 
@@ -1310,11 +1311,13 @@ export function JobQuestLanding() {
               <br />A brighter you.
             </h3>
             <div className={styles.promoBrand}>
-              <svg width="18" height="18" viewBox="0 0 40 40" fill="none" aria-hidden>
-                <circle cx="20" cy="20" r="18" stroke="#0b3b2e" strokeWidth="3" />
-                <circle cx="20" cy="20" r="11" stroke="#0b3b2e" strokeWidth="3" />
-                <circle cx="20" cy="20" r="3.5" fill="#0b3b2e" />
-              </svg>
+              <Image
+                src="/logo.png"
+                alt="JobQuest"
+                width={18}
+                height={18}
+                style={{ borderRadius: "50%" }}
+              />
               JobQuest
             </div>
             <svg className={styles.promoArt} viewBox="0 0 300 130" fill="none" aria-hidden>

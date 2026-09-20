@@ -59,7 +59,8 @@ export default function LoginPage() {
   }
 
   return (
-    <div className={`flex min-h-screen items-center justify-center p-6 ${styles.ink}`}>
+    <div className={styles.ink}>
+      <div className={`${styles.shell} items-center justify-center`}>
       <div className="w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center gap-3">
           <RadarMark />
@@ -135,6 +136,7 @@ export default function LoginPage() {
           <Link href="/unlock" className="hover:text-text">Unlock</Link>
         </div>
         <p className="mt-3 text-center text-xs leading-relaxed text-text-muted">Protected by HttpOnly Lax cookies, 7-day TTL, HSTS, and in-memory + DB lockout. Audit logged.</p>
+      </div>
       </div>
     </div>
   );
