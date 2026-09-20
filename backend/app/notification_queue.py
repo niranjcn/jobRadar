@@ -426,7 +426,11 @@ def drain_due_notifications(
             failed += _record_failure(settings, supabase, rows, exc)
             continue
         _mark_rows(supabase, [r["id"] for r in rows], status="sent")
-        _record_ledger(supabase, rows)
+        # Ledger only what was actually communicated: a job pruned between
+        # enqueue and drain loads no item, and the 042 FK forbids ledger rows
+        # for nonexistent jobs. Queue rows are still marked sent (processed).
+        communicated = {item["id"] for item in items}
+        _record_ledger(supabase, [r for r in rows if r["job_id"] in communicated])
 
     return {
         "sent_telegram": sent["telegram"],

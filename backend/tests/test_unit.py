@@ -2038,6 +2038,105 @@ def test_prune_old_jobs_requires_abandonment_not_just_age(monkeypatch):
     assert chains[0][0][1] == chains[0][1][1]  # one cutoff for both guards
 
 
+def _drain_harness(monkeypatch, items):
+    """Minimal drain fakes: one due telegram row, routable item loads, no network."""
+    from types import SimpleNamespace
+
+    import app.notification_queue as nq
+
+    due_row = {
+        "id": "q1",
+        "user_id": "u1",
+        "job_id": "j1",
+        "channel": "telegram",
+        "attempts": 0,
+        "role": "user",
+        "status": "approved",
+        "access_locked": False,
+        "capabilities": ["dashboard", "preferences", "telegram_alerts", "email_alerts"],
+        "alert_delay_minutes": 0,
+        "telegram_chat_id": 123,
+        "email": None,
+    }
+
+    def fake_query(settings, sql, params=()):
+        if "scheduled_for" in sql and "from notification_queue q" in sql:
+            return [dict(due_row)]  # the due-window select (has a destination)
+        if "from jobs j" in sql:
+            return list(items)
+        return []  # cancel-cleanup selects: nothing undeliverable here
+
+    monkeypatch.setattr(nq, "query", fake_query)
+
+    calls: dict[str, list] = {"mark": [], "ledger": [], "sent": []}
+
+    class FakeTable:
+        def __init__(self, name):
+            self.name = name
+            self.payload = None
+
+        def update(self, payload):
+            self.payload = payload
+            return self
+
+        def upsert(self, payload, **kwargs):
+            calls["ledger"].append((self.name, payload))
+            return self
+
+        def in_(self, column, values):
+            calls["mark"].append((self.name, self.payload, column, list(values)))
+            return self
+
+        def execute(self):
+            class R:
+                data = ()
+
+            return R()
+
+    class FakeSupabase:
+        def table(self, name):
+            return FakeTable(name)
+
+    monkeypatch.setattr(nq, "_send_message", lambda *args, **kwargs: calls["sent"].append(args))
+    settings = SimpleNamespace(
+        telegram_enabled=True, telegram_bot_token="tok", notify_enabled=False
+    )
+    return nq, settings, FakeSupabase(), calls
+
+
+def test_drain_ledger_skips_pruned_jobs(monkeypatch):
+    """042 FK guard: a job pruned between enqueue and drain loads no item, so
+    it must never reach the ledger (the FK would reject it); its queue row is
+    still marked sent as processed."""
+    nq_mod, settings, supabase, calls = _drain_harness(monkeypatch, items=[])
+    out = nq_mod.drain_due_notifications(settings, supabase)
+    assert out == {"sent_telegram": 1, "sent_email": 0, "failed": 0}
+    assert len(calls["sent"]) == 1  # summary-only message still went out
+    assert calls["ledger"] == []
+    assert len(calls["mark"]) == 1 and calls["mark"][0][3] == ["q1"]
+
+
+def test_drain_ledger_records_communicated_jobs(monkeypatch):
+    """Normal path unchanged: a surviving job is recorded exactly once."""
+    item = {
+        "id": "j1",
+        "title": "T",
+        "location": "L",
+        "url": "u",
+        "matched_on": [],
+        "company": "Acme",
+    }
+    nq_mod, settings, supabase, calls = _drain_harness(monkeypatch, items=[item])
+    out = nq_mod.drain_due_notifications(settings, supabase)
+    assert out == {"sent_telegram": 1, "sent_email": 0, "failed": 0}
+    assert len(calls["ledger"]) == 1
+    name, payload = calls["ledger"][0]
+    assert name == "notifications_sent"
+    assert payload == [
+        {"user_id": "u1", "job_id": "j1", "channel": "telegram", "sent_at": payload[0]["sent_at"]}
+    ]
+
+
 def test_quiet_runs_counter():
     """Quiet counter resets on first check / new jobs, else increments."""
     from app.poller import next_quiet_runs
