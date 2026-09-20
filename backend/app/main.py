@@ -95,9 +95,11 @@ def _build_scheduler() -> AsyncIOScheduler:
     intervals = effective_intervals(settings.ats_intervals, load_interval_overrides(supabase))
     _scheduler = AsyncIOScheduler(timezone="Asia/Kolkata")
     for ats, seconds in intervals.items():
-        # Tier 1: jitter ±120s so 14 ATS jobs don't all fire at :00 and hit DB at same instant.
-        _trigger = CronTrigger.from_crontab(_interval_seconds_to_cron(seconds))
-        _trigger.jitter = 120
+        # 1h default for every ATS — use IntervalTrigger so the interval is wall-clock
+        # 3600s from last run, not cron-aligned to :00. Cron with Asia/Kolkata vs UTC
+        # caused 30m drift and missed 09:30 runs coalescing to 10:30 after restarts.
+        # Jitter ±120s still spreads the 15 jobs.
+        _trigger = IntervalTrigger(seconds=seconds, jitter=120)
         _scheduler.add_job(
             _run_safe,
             _trigger,
@@ -106,7 +108,7 @@ def _build_scheduler() -> AsyncIOScheduler:
             name=f"poll {ats}",
             max_instances=1,
             coalesce=True,
-            misfire_grace_time=3600,
+            misfire_grace_time=min(3600, seconds),
         )
 
     _scheduler.add_job(
@@ -183,7 +185,7 @@ def reschedule_ats(ats_type: str, interval_seconds: int) -> bool:
     job = scheduler.get_job(f"poll-{ats_type}")
     if job is None:
         return False
-    job.reschedule(CronTrigger.from_crontab(_interval_seconds_to_cron(interval_seconds)))
+    job.reschedule(IntervalTrigger(seconds=interval_seconds, jitter=120))
     return True
 
 
