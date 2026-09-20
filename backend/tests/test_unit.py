@@ -2585,3 +2585,216 @@ def test_sr_pagination_arithmetic():
     pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
     assert pages * PAGE_SIZE >= total
     assert PAGE_SIZE == 100
+
+
+def _load_html_fixture(subdir: str, name: str) -> str:
+    with open(FIXTURES / subdir / name, encoding="utf-8") as f:
+        return f.read()
+
+
+def test_breezy_parse_cards():
+    from app.adapters.breezy import BreezyAdapter
+
+    jobs = BreezyAdapter._parse_page(
+        _load_html_fixture("breezy", "accrete_positions.html"), "https://accrete-ai.breezy.hr"
+    )
+    assert len(jobs) == 2  # link-less card dropped
+    assert jobs[0].external_job_id == "2bb71f1b4ae7"
+    assert jobs[0].title.startswith("AI Engineer")
+    assert jobs[0].location == "Alexandria, VA"
+    assert jobs[0].url == (
+        "https://accrete-ai.breezy.hr/p/2bb71f1b4ae7-ai-engineer-ts-sci-with-counterintelligence-polygraph-required"
+    )
+    assert jobs[1].location == "Mumbai, IN"
+
+
+def test_breezy_no_cards():
+    from app.adapters.breezy import BreezyAdapter
+
+    assert (
+        BreezyAdapter._parse_page("<html><body>no jobs</body></html>", "https://x.breezy.hr") == []
+    )
+
+
+def test_jobvite_parse_rows():
+    from app.adapters.jobvite import JobviteAdapter
+
+    jobs = JobviteAdapter._parse_page(
+        _load_html_fixture("jobvite", "alivecor_jobs.html"), "alivecor"
+    )
+    assert len(jobs) == 2  # link-less row dropped
+    assert jobs[0].external_job_id == "oHjKAfw4"
+    assert jobs[0].title == "Dev/SysOps Engineer"
+    assert jobs[0].location == "Mountain View, California"
+    assert jobs[0].url == "https://jobs.jobvite.com/alivecor/job/oHjKAfw4"
+    assert jobs[1].location is None  # "2 Locations" cell carries no usable location
+
+
+def test_jobvite_no_rows():
+    from app.adapters.jobvite import JobviteAdapter
+
+    assert JobviteAdapter._parse_page("<html></html>", "alivecor") == []
+
+
+def test_jazzhr_parse_rows():
+    from app.adapters.jazzhr import JazzhrAdapter
+
+    jobs = JazzhrAdapter._parse_page(
+        _load_html_fixture("jazzhr", "antler_jobs.html"), "https://antler.applytojob.com"
+    )
+    assert len(jobs) == 2
+    assert jobs[0].external_job_id == "vImRlXHiLW"
+    assert jobs[0].title == "Principal, Investment Team"
+    assert jobs[0].location == "London, United Kingdom"
+    assert jobs[0].url == "https://antler.applytojob.com/apply/jobs/details/vImRlXHiLW"
+    assert jobs[1].title == "Investment Team"
+
+
+def test_jazzhr_no_rows():
+    from app.adapters.jazzhr import JazzhrAdapter
+
+    assert JazzhrAdapter._parse_page("<html></html>", "https://x.applytojob.com") == []
+
+
+def _load_bamboohr_fixture():
+    with open(FIXTURES / "bamboohr" / "asi_list.json", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def test_bamboohr_normalize():
+    from app.adapters.bamboohr import BamboohrAdapter
+
+    payload = _load_bamboohr_fixture()
+    assert payload["meta"]["totalCount"] == 1
+    job = BamboohrAdapter._normalize("https://asi.bamboohr.com", payload["result"][0])
+    assert job is not None
+    assert job.external_job_id == "83"
+    assert job.title == "T-6A Aviation Training Subject Matter Expert"
+    assert job.location == "Randolph Air Force Base, Texas"
+    assert job.url == "https://asi.bamboohr.com/careers/83"
+
+
+def test_bamboohr_missing_id_skipped():
+    from app.adapters.bamboohr import BamboohrAdapter
+
+    assert (
+        BamboohrAdapter._normalize("https://x.bamboohr.com", _load_bamboohr_fixture()["result"][1])
+        is None
+    )
+
+
+def test_bamboohr_invalid_shape():
+    from app.adapters.bamboohr import BamboohrAdapter
+
+    assert BamboohrAdapter._normalize("https://x.bamboohr.com", {}) is None
+
+
+def test_teamtailor_parse_feed():
+    from app.adapters.teamtailor import TeamtailorAdapter
+
+    jobs = TeamtailorAdapter._parse_feed(_load_html_fixture("teamtailor", "adform_feed.xml"))
+    assert len(jobs) == 2  # guid-less item dropped
+    assert jobs[0].external_job_id == "061cf84f-a15a-494c-8bb2-166783eb23b9"
+    assert jobs[0].title == "Talent Acquisition Partner"
+    assert jobs[0].url == "https://careers.adform.com/jobs/8353309-talent-acquisition-partner"
+    assert jobs[0].location == "Vilnius, Lithuania"
+    assert jobs[0].posted_at is not None and jobs[0].posted_at.startswith("2026-09-09")
+    assert jobs[0].is_remote is False
+
+
+def test_teamtailor_remote_no_location():
+    from app.adapters.teamtailor import TeamtailorAdapter
+
+    jobs = TeamtailorAdapter._parse_feed(_load_html_fixture("teamtailor", "adform_feed.xml"))
+    assert jobs[1].is_remote is True
+    assert jobs[1].location == "Remote"
+
+
+def test_teamtailor_invalid_xml():
+    from app.adapters.teamtailor import TeamtailorAdapter
+
+    assert TeamtailorAdapter._parse_feed("<rss><broken") == []
+    assert TeamtailorAdapter._parse_feed("<rss></rss>") == []
+
+
+def test_rippling_next_data_page():
+    from app.adapters.rippling import _extract_next_data, _job_posts_page
+
+    data = _extract_next_data(_load_html_fixture("rippling", "aerospike_board.html"))
+    assert data is not None
+    items, page, total_pages = _job_posts_page(data)
+    assert len(items) == 2
+    assert (page, total_pages) == (0, 1)
+
+
+def test_rippling_normalize():
+    from app.adapters.rippling import _extract_next_data, _job_posts_page, RipplingAdapter
+
+    data = _extract_next_data(_load_html_fixture("rippling", "aerospike_board.html"))
+    items, _, _ = _job_posts_page(data)
+    job = RipplingAdapter._normalize(items[0])
+    assert job is not None
+    assert job.external_job_id == "7f788866-7cc7-4dce-89f8-9d075f6c26b5"
+    assert job.title == "Director of Engineering, Cloud Product Engineering"
+    assert job.location == "Mountain View, California, United States"
+    assert job.countries == ["US"]
+    assert job.url.startswith("https://ats.rippling.com/aerospike-inc/jobs/")
+    assert RipplingAdapter._normalize(items[1]) is not None
+    assert RipplingAdapter._normalize(items[1]).location is None
+    assert RipplingAdapter._normalize({}) is None
+
+
+def test_rippling_no_next_data():
+    from app.adapters.rippling import _extract_next_data, _job_posts_page
+
+    assert _extract_next_data("<html></html>") is None
+    assert _job_posts_page(None) == ([], 0, 1)
+    assert _job_posts_page({}) == ([], 0, 1)
+
+
+def test_eightfold_extract_positions():
+    from app.adapters.eightfold import _extract_positions
+
+    positions = _extract_positions(_load_html_fixture("eightfold", "albemarle_careers.html"))
+    assert positions is not None and len(positions) == 2
+    assert positions[0]["ats_job_id"] == "REQ-31366"
+
+
+def test_eightfold_normalize():
+    from app.adapters.eightfold import _extract_positions, EightfoldAdapter
+
+    positions = _extract_positions(_load_html_fixture("eightfold", "albemarle_careers.html"))
+    assert positions is not None
+    job = EightfoldAdapter._normalize("https://albemarle.eightfold.ai", positions[0])
+    assert job is not None
+    assert job.external_job_id == "1099555988595"
+    assert job.title == "ITSM Administrator/Developer"
+    assert job.location == "Bengaluru, Karnataka, India"
+    assert job.url == "https://albemarle.eightfold.ai/careers/job/1099555988595"
+    assert job.posted_at is not None and "+00:00" in job.posted_at
+    # brackets inside the title must not break bracket matching; remote with no
+    # location falls back to "Remote" and the base job URL
+    remote_job = EightfoldAdapter._normalize("https://albemarle.eightfold.ai", positions[1])
+    assert remote_job is not None
+    assert "[Governance]" in remote_job.title
+    assert remote_job.location == "Remote"
+    assert remote_job.is_remote is True
+    assert remote_job.url == "https://albemarle.eightfold.ai/careers/job/1099555728578"
+
+
+def test_eightfold_no_positions():
+    from app.adapters.eightfold import _extract_positions
+
+    assert _extract_positions("<html><body>no jobs here</body></html>") is None
+
+
+def test_eightfold_escaped_render():
+    """Bot renders escape quotes (&#34;positions&#34;) — adapter unescapes first."""
+    import html as html_module
+
+    from app.adapters.eightfold import _extract_positions
+
+    raw = _load_html_fixture("eightfold", "albemarle_careers.html")
+    escaped = raw.replace('"positions"', "&#34;positions&#34;").replace('"id"', "&#34;id&#34;")
+    assert _extract_positions(html_module.unescape(escaped)) is not None
+    assert len(_extract_positions(html_module.unescape(escaped)) or []) == 2

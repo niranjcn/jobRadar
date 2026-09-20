@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:tt="https://teamtailor.com/locations">
+  <channel>
+    <title>Adform</title>
+    <item>
+      <title>Talent Acquisition Partner</title>
+      <pubDate>Wed, 09 Sep 2026 14:41:50 +0200</pubDate>
+      <link>https://careers.adform.com/jobs/8353309-talent-acquisition-partner</link>
+      <remoteStatus>onsite</remoteStatus>
+      <guid>061cf84f-a15a-494c-8bb2-166783eb23b9</guid>
+      <tt:locations><tt:location><tt:city>Vilnius</tt:city><tt:country>Lithuania</tt:country></tt:location></tt:locations>
+      <tt:department>HR &amp; Admin</tt:department>
+    </item>
+    <item>
+      <title>Remote Engineer</title>
+      <pubDate>Mon, 07 Sep 2026 08:12:17 +0200</pubDate>
+      <link>https://careers.adform.com/jobs/8326895-remote-engineer</link>
+      <remoteStatus>remote</remoteStatus>
+      <guid>79948b34-b136-461f-80ca-28c51ab96e4f</guid>
+      <tt:locations />
+      <tt:department>Engineering</tt:department>
+    </item>
+    <item><title>  </title><guid></guid></item>
+  </channel>
+</rss>
