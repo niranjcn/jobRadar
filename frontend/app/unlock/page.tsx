@@ -73,7 +73,7 @@ export default function UnlockPage() {
               <div className="flex items-baseline justify-between">
                 <span className="font-semibold">{plan.name}</span>
                 <span className="text-2xl font-bold">
-                  {formatPrice(plan.price_cents, plan.currency)}
+                  {formatPrice(plan.price_minor_units, plan.currency)}
                   <span className="text-sm font-normal text-text-muted">/{plan.interval}</span>
                 </span>
               </div>

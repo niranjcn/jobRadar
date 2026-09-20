@@ -247,7 +247,7 @@ export const api = {
 
   plans: () => request<{ plans: Plan[] }>("/api/plans"),
   redeemCoupon: (code: string) =>
-    request<{ ok: boolean; role: Role; duration_days: number | null }>("/api/coupons/redeem", {
+    request<{ ok: boolean; role: Role; grant_duration_days: number | null }>("/api/coupons/redeem", {
       method: "POST",
       body: JSON.stringify({ code }),
     }),
@@ -294,10 +294,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ add, remove }),
     }),
-  compSubscription: (id: string, plan_code = "standard", duration_days?: number | null) =>
+  compSubscription: (id: string, plan_code = "standard", grant_duration_days?: number | null) =>
     request<{ ok: boolean; subscription: SubscriptionInfo }>(`/api/admin/users/${id}/subscription`, {
       method: "PUT",
-      body: JSON.stringify({ plan_code, duration_days: duration_days ?? null }),
+      body: JSON.stringify({ plan_code, grant_duration_days: grant_duration_days ?? null }),
     }),
   applyPresetToUser: (id: string, preset_id: string) =>
     request<{ ok: boolean; preset: string }>(`/api/admin/users/${id}/apply-preset`, {
@@ -308,7 +308,7 @@ export const api = {
     request<{ coupons: Coupon[] }>(
       `/api/admin/coupons${state ? `?state=${state}` : ""}`,
     ),
-  mintCoupon: (payload: { grants_role: "user" | "privileged"; duration_days?: number | null; note?: string }) =>
+  mintCoupon: (payload: { grants_role: "user" | "privileged"; grant_duration_days?: number | null; note?: string }) =>
     request<Coupon>("/api/admin/coupons", { method: "POST", body: JSON.stringify(payload) }),
   voidCoupon: (id: string) => request<{ ok: boolean }>(`/api/admin/coupons/${id}`, { method: "DELETE" }),
   adminPresets: () => request<{ presets: Preset[] }>("/api/admin/presets"),

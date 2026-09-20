@@ -246,7 +246,7 @@ export interface Me {
 export interface Plan {
   code: string;
   name: string;
-  price_cents: number;
+  price_minor_units: number;
   currency: string;
   interval: string;
 }
@@ -293,7 +293,7 @@ export interface Coupon {
   id: string;
   code: string;
   grants_role: "user" | "privileged";
-  duration_days: number | null;
+  grant_duration_days: number | null;
   note: string | null;
   created_at: string;
   expires_at: string;

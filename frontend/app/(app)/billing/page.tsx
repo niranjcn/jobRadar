@@ -48,7 +48,7 @@ export default function BillingPage() {
   const sub = me.subscription;
   const planPrice = plans.find((p) => p.code === sub?.plan_code);
   const priceLabel = planPrice
-    ? `${planPrice.currency === "INR" ? "₹" : planPrice.currency === "USD" ? "$" : `${planPrice.currency} `}${(planPrice.price_cents / 100).toFixed(planPrice.price_cents % 100 === 0 ? 0 : 2)} / ${planPrice.interval}`
+    ? `${planPrice.currency === "INR" ? "₹" : planPrice.currency === "USD" ? "$" : `${planPrice.currency} `}${(planPrice.price_minor_units / 100).toFixed(planPrice.price_minor_units % 100 === 0 ? 0 : 2)} / ${planPrice.interval}`
     : null;
 
   async function upgrade() {
@@ -190,7 +190,7 @@ export default function BillingPage() {
     setCouponMsg(null);
     try {
       const res = await api.redeemCoupon(coupon.trim().toUpperCase());
-      setCouponMsg(`Unlocked! Role: ${res.role} ${res.duration_days ? `for ${res.duration_days} days` : "until revoked"}. Refreshing…`);
+      setCouponMsg(`Unlocked! Role: ${res.role} ${res.grant_duration_days ? `for ${res.grant_duration_days} days` : "until revoked"}. Refreshing…`);
       setCoupon("");
       await refresh();
     } catch (err) {
