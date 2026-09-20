@@ -201,6 +201,103 @@ def test_no_term_hit_still_rejected():
     assert reasons == []
 
 
+def _match_job(job_id="j1"):
+    return {
+        "id": job_id,
+        "title": "Senior Backend Engineer (Python)",
+        "description": "Build APIs with Python and Postgres in Bengaluru.",
+        "location": "Bengaluru, India",
+        "company_name": "Acme",
+        "countries": ["IN"],
+        "is_remote": False,
+    }
+
+
+def _match_prefs(**overrides):
+    base = {
+        "roles": ["backend engineer"],
+        "keywords": ["python"],
+        "locations": ["india"],
+        "seniority": ["senior"],
+        "excluded_companies": [],
+        "excluded_roles": [],
+    }
+    base.update(overrides)
+    return base
+
+
+def test_grouped_evaluation_matches_ungrouped_exactly():
+    """Grouped path must produce byte-identical rows per user (ids, reasons, scores)."""
+    from app.matcher import preference_signature
+    from app.notification_queue import AudienceUser, evaluate_jobs_for_user
+
+    jobs = [_match_job("j1"), _match_job("j2")]
+    prefs = _match_prefs()
+    users = [
+        AudienceUser(
+            id=f"u{i}",
+            role="user",
+            status="approved",
+            access_locked=False,
+            alert_delay_minutes=0,
+            telegram_chat_id=None,
+            email=None,
+            capabilities=[],
+            prefs=dict(prefs),
+        )
+        for i in range(3)
+    ]
+    per_user = [evaluate_jobs_for_user(jobs, user, None) for user in users]
+    assert preference_signature(users[0].prefs) == preference_signature(users[1].prefs)
+    for rows, _ in per_user:
+        assert [(r["job_id"], r["matched_on"], r["match_score"]) for r in rows] == [
+            (
+                "j1",
+                ["role:backend engineer", "keyword:python", "seniority:senior", "location:india"],
+                100,
+            ),
+            (
+                "j2",
+                ["role:backend engineer", "keyword:python", "seniority:senior", "location:india"],
+                100,
+            ),
+        ]
+
+
+def test_preference_signature_is_order_and_duplicate_sensitive():
+    """Reasons embed raw strings in list order, so reordered/duplicated term
+    lists must never share an evaluation."""
+    from app.matcher import preference_signature
+
+    base = _match_prefs()
+    reordered = _match_prefs()
+    reordered["roles"] = ["backend engineer", "software engineer"]
+    base["roles"] = ["software engineer", "backend engineer"]
+    assert preference_signature(base) != preference_signature(reordered)
+    duped = _match_prefs()
+    duped["keywords"] = ["python", "python"]
+    assert preference_signature(_match_prefs()) != preference_signature(duped)
+    assert preference_signature(_match_prefs()) == preference_signature(_match_prefs())
+    assert preference_signature({}) == preference_signature(
+        {
+            "roles": [],
+            "keywords": [],
+            "locations": [],
+            "seniority": [],
+            "excluded_companies": [],
+            "excluded_roles": [],
+        }
+    )
+
+
+def test_empty_prefs_collapse_to_one_signature():
+    """Match-all users (empty prefs) form a single group whatever their count."""
+    from app.matcher import preference_signature
+
+    sigs = {preference_signature({}) for _ in range(50)}
+    assert len(sigs) == 1
+
+
 # ---------- geo mapping ----------
 
 
