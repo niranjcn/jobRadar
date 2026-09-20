@@ -15,7 +15,13 @@ IN_BATCH = 200
 
 
 def fetch_sources(supabase: Client) -> list[dict[str, Any]]:
-    response = supabase.table("sources").select("*").eq("active", True).execute()
+    # 60: explicit columns for determinism
+    response = (
+        supabase.table("sources")
+        .select("id, company_name")
+        .eq("active", True)
+        .execute()
+    )
     return response.data
 
 
@@ -270,7 +276,12 @@ def sync_preferences(
 
 
 def load_preferences(supabase: Client, user_id: str = DEFAULT_USER_ID) -> dict[str, Any]:
-    response = supabase.table("preferences").select("*").eq("user_id", user_id).execute()
+    response = (
+        supabase.table("preferences")
+        .select("roles, keywords, locations, seniority, excluded_companies, excluded_roles, notify_telegram, notify_email, alert_frequency, telegram_scope, email_scope, notify_first_check")
+        .eq("user_id", user_id)
+        .execute()
+    )
     if not response.data:
         return {}
     row = response.data[0]
