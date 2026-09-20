@@ -7,8 +7,6 @@ per-source pipeline step.
 """
 
 import base64
-import hashlib
-import hmac as hmac_mod
 import json
 import time
 from datetime import UTC, datetime, timedelta
