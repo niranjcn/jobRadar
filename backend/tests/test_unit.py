@@ -1904,8 +1904,8 @@ def test_upsert_jobs_returning_chunks_and_new_detection(monkeypatch):
     rows = [_job_row(f"e{i}", i) for i in range(1200)]
     out = poller_module.upsert_jobs_returning(object(), rows)
     assert len(calls) == 3  # 1200 rows at 500 per chunk
-    assert len(calls[0][1]) == 500 * 7
-    assert len(calls[2][1]) == 200 * 7
+    assert len(calls[0][1]) == 500 * 8
+    assert len(calls[2][1]) == 200 * 8
     sql = calls[0][0]
     assert "ON CONFLICT (source_id, external_job_id)" in sql
     assert "DO UPDATE SET" in sql
@@ -1923,6 +1923,77 @@ def test_upsert_placeholders_match_columns():
     import app.poller as poller_module
 
     assert len(re.findall(r"%s", poller_module._ROW_SQL)) == len(poller_module._UPSERT_COLS)
+
+
+def test_upsert_jobs_returning_stamps_geo_version(monkeypatch):
+    """geo_version rides the INSERT positionally (last column); rows without
+    one stamp NULL (unknown vintage). Never part of the conflict update."""
+    import app.poller as poller_module
+
+    captured: list[tuple[str, tuple]] = []
+
+    def fake_query(settings, sql, params=()):
+        captured.append((sql, params))
+        return []
+
+    monkeypatch.setattr(poller_module, "query", fake_query)
+    rows = [_job_row("g1"), _job_row("g2")]
+    out = poller_module.upsert_jobs_returning(object(), rows, geo_version=9)
+    assert out == {"new_ids": [], "failed_chunks": 0}
+    sql, params = captured[0]
+    assert params[7] == 9 and params[15] == 9
+    assert "geo_version" in sql  # INSERT column list
+    assert "geo_version = EXCLUDED" not in sql  # never conflict-updated
+    out = poller_module.upsert_jobs_returning(object(), [_job_row("g3")])
+    assert captured[1][1][7] is None
+
+
+def test_location_mapping_save_bumps_version(monkeypatch):
+    """Each mapping save mints the next generation; content merges over defaults."""
+    from types import SimpleNamespace
+
+    from app import settings_store as ss
+
+    stored: dict = {}
+    saved: dict = {}
+
+    class FakeTable:
+        def __init__(self):
+            self._selecting = False
+
+        def select(self, *args, **kwargs):
+            self._selecting = True
+            return self
+
+        def eq(self, *args, **kwargs):
+            return self
+
+        def upsert(self, payload, **kwargs):
+            saved.update(payload)
+            return self
+
+        def execute(self):
+            if self._selecting:
+                self._selecting = False
+                data = [{"value": dict(stored)}] if stored else []
+                return SimpleNamespace(data=data)
+            return SimpleNamespace(data=[])
+
+    class FakeSupabase:
+        def table(self, name):
+            assert name == "app_settings"
+            return FakeTable()
+
+    supabase = FakeSupabase()
+    ss.save_location_mapping(supabase, {"custom_aliases": {"gotham": "US"}})
+    assert saved["value"]["version"] == 1
+    assert saved["value"]["custom_aliases"] == {"gotham": "US"}
+    assert saved["value"]["enabled"] is True  # defaults merged
+    stored.update(saved["value"])
+    saved.clear()
+    ss.save_location_mapping(supabase, {"custom_aliases": {"metropolis": "US"}})
+    assert saved["value"]["version"] == 2
+    assert saved["value"]["custom_aliases"] == {"metropolis": "US"}
 
 
 def test_upsert_jobs_returning_empty_and_failures(monkeypatch):
@@ -2049,7 +2120,70 @@ def test_prune_old_jobs_requires_abandonment_not_just_age(monkeypatch):
     assert chains[0][0][1] == chains[0][1][1]  # one cutoff for both guards
 
 
-def _drain_harness(monkeypatch, items):
+def test_mark_checked_writes_health_atomically(monkeypatch):
+    """Success path stamps all seven health signals in one UPDATE (no
+    read-modify-write, so overlapping runs can't lose counter increments)."""
+    import app.poller as poller_module
+
+    calls: list[tuple[str, tuple]] = []
+
+    def fake_query(settings, sql, params=()):
+        calls.append((sql, params))
+        return []
+
+    monkeypatch.setattr(poller_module, "query", fake_query)
+    poller_module.mark_checked(object(), "source-1", 3, fetched=12, new=4, duration_ms=1500)
+    assert len(calls) == 1
+    sql, params = calls[0]
+    for column in (
+        "last_checked_at",
+        "last_success_at",
+        "consecutive_failures",
+        "consecutive_empty_runs",
+        "last_http_status",
+        "last_duration_ms",
+        "jobs_last_seen",
+        "quiet_runs",
+    ):
+        assert column in sql
+    assert params == (3, 12, 1500, 4, "source-1")
+    # Empty vs productive is data-driven (CASE), not a code branch.
+    poller_module.mark_checked(object(), "source-1", 0, fetched=0, new=0, duration_ms=10)
+    assert calls[1][1] == (0, 0, 10, 0, "source-1")
+
+
+def test_mark_error_tracks_failures_not_emptiness(monkeypatch):
+    """Failure path advances failure signals only; success fields and the
+    empty counter stay untouched. HTTP status extracted when present."""
+    import app.poller as poller_module
+
+    calls: list[tuple[str, tuple]] = []
+
+    def fake_query(settings, sql, params=()):
+        calls.append((sql, params))
+        return []
+
+    monkeypatch.setattr(poller_module, "query", fake_query)
+
+    class HttpError(Exception):
+        def __init__(self):
+            super().__init__("429 hammered")
+            from types import SimpleNamespace
+
+            self.response = SimpleNamespace(status_code=429)
+
+    poller_module.mark_error(object(), {"id": "source-1"}, HttpError())
+    sql, params = calls[0]
+    assert "last_failure_at" in sql and "consecutive_failures" in sql
+    assert "last_success_at" not in sql and "consecutive_empty_runs" not in sql
+    assert "jobs_last_seen" not in sql and "last_duration_ms" not in sql
+    assert params[1] == 429
+
+    poller_module.mark_error(object(), {"id": "source-1"}, RuntimeError("dns blew up"))
+    assert calls[1][1][1] is None  # no HTTP status without a response
+
+
+def _drain_harness(monkeypatch, items, recorded=(), lock_granted=True):
     """Minimal drain fakes: one due telegram row, routable item loads, no network."""
     from types import SimpleNamespace
 
@@ -2073,6 +2207,8 @@ def _drain_harness(monkeypatch, items):
     def fake_query(settings, sql, params=()):
         if "scheduled_for" in sql and "from notification_queue q" in sql:
             return [dict(due_row)]  # the due-window select (has a destination)
+        if "from notifications_sent" in sql:
+            return [{"job_id": job_id} for job_id in recorded]
         if "from jobs j" in sql:
             return list(items)
         return []  # cancel-cleanup selects: nothing undeliverable here
@@ -2080,6 +2216,21 @@ def _drain_harness(monkeypatch, items):
     monkeypatch.setattr(nq, "query", fake_query)
 
     calls: dict[str, list] = {"mark": [], "ledger": [], "sent": []}
+
+    lock_state = {"acquired": 0, "released": 0}
+
+    def fake_acquire(settings):
+        if not lock_granted:
+            return None
+        lock_state["acquired"] += 1
+        return object()
+
+    def fake_release(conn):
+        lock_state["released"] += 1
+
+    monkeypatch.setattr(nq, "_acquire_drain_lock", fake_acquire)
+    monkeypatch.setattr(nq, "_release_drain_lock", fake_release)
+    calls["lock"] = lock_state
 
     class FakeTable:
         def __init__(self, name):
@@ -2092,6 +2243,9 @@ def _drain_harness(monkeypatch, items):
 
         def upsert(self, payload, **kwargs):
             calls["ledger"].append((self.name, payload))
+            return self
+
+        def eq(self, column, value):
             return self
 
         def in_(self, column, values):
@@ -2146,6 +2300,65 @@ def test_drain_ledger_records_communicated_jobs(monkeypatch):
     assert payload == [
         {"user_id": "u1", "job_id": "j1", "channel": "telegram", "sent_at": payload[0]["sent_at"]}
     ]
+
+
+def test_drain_skips_tick_when_lock_held(monkeypatch):
+    """Single-flight: a loser returns zeros without touching the DB or sending."""
+    nq_mod, settings, supabase, calls = _drain_harness(monkeypatch, items=[], lock_granted=False)
+    out = nq_mod.drain_due_notifications(settings, supabase)
+    assert out == {"sent_telegram": 0, "sent_email": 0, "failed": 0}
+    assert calls["sent"] == [] and calls["mark"] == [] and calls["ledger"] == []
+    assert calls["lock"] == {"acquired": 0, "released": 0}
+
+
+def test_drain_skips_resend_of_recorded_jobs(monkeypatch):
+    """Crash-window dedup: ledger already has the row -> mark sent, never
+    resend, never re-record (the 042 FK would reject ghosts anyway)."""
+    nq_mod, settings, supabase, calls = _drain_harness(monkeypatch, items=[], recorded=["j1"])
+    out = nq_mod.drain_due_notifications(settings, supabase)
+    assert out == {"sent_telegram": 0, "sent_email": 0, "failed": 0}
+    assert calls["sent"] == []
+    assert calls["ledger"] == []
+    assert len(calls["mark"]) == 1 and calls["mark"][0][3] == ["q1"]
+    assert calls["mark"][0][1]["status"] == "sent"
+    assert calls["lock"]["released"] == 1
+
+
+def test_drain_releases_lock_on_send_failure(monkeypatch):
+    """Lock is released even when the send blows up mid-tick."""
+    nq_mod, settings, supabase, calls = _drain_harness(
+        monkeypatch,
+        items=[
+            {
+                "id": "j1",
+                "title": "T",
+                "location": "L",
+                "url": "u",
+                "matched_on": [],
+                "company": "Acme",
+            }
+        ],
+    )
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("net down")
+
+    monkeypatch.setattr(nq_mod, "_send_message", boom)
+    out = nq_mod.drain_due_notifications(settings, supabase)
+    assert out == {"sent_telegram": 0, "sent_email": 0, "failed": 0}
+    assert calls["lock"]["released"] == 1
+
+
+def test_email_idempotency_key_stable():
+    """Same logical batch always hashes identically (order-insensitive);
+    different batches never collide in the tested space."""
+    from app.notification_queue import _email_idempotency_key
+
+    key = _email_idempotency_key("u1", "email", ["j2", "j1"])
+    assert key == _email_idempotency_key("u1", "email", ["j1", "j2", "j1"])
+    assert key.startswith("jq-") and len(key) <= 100
+    assert key != _email_idempotency_key("u1", "email", ["j1"])
+    assert key != _email_idempotency_key("u1", "telegram", ["j1", "j2"])
 
 
 def test_quiet_runs_counter():
@@ -2253,4 +2466,6 @@ def test_stats_daily_shapes_series(monkeypatch):
     assert [d["date"] for d in out["days"]] == ["2026-09-10", "2026-09-11"]
     assert out["days"][0]["matches"] == 1
     sql, params = calls[0]
-    assert sql.count("%s") == len(params) == 3
+    # 61: optimized to GROUP BY: now 2 placeholders (days, user_id) not 3
+    assert sql.count("%s") == len(params) == 2
+    assert params[1] == "user-1"
