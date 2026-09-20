@@ -11,8 +11,6 @@ import { errText } from "@/lib/format";
 import type { GeoCountry, Preferences } from "@/lib/types";
 
 const ROLES_PRESET = ["Software Engineer", "Backend Engineer", "DevOps Engineer", "SRE", "Platform Engineer", "MTS", "Full Stack Engineer", "Cloud Engineer"];
-const SKILLS_PRESET = ["Python", "Go", "Java", "AWS", "Docker", "Kubernetes", "Terraform", "PostgreSQL", "Linux"];
-const SENIORITY_PRESET = ["Internship", "New Grad", "Entry", "Junior", "Mid", "Senior", "Lead"];
 const LOCATIONS_PRESET = ["Remote", "India", "United States", "Bengaluru", "Hyderabad", "Mumbai", "Delhi", "Pune", "Chennai", "Dubai", "Singapore", "Germany"];
 
 export default function PreferencesPage() {
@@ -254,7 +252,7 @@ export default function PreferencesPage() {
       <PageHeader
         eyebrow="Personal"
         title="Preferences"
-        desc="Tell JobQuest what kind of opportunities you're looking for. Locations act as a hard filter — roles, skills, and experience are OR'd: a job matches if it hits ANY of them."
+        desc="Tell JobQuest what kind of opportunities you're looking for. Locations act as a hard filter — a job matches if it hits ANY of your roles."
       />
 
       <div style={{ maxWidth: 760 }} className="space-y-5">
@@ -265,11 +263,6 @@ export default function PreferencesPage() {
             placeholder={"Paste roles separated by commas, e.g. Software Engineer, SDE I, MTS, Backend Developer…\nPress Ctrl+Enter to add."}
             presets={ROLES_PRESET}
           />
-        </section>
-
-        <section className="card space-y-4 p-5">
-          <h2 className="text-[15px] font-semibold">Skills</h2>
-          <TagInput field="keywords" placeholder="e.g. Python (press Enter)" presets={SKILLS_PRESET} />
         </section>
 
         <section className="card space-y-4 p-5">
@@ -325,11 +318,6 @@ export default function PreferencesPage() {
               <CountrySelect countries={countries} onSelect={addCountry} />
             </div>
           </div>
-        </section>
-
-        <section className="card space-y-4 p-5">
-          <h2 className="text-[15px] font-semibold">Experience</h2>
-          <TagInput field="seniority" placeholder="e.g. Senior (press Enter)" presets={SENIORITY_PRESET} />
         </section>
 
         <section className="card space-y-4 p-5">

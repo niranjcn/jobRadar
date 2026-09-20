@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { RadarMark } from "@/components/radar-mark";
+import styles from "@/components/ink/ink.module.css";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import type { Plan } from "@/lib/types";
@@ -31,10 +32,12 @@ export default function PricingPage() {
   const ctaLabel = !me ? "Get started" : me.access_locked ? "Unlock now" : "Manage billing";
 
   return (
-    <div className="flex min-h-screen flex-col items-center px-6 py-14">
+    <div className={styles.ink} style={{ zoom: 1 }}>
+      <div className={`${styles.shell} flex-col items-center px-6 py-14`}>
       <Link href="/" className="mb-10 flex flex-col items-center gap-3">
-        <RadarMark />
+        <RadarMark size={32} />
         <span className="font-display text-lg font-bold tracking-[0.14em]">JOBQUEST</span>
+        <span className={styles.eyebrow}>Pricing</span>
       </Link>
 
       <h1 className="max-w-xl text-center font-display text-3xl font-bold">
@@ -74,6 +77,7 @@ export default function PricingPage() {
         </Link>{" "}
         — no payment needed.
       </p>
+      </div>
     </div>
   );
 }

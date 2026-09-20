@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { RadarMark } from "@/components/radar-mark";
+import styles from "@/components/ink/ink.module.css";
 import { ApiError, api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 
@@ -108,11 +109,13 @@ export default function RegisterPage() {
 
   if (success) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-bg p-6">
+      <div className={styles.ink} style={{ zoom: 1 }}>
+      <div className={`${styles.shell} items-center justify-center`}>
         <div className="w-full max-w-sm">
           <div className="mb-8 flex flex-col items-center gap-3">
             <RadarMark />
             <span className="font-display text-lg font-bold tracking-[0.14em]">JOBQUEST</span>
+            <span className={styles.eyebrow}>Account created</span>
           </div>
           <div className="card space-y-4 p-6 text-center">
             <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-success/10 text-success">✓</div>
@@ -126,26 +129,28 @@ export default function RegisterPage() {
           </div>
         </div>
       </div>
+      </div>
     );
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-bg p-6">
-      <div className="w-full max-w-[420px]">
-        <div className="mb-8 flex flex-col items-center gap-3">
-          <RadarMark />
+    <div className={styles.ink} style={{ zoom: 1 }}>
+      <div className={`${styles.shell} items-center justify-center`}>
+      <div className="w-full max-w-[400px]">
+        <div className="mb-5 flex flex-col items-center gap-2">
+          <RadarMark size={32} />
           <span className="font-display text-lg font-bold tracking-[0.14em]">JOBQUEST</span>
-          <span className="text-xs tracking-wide text-text-muted">Create your account — MNC-grade security</span>
+          <span className={styles.eyebrow}>Create your account</span>
         </div>
 
-        <form onSubmit={submit} noValidate className="card space-y-4 p-6">
+        <form onSubmit={submit} noValidate className="card space-y-3 p-5">
           <div>
             <h1 className="text-lg font-semibold">Create your account</h1>
-            <p className="mt-1 text-sm text-text-secondary">Sign in immediately after. <strong>Dashboard / New Jobs / Preferences / Billing</strong> are instant; <strong>Matches / New Matches / Telegram</strong> unlock after monthly payment or coupon.</p>
+            <p className="mt-1 text-[13px] text-text-secondary">Dashboard, New Jobs, Preferences and Billing are instant; Matches and Telegram unlock after payment or coupon.</p>
           </div>
 
-          <div>
-            <label htmlFor="display_name" className="mb-1 block text-xs font-medium text-text-secondary">Display name</label>
+          <div className={styles.field}>
+            <label htmlFor="display_name" className={styles.fieldLabel}>Display name</label>
             <input
               id="display_name"
               autoComplete="name"
@@ -162,8 +167,8 @@ export default function RegisterPage() {
             {nameErr ? <p id="name-err" className="mt-1 text-xs text-danger">{nameErr}</p> : <p className="mt-1 text-xs text-text-muted">2–50 chars, letters/numbers/space . &apos; _ @ -</p>}
           </div>
 
-          <div>
-            <label htmlFor="email" className="mb-1 block text-xs font-medium text-text-secondary">Work email</label>
+          <div className={styles.field}>
+            <label htmlFor="email" className={styles.fieldLabel}>Work email</label>
             <input
               id="email"
               type="email"
@@ -180,8 +185,8 @@ export default function RegisterPage() {
             {emailErr ? <p id="email-err" className="mt-1 text-xs text-danger">{emailErr}</p> : <p className="mt-1 text-xs text-text-muted">We’ll never share your email. Lowercased and trimmed.</p>}
           </div>
 
-          <div>
-            <label htmlFor="password" className="mb-1 block text-xs font-medium text-text-secondary">Password</label>
+          <div className={styles.field}>
+            <label htmlFor="password" className={styles.fieldLabel}>Password</label>
             <div className="relative">
               <input
                 id="password"
@@ -199,24 +204,24 @@ export default function RegisterPage() {
               </button>
             </div>
             {/* strength meter */}
-            <div className="mt-2 flex gap-1">
+            <div className="mt-1.5 flex gap-1">
               {[0, 1, 2, 3].map((i) => (
-                <span key={i} className="h-1 flex-1 rounded" style={{ background: i < pwScore ? (pwScore >= 4 ? "#10b981" : pwScore >= 3 ? "#f59e0b" : "#ef4444") : "rgba(0,0,0,0.08)" }} />
+                <span key={i} className="h-1 flex-1 rounded" style={{ background: i < pwScore ? (pwScore >= 4 ? "#10b981" : pwScore >= 3 ? "#f59e0b" : "#ef4444") : "rgba(255,255,255,0.1)" }} />
               ))}
             </div>
-            <ul id="pw-help" className="mt-2 grid grid-cols-1 gap-1 text-xs">
-              <li className={password.length >= 12 ? "text-success" : "text-text-muted"}>{password.length >= 12 ? "✓" : "•"} 12+ characters (max 128)</li>
+            <ul id="pw-help" className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px]">
+              <li className={password.length >= 12 ? "text-success" : "text-text-muted"}>{password.length >= 12 ? "✓" : "•"} 12+ chars (max 128)</li>
               <li className={[/[A-Z]/, /[a-z]/, /[0-9]/, /[!@#$%^&*()\-_=+[\]{}|;:',.<>?/`~]/].filter((r) => r.test(password)).length >= 3 ? "text-success" : "text-text-muted"}>
-                {[/[A-Z]/, /[a-z]/, /[0-9]/, /[!@#$%^&*()\-_=+[\]{}|;:',.<>?/`~]/].filter((r) => r.test(password)).length >= 3 ? "✓" : "•"} 3 of: upper, lower, number, special
+                {[/[A-Z]/, /[a-z]/, /[0-9]/, /[!@#$%^&*()\-_=+[\]{}|;:',.<>?/`~]/].filter((r) => r.test(password)).length >= 3 ? "✓" : "•"} upper, lower, number, special (3 of 4)
               </li>
               <li className={pwIssues.length === 0 && password ? "text-success" : "text-text-muted"}>
-                {pwIssues.length === 0 && password ? "✓ Strong" : pwIssues.length ? `• ${pwIssues[0]}` : "• Not containing email or name, not common"}
+                {pwIssues.length === 0 && password ? "✓ Strong" : pwIssues.length ? `• ${pwIssues[0]}` : "• No email/name, not common"}
               </li>
             </ul>
           </div>
 
-          <div>
-            <label htmlFor="confirm" className="mb-1 block text-xs font-medium text-text-secondary">Confirm password</label>
+          <div className={styles.field}>
+            <label htmlFor="confirm" className={styles.fieldLabel}>Confirm password</label>
             <div className="relative">
               <input
                 id="confirm"
@@ -240,14 +245,15 @@ export default function RegisterPage() {
             {busy ? "Creating…" : "Create account"}
           </button>
           {error && <p role="alert" className="rounded bg-danger/10 p-2 text-center text-sm text-danger">{error}</p>}
-          <p className="text-center text-xs leading-relaxed text-text-muted">
-            By creating an account you agree to our Terms and acknowledge our security policy. Brute-force protected (5/h per IP) and lockout on login.
+          <p className="text-center text-[11px] leading-relaxed text-text-muted">
+            By creating an account you agree to our Terms. Brute-force protected and lockout on login.
           </p>
         </form>
 
-        <p className="mt-4 text-center text-xs text-text-muted">
+        <p className="mt-3 text-center text-xs text-text-muted">
           Already have an account? <Link href="/login" className="font-medium text-text hover:underline">Sign in</Link>
         </p>
+      </div>
       </div>
     </div>
   );
