@@ -48,13 +48,14 @@ def normalize_job_for_matching(job: dict[str, Any]) -> dict[str, Any]:
     per-pair path recomputed every time.
     """
     title = job.get("title") or ""
-    description = job.get("description") or ""
     title_l = title.lower()
     company = job.get("company_name") or ""
     return {
         "id": job.get("id"),
         "title_l": title_l,
-        "text_l": f"{title_l} {description.lower()}",
+        # Keyword matching is title-only by product decision (descriptions are
+        # not stored); legacy dicts carrying a description key behave the same.
+        "text_l": title_l,
         "location_l": (job.get("location") or "").lower(),
         "company": company,
         "company_l": company.lower(),
@@ -328,7 +329,7 @@ def match_all(
             batch = external_ids[start : start + IN_BATCH]
             response = (
                 supabase.table("jobs")
-                .select("id, source_id, title, location, description, countries, is_remote")
+                .select("id, source_id, title, location, countries, is_remote")
                 .eq("source_id", source_id)
                 .in_("external_job_id", batch)
                 .execute()

@@ -39,15 +39,17 @@ def test_cron_conversion(seconds, expected):
 
 
 def test_match_preferences_and_score():
+    # Keyword matching is title-only (descriptions are not stored): both
+    # keyword terms below hit the title, keeping the 3/3-category contract.
     job = {
         "title": "Backend Software Engineer",
-        "description": "Python AWS PostgreSQL",
+        "description": "",
         "location": "Dubai",
         "company_name": "Adobe",
     }
     prefs = {
         "roles": ["backend", "software engineer"],
-        "keywords": ["python", "aws"],
+        "keywords": ["software", "engineer"],
         "locations": ["dubai"],
         "seniority": [],
         "excluded_companies": [],
@@ -1880,7 +1882,6 @@ def _job_row(external_id: str, index: int = 0) -> dict:
         "title": f"Engineer {index}",
         "location": "Bengaluru, India",
         "url": f"https://example.com/jobs/{external_id}",
-        "description": "desc",
         "countries": ["IN"],
         "is_remote": False,
     }
@@ -1903,8 +1904,8 @@ def test_upsert_jobs_returning_chunks_and_new_detection(monkeypatch):
     rows = [_job_row(f"e{i}", i) for i in range(1200)]
     out = poller_module.upsert_jobs_returning(object(), rows)
     assert len(calls) == 3  # 1200 rows at 500 per chunk
-    assert len(calls[0][1]) == 500 * 8
-    assert len(calls[2][1]) == 200 * 8
+    assert len(calls[0][1]) == 500 * 7
+    assert len(calls[2][1]) == 200 * 7
     sql = calls[0][0]
     assert "ON CONFLICT (source_id, external_job_id)" in sql
     assert "DO UPDATE SET" in sql
@@ -1912,6 +1913,16 @@ def test_upsert_jobs_returning_chunks_and_new_detection(monkeypatch):
     assert "RETURNING" in sql and "xmax" in sql
     assert "%s::uuid" in sql and "%s::text[]" in sql
     assert out == {"new_ids": ["n", "n", "n"], "failed_chunks": 0}
+
+
+def test_upsert_placeholders_match_columns():
+    """Structural invariant: one placeholder per upsert column. A mismatch
+    fails every poll's upserts loudly, so this is locked at unit level."""
+    import re
+
+    import app.poller as poller_module
+
+    assert len(re.findall(r"%s", poller_module._ROW_SQL)) == len(poller_module._UPSERT_COLS)
 
 
 def test_upsert_jobs_returning_empty_and_failures(monkeypatch):

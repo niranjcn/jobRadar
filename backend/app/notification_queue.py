@@ -248,7 +248,7 @@ def match_and_enqueue(
         batch = external_ids[start : start + IN_BATCH]
         response = (
             supabase.table("jobs")
-            .select("id, source_id, title, location, description, countries, is_remote")
+            .select("id, source_id, title, location, countries, is_remote")
             .eq("source_id", source_id)
             .in_("external_job_id", batch)
             .execute()

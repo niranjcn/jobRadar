@@ -1,16 +1,13 @@
 """Keyword filters for the public jobs API (landing page).
 
-Our pipeline stores no salary / experience / employment-type columns, so
-these filters match keyword groups against the combined
-title + location + description text. Explicitly heuristic: unknown keys are
+Our pipeline stores no salary / experience / employment-type columns (and no
+descriptions), so these filters match keyword groups against the combined
+title + location text. Explicitly heuristic: unknown keys are
 ignored and an empty selection means "no filter". Everything here is pure
 (no DB) and covered by offline unit tests.
 """
 
-TEXT_SQL = (
-    "(coalesce(j.title, '') || ' ' || coalesce(j.location, '') "
-    "|| ' ' || coalesce(j.description, ''))"
-)
+TEXT_SQL = "(coalesce(j.title, '') || ' ' || coalesce(j.location, ''))"
 
 
 def escape_like(value: str) -> str:

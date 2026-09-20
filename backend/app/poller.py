@@ -120,7 +120,9 @@ def unhealthy_sources(supabase: Client, intervals: dict[str, int]) -> list[dict[
     return result
 
 
-UPSERT_CHUNK_ROWS = 500  # 500 rows x 8 cols = 4000 params, far below the 65535 protocol limit
+UPSERT_CHUNK_ROWS = 500  # 500 rows x 7 cols = 3500 params, far below the 65535 protocol limit
+# Invariant: placeholder count in _ROW_SQL == len(_UPSERT_COLS), or every
+# poll's upserts fail loudly. Covered by test_upsert_placeholders_match_columns.
 
 # Lifecycle (041): sightings advance last_seen_at at most this often per row
 # (daily granularity is plenty for "is this posting still up"), and rows unseen
@@ -136,7 +138,6 @@ _UPSERT_COLS = (
     "title",
     "location",
     "url",
-    "description",
     "countries",
     "is_remote",
 )
@@ -148,7 +149,8 @@ _UPSERT_COLS = (
 _UPDATE_COLS = ("title", "location", "url", "countries", "is_remote")
 
 # One row of placeholders. uuid/text[] casts keep psycopg param typing exact.
-_ROW_SQL = "(%s::uuid, %s, %s, %s, %s, %s, %s::text[], %s)"
+# Placeholder count must equal len(_UPSERT_COLS) (verified by test).
+_ROW_SQL = "(%s::uuid, %s, %s, %s, %s, %s::text[], %s)"
 
 
 def upsert_jobs_returning(settings: Settings, rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -191,7 +193,6 @@ def upsert_jobs_returning(settings: Settings, rows: list[dict[str, Any]]) -> dic
                     row["title"],
                     row["location"],
                     row["url"],
-                    row.get("description") or "",
                     row.get("countries") or [],
                     bool(row.get("is_remote")),
                 ]

@@ -402,7 +402,7 @@ def get_job(job_id: str, user: Annotated[UserCtx, Depends(get_current_user)]) ->
         settings,
         """
         select j.id, j.source_id, j.external_job_id, j.title, j.location, j.url,
-               j.description, j.first_seen_at, j.countries, j.is_remote, j.is_active,
+               j.first_seen_at, j.countries, j.is_remote, j.is_active,
                s.company_name, s.ats_type, s.domain
         from jobs j join sources s on s.id = j.source_id
         where j.id = %s::uuid
@@ -425,7 +425,9 @@ def get_job(job_id: str, user: Annotated[UserCtx, Depends(get_current_user)]) ->
         "title": row["title"],
         "location": row["location"],
         "url": row["url"],
-        "description": row["description"],
+        # Descriptions are not stored (title-only matching); key kept null so
+        # existing clients keep rendering their fallback text.
+        "description": None,
         "first_seen_at": row["first_seen_at"].isoformat() if row["first_seen_at"] else None,
         "company": row["company_name"],
         "ats_type": row["ats_type"],
