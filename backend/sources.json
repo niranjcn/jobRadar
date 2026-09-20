@@ -14590,5 +14590,89 @@
     "ats_type": "oracle",
     "board_identifier": "https://ebpm.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1",
     "domain": null
+  },
+  {
+    "company_name": "News Corp",
+    "ats_type": "smartrecruiters",
+    "board_identifier": "newscorp",
+    "domain": "newscorp.com"
+  },
+  {
+    "company_name": "LVMH",
+    "ats_type": "smartrecruiters",
+    "board_identifier": "lvmh",
+    "domain": "lvmh.com"
+  },
+  {
+    "company_name": "NRI Group",
+    "ats_type": "smartrecruiters",
+    "board_identifier": "jposting",
+    "domain": null
+  },
+  {
+    "company_name": "ByteDance",
+    "ats_type": "smartrecruiters",
+    "board_identifier": "bytedance",
+    "domain": "bytedance.com"
+  },
+  {
+    "company_name": "Gap Inc.",
+    "ats_type": "smartrecruiters",
+    "board_identifier": "gapinc",
+    "domain": "gapinc.com"
+  },
+  {
+    "company_name": "Red Bull",
+    "ats_type": "smartrecruiters",
+    "board_identifier": "redbull",
+    "domain": "redbull.com"
+  },
+  {
+    "company_name": "ServiceNow",
+    "ats_type": "smartrecruiters",
+    "board_identifier": "servicenow",
+    "domain": "servicenow.com"
+  },
+  {
+    "company_name": "APM Terminals",
+    "ats_type": "smartrecruiters",
+    "board_identifier": "apmterminals",
+    "domain": "apmterminals.com"
+  },
+  {
+    "company_name": "ChopArt",
+    "ats_type": "smartrecruiters",
+    "board_identifier": "chopart",
+    "domain": null
+  },
+  {
+    "company_name": "BLEND",
+    "ats_type": "greenhouse",
+    "board_identifier": "blend",
+    "domain": "blend360.com"
+  },
+  {
+    "company_name": "Coursera",
+    "ats_type": "greenhouse",
+    "board_identifier": "coursera",
+    "domain": "coursera.org"
+  },
+  {
+    "company_name": "IMC",
+    "ats_type": "greenhouse",
+    "board_identifier": "imc",
+    "domain": "imc.com"
+  },
+  {
+    "company_name": "IMI",
+    "ats_type": "greenhouse",
+    "board_identifier": "imi",
+    "domain": null
+  },
+  {
+    "company_name": "Point72",
+    "ats_type": "greenhouse",
+    "board_identifier": "point72",
+    "domain": "point72.com"
   }
 ]
