@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { RadarMark } from "@/components/radar-mark";
+import styles from "@/components/ink/ink.module.css";
 import { ApiError, api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 
@@ -108,11 +109,12 @@ export default function RegisterPage() {
 
   if (success) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-bg p-6">
+      <div className={`flex min-h-screen items-center justify-center p-6 ${styles.ink}`}>
         <div className="w-full max-w-sm">
           <div className="mb-8 flex flex-col items-center gap-3">
             <RadarMark />
             <span className="font-display text-lg font-bold tracking-[0.14em]">JOBQUEST</span>
+            <span className={styles.eyebrow}>Account created</span>
           </div>
           <div className="card space-y-4 p-6 text-center">
             <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-success/10 text-success">✓</div>
@@ -130,12 +132,12 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-bg p-6">
+    <div className={`flex min-h-screen items-center justify-center p-6 ${styles.ink}`}>
       <div className="w-full max-w-[420px]">
         <div className="mb-8 flex flex-col items-center gap-3">
           <RadarMark />
           <span className="font-display text-lg font-bold tracking-[0.14em]">JOBQUEST</span>
-          <span className="text-xs tracking-wide text-text-muted">Create your account — MNC-grade security</span>
+          <span className={styles.eyebrow}>Create your account</span>
         </div>
 
         <form onSubmit={submit} noValidate className="card space-y-4 p-6">
@@ -144,8 +146,8 @@ export default function RegisterPage() {
             <p className="mt-1 text-sm text-text-secondary">Sign in immediately after. <strong>Dashboard / New Jobs / Preferences / Billing</strong> are instant; <strong>Matches / New Matches / Telegram</strong> unlock after monthly payment or coupon.</p>
           </div>
 
-          <div>
-            <label htmlFor="display_name" className="mb-1 block text-xs font-medium text-text-secondary">Display name</label>
+          <div className={styles.field}>
+            <label htmlFor="display_name" className={styles.fieldLabel}>Display name</label>
             <input
               id="display_name"
               autoComplete="name"
@@ -162,8 +164,8 @@ export default function RegisterPage() {
             {nameErr ? <p id="name-err" className="mt-1 text-xs text-danger">{nameErr}</p> : <p className="mt-1 text-xs text-text-muted">2–50 chars, letters/numbers/space . &apos; _ @ -</p>}
           </div>
 
-          <div>
-            <label htmlFor="email" className="mb-1 block text-xs font-medium text-text-secondary">Work email</label>
+          <div className={styles.field}>
+            <label htmlFor="email" className={styles.fieldLabel}>Work email</label>
             <input
               id="email"
               type="email"
@@ -180,8 +182,8 @@ export default function RegisterPage() {
             {emailErr ? <p id="email-err" className="mt-1 text-xs text-danger">{emailErr}</p> : <p className="mt-1 text-xs text-text-muted">We’ll never share your email. Lowercased and trimmed.</p>}
           </div>
 
-          <div>
-            <label htmlFor="password" className="mb-1 block text-xs font-medium text-text-secondary">Password</label>
+          <div className={styles.field}>
+            <label htmlFor="password" className={styles.fieldLabel}>Password</label>
             <div className="relative">
               <input
                 id="password"
@@ -215,8 +217,8 @@ export default function RegisterPage() {
             </ul>
           </div>
 
-          <div>
-            <label htmlFor="confirm" className="mb-1 block text-xs font-medium text-text-secondary">Confirm password</label>
+          <div className={styles.field}>
+            <label htmlFor="confirm" className={styles.fieldLabel}>Confirm password</label>
             <div className="relative">
               <input
                 id="confirm"

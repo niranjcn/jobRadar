@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { RadarMark } from "@/components/radar-mark";
+import styles from "@/components/ink/ink.module.css";
 import { ApiError, api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { errText } from "@/lib/format";
@@ -58,12 +59,12 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-bg p-6">
+    <div className={`flex min-h-screen items-center justify-center p-6 ${styles.ink}`}>
       <div className="w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center gap-3">
           <RadarMark />
           <span className="font-display text-lg font-bold tracking-[0.14em]">JOBQUEST</span>
-          <span className="text-xs tracking-wide text-text-muted">Secure sign in — PBKDF2 600k + lockout</span>
+          <span className={styles.eyebrow}>Secure sign in</span>
         </div>
 
         <form onSubmit={submitPassword} noValidate className="card space-y-4 p-6">
@@ -72,8 +73,8 @@ export default function LoginPage() {
             <p className="mt-1 text-sm text-text-secondary">Use your email and password. New accounts require admin approval before access.</p>
           </div>
 
-          <div>
-            <label htmlFor="email" className="mb-1 block text-xs font-medium text-text-secondary">Email</label>
+          <div className={styles.field}>
+            <label htmlFor="email" className={styles.fieldLabel}>Email</label>
             <input
               id="email"
               type="email"
@@ -90,9 +91,9 @@ export default function LoginPage() {
             {email && !isValidEmail(email) && <p className="mt-1 text-xs text-danger">Enter a valid email address</p>}
           </div>
 
-          <div>
+          <div className={styles.field}>
             <div className="mb-1 flex items-center justify-between">
-              <label htmlFor="password" className="text-xs font-medium text-text-secondary">Password</label>
+              <label htmlFor="password" className={styles.fieldLabel}>Password</label>
               <Link href="/unlock" className="text-xs text-text-muted hover:text-text">Forgot?</Link>
             </div>
             <div className="relative">
@@ -110,7 +111,7 @@ export default function LoginPage() {
                 {showPw ? "Hide" : "Show"}
               </button>
             </div>
-            <p className="mt-1 text-xs text-text-muted">12+ characters, 3/4 categories. Lockout after 5 failures/15 min. Rate-limited 10/5 min.</p>
+            <p className={styles.fieldHelp}>12+ characters, 3/4 categories. Lockout after 5 failures/15 min. Rate-limited 10/5 min.</p>
           </div>
 
           <button type="submit" disabled={!canSubmit} className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed">

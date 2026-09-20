@@ -1265,9 +1265,9 @@ export function JobQuestLanding() {
               className={styles.btnTrial}
               onClick={() => (window.location.href = "/pricing")}
             >
-              Start 3-day free trial
+              ₹49/month
             </button>
-            <p className={styles.proFine}>Then just ₹49/month. Cancel anytime.</p>
+            <p className={styles.proFine}>Cancel anytime.</p>
           </div>
 
           <div className={`${styles.card} ${styles.testimonial}`}>
