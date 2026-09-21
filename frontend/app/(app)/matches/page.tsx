@@ -14,6 +14,7 @@ import { copyReferral } from "@/lib/referral";
 import type { CompanyMatchSummary, Job } from "@/lib/types";
 
 const PAGE_SIZE = 20;
+const CO_PAGE_SIZE = 25;
 
 type Range = "today" | "day";
 
@@ -38,6 +39,7 @@ export default function MatchesPage() {
     const p = parseInt(searchParams.get("page") || "0", 10);
     return Number.isFinite(p) && p >= 0 ? p : 0;
   });
+  const [coPage, setCoPage] = useState(0);
   const [total, setTotal] = useState(0);
   const [saved, setSaved] = useState<string[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -139,6 +141,16 @@ export default function MatchesPage() {
     [summary, q],
   );
 
+  const coPageCount = useMemo(
+    () => Math.max(1, Math.ceil(filteredSummary.length / CO_PAGE_SIZE)),
+    [filteredSummary.length],
+  );
+  const coPageSafe = Math.min(coPage, coPageCount - 1);
+  const visibleCompanies = useMemo(
+    () => filteredSummary.slice(coPageSafe * CO_PAGE_SIZE, coPageSafe * CO_PAGE_SIZE + CO_PAGE_SIZE),
+    [filteredSummary, coPageSafe],
+  );
+
   const totalMatches = useMemo(() => summary.reduce((s, c) => s + c.matches, 0), [summary]);
 
   return (
@@ -181,7 +193,8 @@ export default function MatchesPage() {
                   key={r}
                   type="button"
                   onClick={() => changeRange(r)}
-                  className={range === r ? styles.pillActive : styles.pill}
+                  className={`${styles.pill} ${range === r ? styles.pillActive : ""}`}
+                  aria-pressed={range === r}
                 >
                   {r === "today" ? "Today" : "Last 24h"}
                 </button>
@@ -198,7 +211,10 @@ export default function MatchesPage() {
             </select>
             <input
               value={q}
-              onChange={(e) => setQ(e.target.value)}
+              onChange={(e) => {
+                setQ(e.target.value);
+                setCoPage(0);
+              }}
               placeholder="Search matched companies…"
               className={styles.toolInput}
               style={{ width: 230 }}
@@ -223,13 +239,13 @@ export default function MatchesPage() {
             )}
           </div>
 
-          <section className={styles.cardGrid} style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", marginBottom: 20 }}>
+          <section className={styles.cardGrid} style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", marginBottom: 12 }}>
             {filteredSummary.length === 0 ? (
               <div className={styles.panel} style={{ padding: 24, textAlign: "center", gridColumn: "1/-1" }}>
                 <p style={{ fontSize: 13, color: "var(--ink-muted)" }}>No companies match your search.</p>
               </div>
             ) : (
-              filteredSummary.map((entry) => {
+              visibleCompanies.map((entry) => {
                 const active = selectedCompany === entry.company;
                 return (
                   <button
@@ -265,6 +281,19 @@ export default function MatchesPage() {
               })
             )}
           </section>
+
+          {coPageCount > 1 && (
+            <div style={{ marginBottom: 20 }}>
+              <Pager
+                page={coPageSafe}
+                pageCount={coPageCount}
+                disabled={false}
+                label={`Companies page ${coPageSafe + 1} of ${coPageCount} · ${filteredSummary.length} total`}
+                onPrev={() => setCoPage((p) => Math.max(0, p - 1))}
+                onNext={() => setCoPage((p) => Math.min(coPageCount - 1, p + 1))}
+              />
+            </div>
+          )}
 
           {companyLoading ? (
             <LoadingState label="Loading company matches…" rows={3} />
