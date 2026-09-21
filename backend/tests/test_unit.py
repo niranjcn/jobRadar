@@ -2120,6 +2120,78 @@ def test_prune_old_jobs_requires_abandonment_not_just_age(monkeypatch):
     assert chains[0][0][1] == chains[0][1][1]  # one cutoff for both guards
 
 
+def test_missing_job_expiry_timeline_defaults(monkeypatch):
+    """A job absent from fetches: swept after 72h unseen, deleted 7d after its
+    last sighting. last_seen_at freezes at disappearance (touch only advances
+    sighted rows), so wall-clock expiry is ~7 days, not 72h + 7d."""
+    import app.poller as poller_module
+
+    assert poller_module.LIFECYCLE_GRACE_HOURS == 72
+    assert poller_module.INACTIVE_RETENTION_DAYS == 7
+
+    calls: list[tuple[str, tuple]] = []
+
+    def fake_query(settings, sql, params=()):
+        calls.append((sql, params))
+        return []
+
+    monkeypatch.setattr(poller_module, "query", fake_query)
+    # Defaults (no explicit grace/days) must be the timeline above.
+    poller_module.sweep_missing_jobs(object(), "source-9")
+    poller_module.prune_inactive_jobs(object())
+    sweep_sql, sweep_params = calls[0]
+    prune_sql, prune_params = calls[1]
+    assert sweep_params == ("source-9", 72)
+    assert prune_params == (7,)
+    # Sweep only touches still-active rows unseen past grace...
+    assert "is_active" in sweep_sql and "is_active = false" in sweep_sql
+    assert "last_seen_at < now()" in sweep_sql
+    # ...prune only deletes already-inactive rows unseen past 7d.
+    assert "not is_active" in prune_sql and "delete from jobs" in prune_sql
+    assert "last_seen_at < now()" in prune_sql
+
+
+def test_failed_fetch_writes_nothing(monkeypatch):
+    """A failed fetch must not sweep, touch, upsert, or prune: fetch raises
+    before the first DB write, so a transient source outage can never mass-
+    deactivate live jobs. Error bookkeeping (mark_error) happens in the caller,
+    not here."""
+    import asyncio
+
+    import app.poller as poller_module
+
+    class BoomAdapter:
+        async def fetch_jobs(self, board_identifier: str, client=None):
+            raise RuntimeError("boom")
+
+    statements: list[str] = []
+
+    def fake_query(settings, sql, params=()):
+        statements.append(sql)
+        return []
+
+    monkeypatch.setattr(poller_module, "load_settings", lambda: object())
+    monkeypatch.setattr(poller_module, "query", fake_query)
+
+    async def run():
+        return await poller_module.poll_source(
+            object(),
+            {"id": "source-1", "company_name": "Acme", "board_identifier": "acme",
+             "last_checked_at": "2026-09-20T00:00:00+00:00"},
+            BoomAdapter(),
+            90,
+            geo_settings={"version": 1},
+        )
+
+    try:
+        asyncio.run(run())
+    except RuntimeError as exc:
+        assert "boom" in str(exc)
+    else:
+        raise AssertionError("fetch failure must propagate, not report ok")
+    assert statements == []  # zero DB writes on fetch failure
+
+
 def test_mark_checked_writes_health_atomically(monkeypatch):
     """Success path stamps all seven health signals in one UPDATE (no
     read-modify-write, so overlapping runs can't lose counter increments)."""
