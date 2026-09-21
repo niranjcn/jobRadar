@@ -532,6 +532,22 @@ def prune_stale_matches(settings: Settings) -> int:
     return rows[0]["c"] if rows else 0
 
 
+def prune_old_sent(settings: Settings) -> int:
+    """Delete ledger rows older than 24h (Telegram-only idempotency window).
+
+    24h keeps 'why didn't I get today's alert?' debuggable while bounding the
+    table that otherwise grows forever (10k users × daily sends). Pending queue
+    rows are never pruned here — only sent.
+    """
+    rows = query(
+        settings,
+        "with d as (delete from notifications_sent "
+        "where sent_at < now() - interval '24 hours' returning 1) "
+        "select count(*)::int as c from d",
+    )
+    return rows[0]["c"] if rows else 0
+
+
 def prune_old_jobs(supabase: Client, retention_days: int) -> int:
     # Dead postings go first and fast (inactive 7d); open ones keep full retention.
     # The 035/042 cascades clean job_matches/notification_queue/notifications_sent.
@@ -539,6 +555,17 @@ def prune_old_jobs(supabase: Client, retention_days: int) -> int:
     stale_matches = prune_stale_matches(settings)
     if stale_matches:
         print(f"retention: deleted {stale_matches} match(es) older than {MATCH_RETENTION_HOURS}h")
+    sent = prune_old_sent(settings)
+    if sent:
+        print(f"retention: deleted {sent} sent ledger row(s) older than 24h")
+    # Rate-event hygiene: keep the last 24h for active windows, drop older.
+    try:
+        r = query(settings, "delete from rate_events where created_at < now() - interval '24 hours' returning 1")
+        pruned_rates = len(r) if r is not None else 0
+        if pruned_rates:
+            print(f"retention: deleted {pruned_rates} rate_events older than 24h")
+    except Exception:
+        pass
     dead = prune_inactive_jobs(settings)
     if dead:
         print(

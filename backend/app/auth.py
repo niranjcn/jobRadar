@@ -211,15 +211,13 @@ def verify_session_token(secret_key: str, token: str, now: float | None = None) 
         return None
 
 
-# ---------- simple in-memory rate limiter (per process; good enough here) ----------
+# ---------- shared rate limiter (DB-backed, in-memory fallback for tests) ----------
 
 _rate_buckets: dict[str, list[float]] = {}
 
 
-def rate_limit(key: str, max_events: int, window_seconds: int) -> bool:
-    """True if allowed, False if over the limit for this window."""
+def _rate_limit_memory(key: str, max_events: int, window_seconds: int) -> bool:
     now = time.time()
-    # opportunistic cleanup to bound memory
     if len(_rate_buckets) > 2000:
         for k in list(_rate_buckets.keys())[:500]:
             _rate_buckets.pop(k, None)
@@ -230,6 +228,37 @@ def rate_limit(key: str, max_events: int, window_seconds: int) -> bool:
     bucket.append(now)
     _rate_buckets[key] = bucket
     return True
+
+
+def rate_limit(key: str, max_events: int, window_seconds: int) -> bool:
+    """True if allowed, False if over the limit. DB-backed via rate_events.
+
+    Keeps the same (key, max, window) API so call sites don't change.
+    Falls back to the in-memory bucket when DB is unavailable (tests, early boot).
+    """
+    try:
+        from app.config import load_settings
+        from app.db import query as db_query
+
+        settings = load_settings()
+        # Fast path: count in window
+        rows = db_query(
+            settings,
+            "select count(*)::int as c from rate_events "
+            "where key = %s and created_at > now() - (%s || ' seconds')::interval",
+            (key, window_seconds),
+        )
+        count = int(rows[0]["c"]) if rows else 0
+        if count >= max_events:
+            return False
+        db_query(
+            settings,
+            "insert into rate_events (key) values (%s)",
+            (key,),
+        )
+        return True
+    except Exception:
+        return _rate_limit_memory(key, max_events, window_seconds)
 
 
 def is_valid_email(email: str) -> bool:

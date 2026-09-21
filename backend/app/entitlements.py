@@ -12,13 +12,12 @@ active subscription; privileged/admin accounts are exempt.
 from typing import Any
 
 ROLE_DEFAULT_CAPABILITIES: dict[str, set[str]] = {
-    "user": {"dashboard", "preferences", "telegram_alerts", "email_alerts"},
-    "privileged": {"dashboard", "preferences", "telegram_alerts", "email_alerts"},
+    "user": {"dashboard", "preferences", "telegram_alerts"},
+    "privileged": {"dashboard", "preferences", "telegram_alerts"},
     "admin": {
         "dashboard",
         "preferences",
         "telegram_alerts",
-        "email_alerts",
         "admin",
     },
 }
