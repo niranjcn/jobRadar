@@ -2176,8 +2176,12 @@ def test_failed_fetch_writes_nothing(monkeypatch):
     async def run():
         return await poller_module.poll_source(
             object(),
-            {"id": "source-1", "company_name": "Acme", "board_identifier": "acme",
-             "last_checked_at": "2026-09-20T00:00:00+00:00"},
+            {
+                "id": "source-1",
+                "company_name": "Acme",
+                "board_identifier": "acme",
+                "last_checked_at": "2026-09-20T00:00:00+00:00",
+            },
             BoomAdapter(),
             90,
             geo_settings={"version": 1},
