@@ -2587,6 +2587,25 @@ def test_sr_pagination_arithmetic():
     assert PAGE_SIZE == 100
 
 
+def test_prune_stale_matches_deletes_older_than_24h(monkeypatch):
+    """Matches-today retention: DELETE keyed on match created_at, 24h bound."""
+    import app.poller as poller_module
+
+    calls: list[tuple[str, tuple]] = []
+
+    def fake_query(settings, sql, params=()):
+        calls.append((sql, params))
+        return [{"c": 7}]
+
+    monkeypatch.setattr(poller_module, "query", fake_query)
+    assert poller_module.prune_stale_matches(object()) == 7
+    sql, params = calls[0]
+    assert "delete from job_matches" in sql
+    assert "created_at < now()" in sql
+    assert params == (poller_module.MATCH_RETENTION_HOURS,)
+    assert poller_module.MATCH_RETENTION_HOURS == 24
+
+
 def _load_html_fixture(subdir: str, name: str) -> str:
     with open(FIXTURES / subdir / name, encoding="utf-8") as f:
         return f.read()
