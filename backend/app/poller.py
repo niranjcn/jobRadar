@@ -231,9 +231,13 @@ UPSERT_CHUNK_ROWS = 500  # 500 rows x 8 cols = 4000 params, far below the 65535 
 # (daily granularity is plenty for "is this posting still up"), and rows unseen
 # across LIFECYCLE_GRACE_HOURS of successful polls are deactivated. Dead
 # postings prune after INACTIVE_RETENTION_DAYS instead of full job_retention_days.
+# Matches-today retention (060): job_matches rows older than MATCH_RETENTION_HOURS
+# are pruned every poll; recompute_job_matches is scoped to recent jobs so a
+# preference save cannot resurrect them. Queue/sent tables are untouched.
 TOUCH_STALE_HOURS = 24
 LIFECYCLE_GRACE_HOURS = 72
 INACTIVE_RETENTION_DAYS = 7
+MATCH_RETENTION_HOURS = 24
 
 _UPSERT_COLS = (
     "source_id",
@@ -510,10 +514,32 @@ def mark_error(settings: Settings, source: dict[str, Any], exc: Exception) -> No
     )
 
 
+def prune_stale_matches(settings: Settings) -> int:
+    """Delete match rows older than MATCH_RETENTION_HOURS (matches today only).
+
+    Keyed on the match row's created_at: safe because recompute_job_matches is
+    scoped to recent jobs (060), so no code path recreates old-job matches with
+    fresh timestamps. Alert-safe: poll matching only sees new jobs, and the
+    queue/sent UNIQUE(user, job, channel) constraints dedupe independently.
+    """
+    rows = query(
+        settings,
+        "with d as (delete from job_matches "
+        "where created_at < now() - (%s || ' hours')::interval "
+        "returning 1) select count(*)::int as c from d",
+        (MATCH_RETENTION_HOURS,),
+    )
+    return rows[0]["c"] if rows else 0
+
+
 def prune_old_jobs(supabase: Client, retention_days: int) -> int:
     # Dead postings go first and fast (inactive 7d); open ones keep full retention.
     # The 035/042 cascades clean job_matches/notification_queue/notifications_sent.
-    dead = prune_inactive_jobs(load_settings())
+    settings = load_settings()
+    stale_matches = prune_stale_matches(settings)
+    if stale_matches:
+        print(f"retention: deleted {stale_matches} match(es) older than {MATCH_RETENTION_HOURS}h")
+    dead = prune_inactive_jobs(settings)
     if dead:
         print(
             f"retention: deleted {dead} inactive job(s) unseen for {INACTIVE_RETENTION_DAYS} day(s)"

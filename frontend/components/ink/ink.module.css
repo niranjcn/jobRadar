@@ -2100,10 +2100,15 @@ select.toolInput option {
 }
 
 .scoreCap {
-  font-size: 10.5px;
-  font-weight: 700;
-  text-align: center;
-  margin-top: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  white-space: nowrap;
 }
 
 /* Toggle switch (mint). */

@@ -66,10 +66,20 @@ export function ScoreRing({ score, size = 56 }: { score: number | null; size?: n
     );
   }
   const color = score >= 80 ? "#19e6a7" : score >= 60 ? "#f5b14c" : "#6f8587";
+  const label = score >= 80 ? "Excellent" : score >= 60 ? "Good" : "Fair";
   const r = 24;
   const c = 2 * Math.PI * r;
   return (
-    <span>
+    <span
+      style={{
+        display: "inline-flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: 6,
+        minWidth: 64,
+        flexShrink: 0,
+      }}
+    >
       <span className={styles.scoreRing} style={{ width: size, height: size }}>
         <svg width={size} height={size} viewBox="0 0 56 56" aria-hidden>
           <circle cx="28" cy="28" r={r} fill="none" stroke="rgba(255,255,255,0.09)" strokeWidth="5" />
@@ -87,10 +97,22 @@ export function ScoreRing({ score, size = 56 }: { score: number | null; size?: n
         </svg>
         <span className={styles.scoreNum} style={{ color }}>
           {score}
+          <span style={{ fontSize: "0.62em", fontWeight: 700 }}>%</span>
         </span>
       </span>
-      <span className={styles.scoreCap} style={{ color }}>
-        {score >= 80 ? "Excellent" : score >= 60 ? "Good" : "Fair"}
+      <span className={styles.scoreCap}>
+        <span
+          aria-hidden
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: "50%",
+            background: color,
+            boxShadow: `0 0 8px ${color}`,
+            flexShrink: 0,
+          }}
+        />
+        {label}
       </span>
     </span>
   );

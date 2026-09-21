@@ -285,15 +285,16 @@ export default function BillingPage() {
         {error && <p className="text-sm text-danger" style={{ marginTop: 8 }}>{error}</p>}
       </section>
 
-      <section className="card mt-4 space-y-3 p-5">
-        <div className="flex items-center justify-between">
-          <h2 className="text-[15px] font-semibold">Current access</h2>
+      <section className={styles.panel} style={{ marginTop: 16 }}>
+        <div className={styles.panelHead}>
+          <span className={styles.eyebrow}>Plan details</span>
           {me.role !== "user" && (
             <span className="rounded border border-success/30 bg-success/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest text-success">
               {me.role === "privileged" ? "Friends & Family" : "Owner"}
             </span>
           )}
         </div>
+        <div style={{ padding: "0 22px 22px", position: "relative" }}>
         {sub ? (
           <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
             <dt className="text-text-muted">Plan</dt>
@@ -316,10 +317,14 @@ export default function BillingPage() {
               : "Full access via your account role."}
           </p>
         )}
+        </div>
       </section>
 
-      <section className="card mt-4 space-y-3 p-5">
-        <h2 className="text-[15px] font-semibold">Alert delivery</h2>
+      <section className={styles.panel} style={{ marginTop: 16 }}>
+        <div className={styles.panelHead}>
+          <span className={styles.eyebrow}>Alert delivery</span>
+        </div>
+        <div style={{ padding: "0 22px 22px", position: "relative" }}>
         <p className="text-sm text-text-secondary">
           {me.alert_delay_minutes > 0 ? (
             <>
@@ -331,10 +336,14 @@ export default function BillingPage() {
             <>Alerts reach you the moment matching jobs are detected.</>
           )}
         </p>
+        </div>
       </section>
 
-      <section className="card mt-4 space-y-3 p-5">
-        <h2 className="text-[15px] font-semibold">Account security</h2>
+      <section className={styles.panel} style={{ marginTop: 16 }}>
+        <div className={styles.panelHead}>
+          <span className={styles.eyebrow}>Account security</span>
+        </div>
+        <div style={{ padding: "0 22px 22px", position: "relative" }}>
         <p className="text-sm text-text-secondary">
           {me.has_password
             ? "You have a password set. You can log in with email + password or an emailed code."
@@ -364,10 +373,14 @@ export default function BillingPage() {
         </div>
         {pwdMsg && <p className="text-sm text-success">{pwdMsg}</p>}
         {pwdErr && <p className="text-sm text-danger">{pwdErr}</p>}
+        </div>
       </section>
 
-      <section className="card mt-4 space-y-3 p-5">
-        <h2 className="text-[15px] font-semibold">Have a coupon?</h2>
+      <section className={styles.panel} style={{ marginTop: 16 }}>
+        <div className={styles.panelHead}>
+          <span className={styles.eyebrow}>Coupon</span>
+        </div>
+        <div style={{ padding: "0 22px 22px", position: "relative" }}>
         <p className="text-sm text-text-secondary">Admin-issued codes give 1–12 months free (single-use, 12h expiry). Paste it here to unlock instantly.</p>
         <div className="flex flex-wrap items-center gap-2">
           <input
@@ -384,10 +397,14 @@ export default function BillingPage() {
         {couponMsg && <p className="text-sm text-success">{couponMsg}</p>}
         {couponErr && <p className="text-sm text-danger">{couponErr}</p>}
         <p className="text-xs text-text-muted">Or go to <Link href="/unlock" className="hover:text-text">Unlock</Link> page. Codes are `JR-XXXX-XXXX`, case-insensitive.</p>
+        </div>
       </section>
 
-      <section className="card mt-4 space-y-3 p-5">
-        <h2 className="text-[15px] font-semibold">Payment method</h2>
+      <section className={styles.panel} style={{ marginTop: 16 }}>
+        <div className={styles.panelHead}>
+          <span className={styles.eyebrow}>Payment method</span>
+        </div>
+        <div style={{ padding: "0 22px 22px", position: "relative" }}>
         <p className="text-sm text-text-secondary">
           {sub ? (PROVIDER_LABELS[sub.provider] ?? sub.provider) : "No payment method on file."}
         </p>
@@ -396,6 +413,7 @@ export default function BillingPage() {
             Razorpay monthly billing available when `BILLING_PROVIDER=razorpay` + `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET` are set in `.env`. Until then, use manual or coupon.
           </p>
         )}
+        </div>
       </section>
       </div>
     </div>

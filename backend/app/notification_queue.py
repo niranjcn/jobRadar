@@ -7,6 +7,8 @@ drain_due_notifications() releases rows whose scheduled_for has passed
 """
 
 import hashlib
+import random
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -30,6 +32,11 @@ from app.matcher import (
 from app.notify import _send_email
 from app.telegram.messages import build_html, build_text_sections, build_text_summary
 from app.telegram.notifications import MAX_MESSAGE_LENGTH, _chunk_sections, _send_message
+
+# Telegram global pacing: ~25 msgs/sec sustained, burst 30.
+# One token bucket shared across the whole drain, not per-user.
+_TG_MIN_INTERVAL = 1.0 / 25.0
+_tg_last_send: float = 0.0
 
 IN_BATCH = 200
 DRAIN_BATCH = 400
@@ -92,11 +99,11 @@ def _load_tier_delays(settings: Settings) -> tuple[int, int]:
                 except Exception:
                     return default
 
-        return _as_int(m.get("privileged_delay_minutes"), 30), _as_int(
-            m.get("normal_delay_minutes"), 360
+        return _as_int(m.get("privileged_delay_minutes"), 10), _as_int(
+            m.get("normal_delay_minutes"), 10
         )
     except Exception:
-        return 30, 360
+        return 10, 10
 
 
 def load_audience(settings: Settings) -> list[AudienceUser]:
@@ -526,7 +533,28 @@ def _drain_locked(
                 if items:
                     sections += build_text_sections(items)[1:]
                 for chunk in _chunk_sections(sections, MAX_MESSAGE_LENGTH):
-                    _send_message(settings.telegram_bot_token, destination, chunk)
+                    # Global pacing: 25/sec sustained, burst 30. Protects the 30/sec bot limit.
+                    global _tg_last_send
+                    now_mono = time.monotonic()
+                    wait = _TG_MIN_INTERVAL - (now_mono - _tg_last_send)
+                    if wait > 0:
+                        time.sleep(wait + random.uniform(0, 0.08))
+                    try:
+                        _send_message(settings.telegram_bot_token, destination, chunk)
+                    except Exception as exc:
+                        # Respect Telegram 429 retry_after if present
+                        msg = str(exc)
+                        if "429" in msg or "Too Many Requests" in msg:
+                            # Try to parse retry_after from message, fallback 1s
+                            import re
+
+                            m = re.search(r"retry_after\D*(\d+)", msg, re.IGNORECASE)
+                            delay = int(m.group(1)) if m else 1
+                            time.sleep(min(delay, 30))
+                            _send_message(settings.telegram_bot_token, destination, chunk)
+                        else:
+                            raise
+                    _tg_last_send = time.monotonic()
                 sent["telegram"] += len(rows)
             else:
                 html = build_html(items, new_jobs=len(items), new_matches=len(items))

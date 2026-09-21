@@ -13,7 +13,6 @@ const PRIMARY = [
   { href: "/jobs", label: "Jobs", icon: I.briefcase },
   { href: "/new-jobs", label: "New Jobs Today", icon: I.bolt },
   { href: "/matches", label: "Matches", icon: I.target },
-  { href: "/new-matches", label: "New Matches Today", icon: I.spark },
   { href: "/companies", label: "Companies", icon: I.building },
 ];
 

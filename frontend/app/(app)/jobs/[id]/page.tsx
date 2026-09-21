@@ -8,35 +8,8 @@ import { CompanyLogo } from "@/components/company-logo";
 import { RadarLoading } from "@/components/radar-loading";
 import { api } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
+import { referralMessage } from "@/lib/referral";
 import type { Job } from "@/lib/types";
-
-function referralMessage(job: Job): string {
-  return [
-    "Hi [Name],",
-    "",
-    "I hope you're doing well. I've been following your journey at " +
-      job.company +
-      " and really admire your experience there.",
-    "",
-    "I'm a recent Computer Science graduate currently exploring Software Engineering opportunities, " +
-      "and I came across the " +
-      job.title +
-      " (Job ID: " +
-      job.external_job_id +
-      ") role. My background in Python, Java, SQL, Data Structures & Algorithms, " +
-      "and backend development aligns well with the role.",
-    "",
-    "If you're open to it, I'd really appreciate a quick conversation. I'd also be grateful if you " +
-      "could consider referring me for this position.",
-    "",
-    "I've attached my resume for your reference.",
-    "",
-    "Thank you for your time, and I look forward to hearing from you.",
-    "",
-    "Best regards,",
-    "Niranj C N",
-  ].join("\n");
-}
 
 export default function JobDetailPage() {
   const params = useParams<{ id: string }>();
@@ -63,7 +36,6 @@ export default function JobDetailPage() {
 
   function backLabel(): string {
     if (!from) return "← Back";
-    if (from.startsWith("/new-matches")) return "← Back to New Matches";
     if (from.startsWith("/matches")) return "← Back to Matches";
     if (from.startsWith("/new-jobs")) return "← Back to New Jobs";
     if (from.startsWith("/jobs")) return "← Back to Jobs";
