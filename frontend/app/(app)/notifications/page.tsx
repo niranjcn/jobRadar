@@ -187,7 +187,6 @@ export default function NotificationsPage() {
     );
 
   const telegram = recent.filter((n) => n.channel === "telegram").slice(0, 5);
-  const email = recent.filter((n) => n.channel === "email").slice(0, 5);
 
   return (
     <div className={styles.content}>
@@ -247,16 +246,6 @@ export default function NotificationsPage() {
           onEnabled={(v) => setPrefs({ ...prefs, notify_telegram: v })}
           onScope={(v) => setPrefs({ ...prefs, telegram_scope: v })}
           preview={telegram}
-        />
-
-        <ChannelCard
-          title="Email"
-          badge="resend"
-          enabled={prefs.notify_email}
-          scope={prefs.email_scope}
-          onEnabled={(v) => setPrefs({ ...prefs, notify_email: v })}
-          onScope={(v) => setPrefs({ ...prefs, email_scope: v })}
-          preview={email}
         />
 
         <section className="card space-y-3 p-5">

@@ -29,8 +29,7 @@ from app.matcher import (
     normalize_job_for_matching,
     preference_signature,
 )
-from app.notify import _send_email
-from app.telegram.messages import build_html, build_text_sections, build_text_summary
+from app.telegram.messages import build_text_sections, build_text_summary
 from app.telegram.notifications import MAX_MESSAGE_LENGTH, _chunk_sections, _send_message
 
 # Telegram global pacing: ~25 msgs/sec sustained, burst 30.
@@ -214,20 +213,14 @@ def build_queue_rows(
 
 
 def _channels_for(user: AudienceUser) -> list[str]:
-    channels: list[str] = []
+    # Email alerts removed — Telegram is the sole channel.
     if (
         user.telegram_chat_id
         and user.prefs.get("notify_telegram", True)
         and can_receive_channel({"capabilities": user.capabilities, "role": user.role}, "telegram")
     ):
-        channels.append("telegram")
-    if (
-        user.email
-        and user.prefs.get("notify_email", True)
-        and can_receive_channel({"capabilities": user.capabilities, "role": user.role}, "email")
-    ):
-        channels.append("email")
-    return channels
+        return ["telegram"]
+    return []
 
 
 def _batched(rows: list[dict[str, Any]], size: int = IN_BATCH):
@@ -408,10 +401,8 @@ def _fetch_recorded_job_ids(
 
 
 def _email_idempotency_key(user_id: str, channel: str, job_ids: list[str]) -> str:
-    """Stable across retries of the same logical batch (same user, channel and
-    job set always hash identically — order-insensitive). Resend dedups
-    redeliveries server-side for the crash window the ledger cannot see
-    (accepted-by-provider but not yet recorded)."""
+    """Stable across retries of the same logical batch. Kept for tests that
+    import it; email sending is removed."""
     digest = hashlib.sha256("|".join([user_id, channel, *sorted(set(job_ids))]).encode())
     return f"jq-{digest.hexdigest()}"
 
@@ -497,21 +488,17 @@ def _drain_locked(
             _mark_rows(supabase, [r["id"] for r in rows], status="canceled")
             continue
 
-        destination: str | None = None
-        globally_enabled = True
-        if channel == "telegram":
-            destination = str(head["telegram_chat_id"]) if head.get("telegram_chat_id") else None
-            globally_enabled = settings.telegram_enabled
-        elif channel == "email":
-            destination = head.get("email")
-            globally_enabled = settings.notify_enabled
-        if not globally_enabled:
+        if channel != "telegram":
+            # Email removed — cancel any lingering email rows.
+            _mark_rows(supabase, [r["id"] for r in rows], status="canceled")
+            continue
+        destination = str(head["telegram_chat_id"]) if head.get("telegram_chat_id") else None
+        if not settings.telegram_enabled:
             # Channel disabled globally: stay pending (admin may re-enable).
             continue
         if not destination:
-            # No destination for this channel (e.g., telegram without chat_id).
-            # Future enqueues require a destination – cancel stale rows so they
-            # never block the LIMIT window for deliverable users.
+            # No destination (telegram without chat_id). Cancel so it never
+            # blocks the LIMIT window for deliverable users.
             _mark_rows(supabase, [r["id"] for r in rows], status="canceled")
             continue
 
@@ -528,47 +515,33 @@ def _drain_locked(
             job_ids = [r["job_id"] for r in rows]
         items = _load_job_items(settings, job_ids, user_id)
         try:
-            if channel == "telegram":
-                sections = [build_text_summary(len(items), len(items))]
-                if items:
-                    sections += build_text_sections(items)[1:]
-                for chunk in _chunk_sections(sections, MAX_MESSAGE_LENGTH):
-                    # Global pacing: 25/sec sustained, burst 30. Protects the 30/sec bot limit.
-                    global _tg_last_send
-                    now_mono = time.monotonic()
-                    wait = _TG_MIN_INTERVAL - (now_mono - _tg_last_send)
-                    if wait > 0:
-                        time.sleep(wait + random.uniform(0, 0.08))
-                    try:
-                        _send_message(settings.telegram_bot_token, destination, chunk)
-                    except Exception as exc:
-                        # Respect Telegram 429 retry_after if present
-                        msg = str(exc)
-                        if "429" in msg or "Too Many Requests" in msg:
-                            # Try to parse retry_after from message, fallback 1s
-                            import re
+            sections = [build_text_summary(len(items), len(items))]
+            if items:
+                sections += build_text_sections(items)[1:]
+            for chunk in _chunk_sections(sections, MAX_MESSAGE_LENGTH):
+                # Global pacing: 25/sec sustained, burst 30. Protects the 30/sec bot limit.
+                global _tg_last_send
+                now_mono = time.monotonic()
+                wait = _TG_MIN_INTERVAL - (now_mono - _tg_last_send)
+                if wait > 0:
+                    time.sleep(wait + random.uniform(0, 0.08))
+                try:
+                    _send_message(settings.telegram_bot_token, destination, chunk)
+                except Exception as exc:
+                    # Respect Telegram 429 retry_after if present
+                    msg = str(exc)
+                    if "429" in msg or "Too Many Requests" in msg:
+                        # Try to parse retry_after from message, fallback 1s
+                        import re
 
-                            m = re.search(r"retry_after\D*(\d+)", msg, re.IGNORECASE)
-                            delay = int(m.group(1)) if m else 1
-                            time.sleep(min(delay, 30))
-                            _send_message(settings.telegram_bot_token, destination, chunk)
-                        else:
-                            raise
-                    _tg_last_send = time.monotonic()
-                sent["telegram"] += len(rows)
-            else:
-                html = build_html(items, new_jobs=len(items), new_matches=len(items))
-                subject = (
-                    f"📡 JobQuest: {len(items)} new matching job(s) — {datetime.now(UTC):%b %d}"
-                )
-                _send_email(
-                    settings.resend_api_key,
-                    [destination],
-                    subject,
-                    html,
-                    idempotency_key=_email_idempotency_key(user_id, channel, job_ids),
-                )
-                sent["email"] += len(rows)
+                        m = re.search(r"retry_after\D*(\d+)", msg, re.IGNORECASE)
+                        delay = int(m.group(1)) if m else 1
+                        time.sleep(min(delay, 30))
+                        _send_message(settings.telegram_bot_token, destination, chunk)
+                    else:
+                        raise
+                _tg_last_send = time.monotonic()
+            sent["telegram"] += len(rows)
         except Exception as exc:
             failed += _record_failure(settings, supabase, rows, exc)
             continue
