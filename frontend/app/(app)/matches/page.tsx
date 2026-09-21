@@ -8,11 +8,14 @@ import { EmptyState, ErrorState, LoadingState, PageHeader, Pager, ScoreRing } fr
 import { PaywallGate } from "@/components/paywall-gate";
 import styles from "@/components/ink/ink.module.css";
 import { api } from "@/lib/api";
-import { timeAgo } from "@/lib/format";
+import { ATS_ORDER, atsLabel, startOfTodayUTC, timeAgo } from "@/lib/format";
 import { loadSaved, toggleSaved } from "@/lib/job-store";
+import { copyReferral } from "@/lib/referral";
 import type { CompanyMatchSummary, Job } from "@/lib/types";
 
 const PAGE_SIZE = 20;
+
+type Range = "today" | "day";
 
 function whyChips(job: Job): string[] {
   return (job.matched_on || []).map((r) => {
@@ -26,6 +29,8 @@ export default function MatchesPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [summary, setSummary] = useState<CompanyMatchSummary[]>([]);
   const [selectedCompany, setSelectedCompany] = useState<string | null>(() => searchParams.get("company"));
+  const [ats, setAts] = useState(() => searchParams.get("ats") || "");
+  const [range, setRange] = useState<Range>("today");
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
   const [companyLoading, setCompanyLoading] = useState(false);
@@ -35,56 +40,96 @@ export default function MatchesPage() {
   });
   const [total, setTotal] = useState(0);
   const [saved, setSaved] = useState<string[]>([]);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async (company: string | null, pageNum: number) => {
-    if (company) setCompanyLoading(true);
-    try {
-      const res = await api.matchedJobs({
-        company: company || undefined,
-        limit: PAGE_SIZE,
-        offset: pageNum * PAGE_SIZE,
-      });
-      setJobs(res.jobs);
-      setTotal(res.total);
-    } finally {
-      setCompanyLoading(false);
-    }
-  }, []);
+  const load = useCallback(
+    async (company: string | null, atsVal: string, rangeVal: Range, pageNum: number) => {
+      if (company) setCompanyLoading(true);
+      try {
+        const res = await api.matchedJobs({
+          company: company || undefined,
+          ats: atsVal || undefined,
+          since: rangeVal === "today" ? startOfTodayUTC() : undefined,
+          limit: PAGE_SIZE,
+          offset: pageNum * PAGE_SIZE,
+        });
+        setJobs(res.jobs);
+        setTotal(res.total);
+      } finally {
+        setCompanyLoading(false);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     setSaved(loadSaved());
     const initialCompany = searchParams.get("company");
+    const initialAts = searchParams.get("ats") || "";
     const initialPage = parseInt(searchParams.get("page") || "0", 10);
     const p = Number.isFinite(initialPage) && initialPage >= 0 ? initialPage : 0;
-    load(initialCompany, p)
+    setAts(initialAts);
+    load(initialCompany, initialAts, "today", p)
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load matches."))
       .finally(() => setLoading(false));
     api.matchesSummary().then((res) => setSummary(res.companies));
   }, [load, searchParams]);
 
-  function selectCompany(company: string) {
-    if (selectedCompany === company) {
-      setSelectedCompany(null);
-      setPage(0);
-      if (typeof window !== "undefined") {
-        const url = new URL(window.location.href);
-        url.searchParams.delete("company");
-        url.searchParams.delete("page");
-        window.history.replaceState(null, "", url.pathname + url.search);
-      }
-      load(null, 0);
-      return;
-    }
-    setSelectedCompany(company);
+  function syncUrl(next: { company?: string | null; ats?: string; page?: number }) {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    const comp = next.company !== undefined ? next.company : selectedCompany;
+    const atsVal = next.ats !== undefined ? next.ats : ats;
+    const pageVal = next.page !== undefined ? next.page : page;
+    if (comp) url.searchParams.set("company", comp);
+    else url.searchParams.delete("company");
+    if (atsVal) url.searchParams.set("ats", atsVal);
+    else url.searchParams.delete("ats");
+    if (pageVal > 0) url.searchParams.set("page", String(pageVal));
+    else url.searchParams.delete("page");
+    window.history.replaceState(null, "", url.pathname + url.search);
+  }
+
+  function reloadAll(company: string | null, atsVal: string, rangeVal: Range) {
     setPage(0);
-    if (typeof window !== "undefined") {
-      const url = new URL(window.location.href);
-      url.searchParams.set("company", company);
-      url.searchParams.delete("page");
-      window.history.replaceState(null, "", url.pathname + url.search);
+    syncUrl({ company, ats: atsVal, page: 0 });
+    load(company, atsVal, rangeVal, 0);
+  }
+
+  function selectCompany(company: string) {
+    const next = selectedCompany === company ? null : company;
+    setSelectedCompany(next);
+    reloadAll(next, ats, range);
+  }
+
+  function changeAts(v: string) {
+    setAts(v);
+    reloadAll(selectedCompany, v, range);
+  }
+
+  function changeRange(v: Range) {
+    setRange(v);
+    setPage(0);
+    load(selectedCompany, ats, v, 0);
+  }
+
+  async function handleReferral(job: Job) {
+    if (await copyReferral(job)) {
+      setCopiedId(job.id);
+      window.setTimeout(() => {
+        setCopiedId((cur) => (cur === job.id ? null : cur));
+      }, 2000);
     }
-    load(company, 0);
+  }
+
+  function buildFrom(): string {
+    const params = new URLSearchParams();
+    if (selectedCompany) params.set("company", selectedCompany);
+    if (ats) params.set("ats", ats);
+    if (page) params.set("page", String(page));
+    const qs = params.toString();
+    return `/matches${qs ? `?${qs}` : ""}`;
   }
 
   const pageCount = useMemo(() => Math.max(1, Math.ceil(total / PAGE_SIZE)), [total]);
@@ -102,7 +147,7 @@ export default function MatchesPage() {
         <PageHeader
           eyebrow="Matches"
           title="Your Matches"
-          desc="Opportunities that align with your skills and preferences."
+          desc="Today's opportunities that align with your preferences."
           action={
             <span style={{ fontSize: 13, color: "var(--ink-text2)" }}>
               <strong style={{ fontSize: 22, color: "var(--ink-text)", fontVariantNumeric: "tabular-nums" }}>
@@ -116,7 +161,7 @@ export default function MatchesPage() {
       {loading ? (
         <LoadingState label="Scanning matches…" rows={4} />
       ) : error ? (
-        <ErrorState message={error} onRetry={() => load(selectedCompany, page)} />
+        <ErrorState message={error} onRetry={() => load(selectedCompany, ats, range, page)} />
       ) : summary.length === 0 ? (
         <EmptyState
           title="No matches yet"
@@ -130,23 +175,27 @@ export default function MatchesPage() {
       ) : (
         <>
           <div className={styles.toolbar}>
-            <span style={{ fontSize: 13, color: "var(--ink-text2)" }}>
-              {selectedCompany ? (
-                <>
-                  Showing matches for <strong style={{ color: "var(--ink-text)" }}>{selectedCompany}</strong>{" "}
-                  <button
-                    type="button"
-                    onClick={() => selectCompany(selectedCompany)}
-                    style={{ border: 0, background: "none", color: "var(--ink-mint)", cursor: "pointer", fontSize: 13 }}
-                  >
-                    (clear)
-                  </button>
-                </>
-              ) : (
-                `${summary.length} ${summary.length === 1 ? "company" : "companies"} with matches`
-              )}
-            </span>
+            <div style={{ display: "flex", gap: 8 }}>
+              {(["today", "day"] as Range[]).map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => changeRange(r)}
+                  className={range === r ? styles.pillActive : styles.pill}
+                >
+                  {r === "today" ? "Today" : "Last 24h"}
+                </button>
+              ))}
+            </div>
             <span className={styles.spacer} />
+            <select value={ats} onChange={(e) => changeAts(e.target.value)} className={styles.toolInput} aria-label="Source" style={{ width: 160 }}>
+              <option value="">All sources</option>
+              {ATS_ORDER.map((a) => (
+                <option key={a} value={a}>
+                  {atsLabel(a)}
+                </option>
+              ))}
+            </select>
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
@@ -155,6 +204,23 @@ export default function MatchesPage() {
               style={{ width: 230 }}
               aria-label="Search matched companies"
             />
+          </div>
+
+          <div style={{ marginBottom: 12, fontSize: 13, color: "var(--ink-text2)" }}>
+            {selectedCompany ? (
+              <>
+                Showing matches for <strong style={{ color: "var(--ink-text)" }}>{selectedCompany}</strong>{" "}
+                <button
+                  type="button"
+                  onClick={() => selectCompany(selectedCompany)}
+                  style={{ border: 0, background: "none", color: "var(--ink-mint)", cursor: "pointer", fontSize: 13 }}
+                >
+                  (clear)
+                </button>
+              </>
+            ) : (
+              `${summary.length} ${summary.length === 1 ? "company" : "companies"} with matches`
+            )}
           </div>
 
           <section className={styles.cardGrid} style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", marginBottom: 20 }}>
@@ -203,7 +269,7 @@ export default function MatchesPage() {
           {companyLoading ? (
             <LoadingState label="Loading company matches…" rows={3} />
           ) : jobs.length === 0 ? (
-            <EmptyState title="No visible matches." desc="Try another company." />
+            <EmptyState title="No visible matches." desc="Try another company, source, or time range." />
           ) : (
             <>
               <div className={styles.cardGrid} style={{ gridTemplateColumns: "repeat(auto-fill, minmax(330px, 1fr))" }}>
@@ -217,7 +283,7 @@ export default function MatchesPage() {
                           <CompanyLogo name={job.company} domain={job.domain} size="md" />
                           <div style={{ minWidth: 0 }}>
                             <Link
-                              href={`/jobs/${job.id}?from=${encodeURIComponent(`/matches${selectedCompany ? `?company=${encodeURIComponent(selectedCompany)}&page=${page}` : page ? `?page=${page}` : ""}`)}`}
+                              href={`/jobs/${job.id}?from=${encodeURIComponent(buildFrom())}`}
                               style={{ fontSize: 15, fontWeight: 700, textDecoration: "none", color: "var(--ink-text)", display: "block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
                             >
                               {job.title}
@@ -237,14 +303,14 @@ export default function MatchesPage() {
                             ))}
                           </div>
                         )}
-                        <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 14 }}>
                           {job.url ? (
                             <a href={job.url} target="_blank" rel="noopener noreferrer" className={styles.btnMint} style={{ padding: "8px 16px", fontSize: 12.5 }}>
                               Apply
                             </a>
                           ) : (
                             <Link
-                              href={`/jobs/${job.id}?from=${encodeURIComponent(`/matches${selectedCompany ? `?company=${encodeURIComponent(selectedCompany)}&page=${page}` : page ? `?page=${page}` : ""}`)}`}
+                              href={`/jobs/${job.id}?from=${encodeURIComponent(buildFrom())}`}
                               className={styles.btnMint}
                               style={{ padding: "8px 16px", fontSize: 12.5 }}
                             >
@@ -258,6 +324,15 @@ export default function MatchesPage() {
                             onClick={() => setSaved((cur) => toggleSaved(cur, job.id))}
                           >
                             {isSaved ? "★ Saved" : "Save"}
+                          </button>
+                          <button
+                            type="button"
+                            className={styles.btnLine}
+                            style={{ padding: "8px 16px", fontSize: 12.5 }}
+                            onClick={() => handleReferral(job)}
+                            title="Copy a referral request message for this job"
+                          >
+                            {copiedId === job.id ? "Copied ✓" : "Referral"}
                           </button>
                         </div>
                       </div>
@@ -274,23 +349,14 @@ export default function MatchesPage() {
                 onPrev={() => {
                   const next = page - 1;
                   setPage(next);
-                  if (typeof window !== "undefined") {
-                    const url = new URL(window.location.href);
-                    if (next > 0) url.searchParams.set("page", String(next));
-                    else url.searchParams.delete("page");
-                    window.history.replaceState(null, "", url.pathname + url.search);
-                  }
-                  load(selectedCompany, next);
+                  syncUrl({ page: next });
+                  load(selectedCompany, ats, range, next);
                 }}
                 onNext={() => {
                   const next = page + 1;
                   setPage(next);
-                  if (typeof window !== "undefined") {
-                    const url = new URL(window.location.href);
-                    url.searchParams.set("page", String(next));
-                    window.history.replaceState(null, "", url.pathname + url.search);
-                  }
-                  load(selectedCompany, next);
+                  syncUrl({ page: next });
+                  load(selectedCompany, ats, range, next);
                 }}
               />
             </>
