@@ -1,5 +1,5 @@
 fastapi>=0.115
-uvicorn[standard]>=0.32
+uvicorn[standard]>=0.53.0
 apscheduler>=3.10,<4
 supabase>=2.31.0
 httpx>=0.28
