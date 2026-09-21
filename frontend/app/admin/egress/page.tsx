@@ -389,6 +389,44 @@ export default function EgressPage() {
           <div style={{ marginTop: 12, fontSize: 11, color: "var(--ink-muted)", lineHeight: 1.5 }}>
             How to read this: each bar is new DB bytes for that day (jobs inserted × avg row size). Spikes = many new jobs or large rows. Matches/alerts ride on top — egress multiplies when the API serves the same jobs to many users.
           </div>
+
+          {/* 24h hourly sparkline — early warning for 500 MB → 8 GB */}
+          {data?.hourly && data.hourly.length > 0 && (
+            <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-text)" }}>Last 24h — hourly ingest</span>
+                <span style={{ fontSize: 11, color: "var(--ink-muted)" }}>
+                  {data.hourly.reduce((s, h) => s + h.jobs, 0).toLocaleString()} jobs · {fmtBytes(data.hourly.reduce((s, h) => s + h.bytes_est, 0))} · slope → Free / Pro
+                </span>
+              </div>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 48 }}>
+                {(() => {
+                  const maxH = Math.max(1, ...data.hourly.map((h) => h.bytes_est));
+                  return data.hourly.map((h) => {
+                    const pctH = Math.max(2, Math.round((h.bytes_est / maxH) * 100));
+                    const hourLabel = h.hour.slice(11, 13) + ":00";
+                    return (
+                      <div
+                        key={h.hour}
+                        title={`${h.hour}: ${h.jobs} jobs · ${fmtBytes(h.bytes_est)} · ${h.matches} matches`}
+                        style={{
+                          flex: 1,
+                          height: `${pctH}%`,
+                          minHeight: 2,
+                          borderRadius: 2,
+                          background: h.jobs > 0 ? "rgba(25,230,167,0.85)" : "rgba(255,255,255,0.06)",
+                        }}
+                      />
+                    );
+                  });
+                })()}
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "var(--ink-muted)", marginTop: 4 }}>
+                <span>{data.hourly[0]?.hour.slice(5, 13) || ""}</span>
+                <span>now</span>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className={styles.rail} style={{ gap: 16 }}>
