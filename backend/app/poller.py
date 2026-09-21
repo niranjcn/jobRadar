@@ -558,6 +558,14 @@ def prune_old_jobs(supabase: Client, retention_days: int) -> int:
     sent = prune_old_sent(settings)
     if sent:
         print(f"retention: deleted {sent} sent ledger row(s) older than 24h")
+    # Rate-event hygiene: keep the last 24h for active windows, drop older.
+    try:
+        r = query(settings, "delete from rate_events where created_at < now() - interval '24 hours' returning 1")
+        pruned_rates = len(r) if r is not None else 0
+        if pruned_rates:
+            print(f"retention: deleted {pruned_rates} rate_events older than 24h")
+    except Exception:
+        pass
     dead = prune_inactive_jobs(settings)
     if dead:
         print(
