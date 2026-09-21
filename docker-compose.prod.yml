@@ -1,0 +1,42 @@
+# Production override: use built images, no host mounts, no polling hacks.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
+services:
+  web:
+    build: ./backend
+    # No --reload, no volume mount — serve the baked image.
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    volumes: !reset []
+    environment:
+      # API-only in prod — worker owns the scheduler + bot, so a 9-minute
+      # Workday poll never blocks GET /health or POST /poll/run.
+      JOBQUEST_DISABLE_SCHEDULER: "1"
+      JOBQUEST_DISABLE_BOT: "1"
+      WATCHFILES_FORCE_POLLING: ""
+
+  worker:
+    profiles: !reset
+    build: ./backend
+    container_name: jobquest-worker
+    command: python -m app.worker
+    env_file:
+      - path: ./backend/.env
+        required: false
+    depends_on:
+      postgres:
+        condition: service_healthy
+      postgrest:
+        condition: service_started
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      target: runner
+    command: npx next start
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      # No chokidar polling in prod — empty is falsy in Node, same pattern
+      # as WATCHFILES_FORCE_POLLING above.
+      CHOKIDAR_USEPOLLING: ""
+      WATCHPACK_POLLING: ""
+    volumes: !reset []
