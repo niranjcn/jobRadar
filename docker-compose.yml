@@ -62,6 +62,9 @@ services:
   web:
     build: ./backend
     container_name: jobquest-web
+    # Local dev: live reload. Prod override (docker-compose.prod.yml) switches
+    # to `uvicorn app.main:app` without --reload and disables the scheduler/bot
+    # there (worker owns them, so API never blocks on a 9-minute poll).
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/app
     ports:
       - "${PORT:-8000}:8000"
@@ -76,6 +79,25 @@ services:
       # polling so watchfiles doesn't crash with "Input/output error (os error 5)".
       # See logs: WatchfilesRustInternalError about ["/app/app"].
       WATCHFILES_FORCE_POLLING: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      postgrest:
+        condition: service_started
+    restart: unless-stopped
+
+  worker:
+    # Local dev: `docker compose up worker` (opt-in). In prod the override
+    # starts it automatically alongside web.
+    profiles: ["worker"]
+    build: ./backend
+    container_name: jobquest-worker
+    command: python -m app.worker
+    env_file:
+      - path: ./backend/.env
+        required: false
+    # No host mount in the default compose — worker runs the baked code.
+    # Add `- ./backend:/app` to docker-compose.override.yml if you want live reload for the worker too.
     depends_on:
       postgres:
         condition: service_healthy
