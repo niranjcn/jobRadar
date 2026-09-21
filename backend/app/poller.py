@@ -533,17 +533,16 @@ def prune_stale_matches(settings: Settings) -> int:
 
 
 def prune_old_sent(settings: Settings) -> int:
-    """Delete ledger rows older than 3 days (Telegram-only idempotency window).
+    """Delete ledger rows older than 24h (Telegram-only idempotency window).
 
-    3 days is generous for 'why didn't I get yesterday's alert?' and keeps the
-    UNIQUE(user, job, channel) dedupe meaningful, while bounding the table that
-    otherwise grows forever (10k users × daily sends). Pending queue rows are
-    never pruned here — only sent.
+    24h keeps 'why didn't I get today's alert?' debuggable while bounding the
+    table that otherwise grows forever (10k users × daily sends). Pending queue
+    rows are never pruned here — only sent.
     """
     rows = query(
         settings,
         "with d as (delete from notifications_sent "
-        "where sent_at < now() - interval '3 days' returning 1) "
+        "where sent_at < now() - interval '24 hours' returning 1) "
         "select count(*)::int as c from d",
     )
     return rows[0]["c"] if rows else 0
@@ -558,7 +557,7 @@ def prune_old_jobs(supabase: Client, retention_days: int) -> int:
         print(f"retention: deleted {stale_matches} match(es) older than {MATCH_RETENTION_HOURS}h")
     sent = prune_old_sent(settings)
     if sent:
-        print(f"retention: deleted {sent} sent ledger row(s) older than 3 days")
+        print(f"retention: deleted {sent} sent ledger row(s) older than 24h")
     dead = prune_inactive_jobs(settings)
     if dead:
         print(
