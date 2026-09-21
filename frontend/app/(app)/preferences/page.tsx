@@ -186,7 +186,7 @@ export default function PreferencesPage() {
     </div>
   );
 
-  const BulkTagInput = ({ field, placeholder, presets }: { field: keyof Preferences; placeholder: string; presets: string[] }) => {
+  const BulkTagInput = ({ field, placeholder, presets, addLabel = "Add roles" }: { field: keyof Preferences; placeholder: string; presets: string[]; addLabel?: string }) => {
     const [draft, setDraft] = useState("");
     return (
       <div>
@@ -222,7 +222,7 @@ export default function PreferencesPage() {
             }}
             className="btn-ghost"
           >
-            Add roles
+            {addLabel}
           </button>
           {(prefs[field] as string[]).length > 0 && (
             <button onClick={() => clearAll(field)} className="btn-ghost text-xs">
@@ -247,31 +247,59 @@ export default function PreferencesPage() {
     );
   };
 
+  const roleCount = (prefs.roles as string[]).length;
+  const locCount = (prefs.locations as string[]).length;
+  const exclCount =
+    (prefs.excluded_roles as string[]).length + (prefs.excluded_companies as string[]).length;
+
   return (
     <div className={styles.content}>
       <PageHeader
         eyebrow="Personal"
         title="Preferences"
         desc="Tell JobQuest what kind of opportunities you're looking for. Locations act as a hard filter — a job matches if it hits ANY of your roles."
+        action={
+          <span style={{ fontSize: 13, color: "var(--ink-text2)" }}>
+            <strong style={{ fontSize: 22, color: "var(--ink-text)", fontVariantNumeric: "tabular-nums" }}>
+              {roleCount}
+            </strong>{" "}
+            roles · <strong style={{ fontSize: 22, color: "var(--ink-text)", fontVariantNumeric: "tabular-nums" }}>{locCount}</strong> locations ·{" "}
+            <strong style={{ fontSize: 22, color: "var(--ink-text)", fontVariantNumeric: "tabular-nums" }}>{exclCount}</strong> exclusions
+          </span>
+        }
       />
 
-      <div style={{ maxWidth: 760 }} className="space-y-5">
-        <section className="card space-y-4 p-5">
-          <h2 className="text-[15px] font-semibold">Roles</h2>
-          <BulkTagInput
-            field="roles"
-            placeholder={"Paste roles separated by commas, e.g. Software Engineer, SDE I, MTS, Backend Developer…\nPress Ctrl+Enter to add."}
-            presets={ROLES_PRESET}
-          />
+      <div style={{ maxWidth: 780 }} className="space-y-4">
+        <section className={styles.panel}>
+          <div className={styles.panelHead}>
+            <span className={styles.eyebrow}>01 · Target roles</span>
+            <span className={styles.panelTotal}>
+              {roleCount} selected
+            </span>
+          </div>
+          <div style={{ padding: "0 22px 22px", position: "relative" }}>
+            <p style={{ fontSize: 13, color: "var(--ink-muted)", margin: "0 0 12px" }}>
+              Job titles that qualify. Add variants — matching hits ANY of them.
+            </p>
+            <BulkTagInput
+              field="roles"
+              placeholder={"Paste roles separated by commas, e.g. Software Engineer, SDE I, MTS, Backend Developer…\nPress Ctrl+Enter to add."}
+              presets={ROLES_PRESET}
+            />
+          </div>
         </section>
 
-        <section className="card space-y-4 p-5">
-          <h2 className="text-[15px] font-semibold">
-            Locations{" "}
-            <span className="text-xs font-normal text-text-muted">
-              (cities and states map to their country automatically — e.g. Bengaluru→India, Austin→USA)
+        <section className={styles.panel}>
+          <div className={styles.panelHead}>
+            <span className={styles.eyebrow}>02 · Locations</span>
+            <span className={styles.panelTotal}>
+              {locCount} selected · hard filter
             </span>
-          </h2>
+          </div>
+          <div style={{ padding: "0 22px 22px", position: "relative" }}>
+            <p style={{ fontSize: 13, color: "var(--ink-muted)", margin: "0 0 12px" }}>
+              Cities and states map to their country automatically — e.g. Bengaluru→India, Austin→USA.
+            </p>
           <div>
             <div className="flex flex-wrap gap-1.5">
               {(prefs.locations as string[]).map((v) => (
@@ -318,29 +346,48 @@ export default function PreferencesPage() {
               <CountrySelect countries={countries} onSelect={addCountry} />
             </div>
           </div>
+          </div>
         </section>
 
-        <section className="card space-y-4 p-5">
-          <h2 className="text-[15px] font-semibold">Exclude roles</h2>
-          <p className="text-xs text-text-muted">
-            Jobs whose title contains any of these terms will never match. E.g. add{" "}
-            <code>staff</code>, <code>principal</code>, <code>lead</code> so a &quot;Staff Software
-            Engineer&quot; doesn&apos;t match your &quot;Software Engineer&quot; role.
-          </p>
-          <BulkTagInput
-            field="excluded_roles"
-            placeholder={"Paste excluded role terms separated by commas, e.g. staff, principal, lead, senior…\nPress Ctrl+Enter to add."}
-            presets={["staff", "principal", "lead", "senior", "manager", "director"]}
-          />
+        <section className={styles.panel}>
+          <div className={styles.panelHead}>
+            <span className={styles.eyebrow}>03 · Exclusions</span>
+            <span className={styles.panelTotal}>
+              {exclCount} total · never match
+            </span>
+          </div>
+          <div style={{ padding: "0 22px 22px", position: "relative" }}>
+            <p style={{ fontSize: 13, color: "var(--ink-muted)", margin: "0 0 12px" }}>
+              Jobs whose title contains any of these terms will never match. E.g. add{" "}
+              <code>staff</code>, <code>principal</code>, <code>lead</code> so a &quot;Staff Software
+              Engineer&quot; doesn&apos;t match your &quot;Software Engineer&quot; role.
+            </p>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <p className={styles.fieldLabel}>Exclude roles</p>
+                <BulkTagInput
+                  field="excluded_roles"
+                  placeholder={"staff, principal, lead, senior…\nPress Ctrl+Enter to add."}
+                  presets={["staff", "principal", "lead", "senior", "manager", "director"]}
+                  addLabel="Add exclusions"
+                />
+              </div>
+              <div>
+                <p className={styles.fieldLabel}>Excluded companies</p>
+                <TagInput field="excluded_companies" placeholder="e.g. Stripe (press Enter)" presets={[]} />
+              </div>
+            </div>
+          </div>
         </section>
 
-        <section className="card space-y-4 p-5">
-          <h2 className="text-[15px] font-semibold">Excluded companies</h2>
-          <TagInput field="excluded_companies" placeholder="e.g. Stripe (press Enter)" presets={[]} />
-        </section>
-
-        <section className="card space-y-4 p-5">
-          <h2 className="text-[15px] font-semibold">Telegram alerts</h2>
+        <section className={styles.panel}>
+          <div className={styles.panelHead}>
+            <span className={styles.eyebrow}>04 · Telegram alerts</span>
+            <span className={styles.panelTotal}>
+              {me?.telegram_linked ? `linked · ${me.telegram_chat_id}` : "not linked"}
+            </span>
+          </div>
+          <div style={{ padding: "0 22px 22px", position: "relative" }}>
           <p className="text-sm text-text-secondary">
             Your <strong>matched jobs</strong> will be sent instantly to this Telegram chat ID after payment is active. Find your ID via{" "}
             <a href="https://t.me/userinfobot" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
@@ -376,15 +423,19 @@ export default function PreferencesPage() {
           {tgMsg && <p className="text-sm text-success">{tgMsg}</p>}
           {tgErr && <p className="text-sm text-danger">{tgErr}</p>}
           <p className="text-xs text-text-muted">
-            {me?.telegram_linked ? `Linked: ${me.telegram_chat_id}` : "Not linked yet"} — {me?.access_locked ? "Subscribe via Billing to activate alerts." : "Alerts active (1 message per new match batch, respects your delay)."}
+            {me?.access_locked ? "Subscribe via Billing to activate alerts." : "Alerts active (1 message per new match batch, respects your delay)."}
           </p>
+          </div>
         </section>
 
-        <div className="flex items-center gap-3">
+        <div className={styles.panel} style={{ padding: "16px 22px", display: "flex", alignItems: "center", gap: 12, position: "sticky", bottom: 12 }}>
           <button onClick={save} disabled={saving} className="btn-primary">
             {saving ? "Saving…" : "Save Changes"}
           </button>
           {saved && <span className="text-sm text-success">Saved ✓</span>}
+          <span style={{ marginLeft: "auto", fontSize: 12.5, color: "var(--ink-muted)" }}>
+            {roleCount} roles · {locCount} locations · {exclCount} exclusions
+          </span>
         </div>
       </div>
     </div>
