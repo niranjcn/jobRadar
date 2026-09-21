@@ -654,6 +654,53 @@ def egress_overview(days: int = 30) -> dict:
     except Exception as exc:
         print(f"egress: daily failed: {exc}")
 
+    # --- 24h sparkline (hourly DB growth proxy) ---
+    hourly: list[dict[str, Any]] = []
+    try:
+        rows = query(
+            settings,
+            """
+            with hours as (
+                select generate_series(
+                    date_trunc('hour', now()) - interval '23 hours',
+                    date_trunc('hour', now()),
+                    interval '1 hour'
+                ) as hour
+            ),
+            jobs_hourly as (
+                select date_trunc('hour', first_seen_at) as hour, count(*)::int as c
+                from jobs
+                where first_seen_at >= (select min(hour) from hours)
+                group by 1
+            ),
+            matches_hourly as (
+                select date_trunc('hour', created_at) as hour, count(*)::int as c
+                from job_matches
+                where created_at >= (select min(hour) from hours)
+                group by 1
+            )
+            select to_char(hours.hour, 'YYYY-MM-DD HH24:00') as hour,
+                   coalesce(jobs_hourly.c, 0) as jobs,
+                   coalesce(matches_hourly.c, 0) as matches
+            from hours
+            left join jobs_hourly on jobs_hourly.hour = hours.hour
+            left join matches_hourly on matches_hourly.hour = hours.hour
+            order by 1
+            """,
+        )
+        for r in rows:
+            j = int(r.get("jobs") or 0)
+            hourly.append(
+                {
+                    "hour": r["hour"],
+                    "jobs": j,
+                    "matches": int(r.get("matches") or 0),
+                    "bytes_est": j * avg_job_bytes,
+                }
+            )
+    except Exception as exc:
+        print(f"egress: hourly failed: {exc}")
+
     # --- top egress contributors (sources by job volume) ---
     top_sources: list[dict[str, Any]] = []
     try:
@@ -852,6 +899,7 @@ def egress_overview(days: int = 30) -> dict:
         "tables": tables,
         "totals": totals,
         "daily": daily,
+        "hourly": hourly,
         "top_sources": top_sources,
         "recent_runs": recent_runs,
         "cache": cache,

@@ -334,6 +334,13 @@ export interface EgressDaily {
   bytes_est: number;
 }
 
+export interface EgressHourly {
+  hour: string;
+  jobs: number;
+  matches: number;
+  bytes_est: number;
+}
+
 export interface EgressTopSource {
   company: string;
   ats_type: string;
@@ -387,6 +394,7 @@ export interface EgressResponse {
     runs_24h?: number;
   };
   daily: EgressDaily[];
+  hourly?: EgressHourly[];
   top_sources: EgressTopSource[];
   recent_runs: EgressRun[];
   cache: { blks_hit?: number; blks_read?: number; hit_ratio?: number | null };
