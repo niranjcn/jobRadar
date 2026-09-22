@@ -3,8 +3,17 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { RadarMark } from "@/components/radar-mark";
-import styles from "@/components/ink/ink.module.css";
+import {
+  ArrowRightIcon as ArrowRight,
+  CheckIcon as Check,
+  LockIcon as Lock,
+  MailIcon as Mail,
+  ShieldCheckIcon as ShieldCheck,
+  SunIcon as Sun,
+  UserIcon as User,
+} from "./icons";
+import { AuthLeft } from "./auth-left";
+import styles from "./auth.module.css";
 import { ApiError, api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 
@@ -49,14 +58,6 @@ function passwordIssues(pwd: string, email?: string, name?: string): string[] {
   }
   return issues;
 }
-function strengthScore(pwd: string): number {
-  let s = 0;
-  if (pwd.length >= 12) s++;
-  if (/[A-Z]/.test(pwd) && /[a-z]/.test(pwd)) s++;
-  if (/[0-9]/.test(pwd)) s++;
-  if (/[!@#$%^&*()\-_=+[\]{}|;:',.<>?/`~]/.test(pwd)) s++;
-  return Math.min(s, 4);
-}
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -70,14 +71,19 @@ export default function RegisterPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [acceptTerms, setAcceptTerms] = useState(false);
 
   const emailErr = useMemo(() => (email && !isValidEmail(email) ? "Enter a valid email address" : null), [email]);
   const nameErr = useMemo(() => (name ? displayNameError(name) : null), [name]);
   const pwIssues = useMemo(() => passwordIssues(password, email, name), [password, email, name]);
-  const pwScore = useMemo(() => strengthScore(password), [password]);
   const confirmErr = useMemo(() => (confirm && confirm !== password ? "Passwords do not match" : null), [confirm, password]);
 
-  const canSubmit = !busy && isValidEmail(email) && !nameErr && name.trim() && pwIssues.length === 0 && !confirmErr && password === confirm && password.length > 0;
+  const ruleLen = password.length >= 12 && password.length <= 128;
+  const ruleCats =
+    [/[A-Z]/, /[a-z]/, /[0-9]/, /[!@#$%^&*()\-_=+[\]{}|;:',.<>?/`~]/].filter((r) => r.test(password)).length >= 3;
+  const ruleClean = password.length > 0 && pwIssues.length === 0;
+
+  const canSubmit = !busy && isValidEmail(email) && !nameErr && name.trim() && pwIssues.length === 0 && !confirmErr && password === confirm && password.length > 0 && acceptTerms;
 
   async function submit(e?: React.FormEvent) {
     e?.preventDefault();
@@ -89,6 +95,7 @@ export default function RegisterPage() {
         email: email.trim().toLowerCase(),
         display_name: name.trim(),
         password: password,
+        accept_terms: acceptTerms,
       });
       await refresh();
       router.replace("/dashboard");
@@ -109,151 +116,222 @@ export default function RegisterPage() {
 
   if (success) {
     return (
-      <div className={styles.ink} style={{ zoom: 1 }}>
-      <div className={`${styles.shell} items-center justify-center`}>
-        <div className="w-full max-w-sm">
-          <div className="mb-8 flex flex-col items-center gap-3">
-            <RadarMark />
-            <span className="font-display text-lg font-bold tracking-[0.14em]">JOBQUEST</span>
-            <span className={styles.eyebrow}>Account created</span>
+      <div className={styles.successWrap}>
+        <div className={styles.successCard}>
+          <div className={styles.successCheck}>
+            <Check size={22} strokeWidth={2.5} />
           </div>
-          <div className="card space-y-4 p-6 text-center">
-            <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-success/10 text-success">✓</div>
-            <h1 className="text-lg font-semibold">Account created</h1>
-            <p className="text-sm leading-relaxed text-text-secondary">
-              You can now <strong>sign in</strong> with your email and password. Your dashboard, <strong>New Jobs Today</strong> and preferences are ready — <strong>Matches / New Matches</strong> and Telegram alerts unlock after monthly payment or a coupon (1–12 months) in Billing.
-            </p>
-            <button onClick={() => router.replace("/login")} className="btn-primary w-full">
-              Continue to sign in
-            </button>
-          </div>
+          <h1 style={{ fontSize: 20, fontWeight: 700, margin: "14px 0 0" }}>Account created</h1>
+          <p style={{ fontSize: 14, lineHeight: 1.6, color: "#66716f", margin: "10px 0 0" }}>
+            You can now <strong>sign in</strong> with your email and password. Your dashboard, <strong>New Jobs Today</strong> and
+            preferences are ready — <strong>Matches / New Matches</strong> and Telegram alerts unlock after monthly payment or a
+            coupon (1–12 months) in Billing.
+          </p>
+          <button onClick={() => router.replace("/login")} className={styles.submit} style={{ marginTop: 20 }}>
+            Continue to sign in
+          </button>
         </div>
-      </div>
       </div>
     );
   }
 
   return (
-    <div className={styles.ink} style={{ zoom: 1 }}>
-      <div className={`${styles.shell} items-center justify-center`}>
-      <div className="w-full max-w-[400px]">
-        <div className="mb-5 flex flex-col items-center gap-2">
-          <RadarMark size={32} />
-          <span className="font-display text-lg font-bold tracking-[0.14em]">JOBQUEST</span>
-          <span className={styles.eyebrow}>Create your account</span>
+    <div className={styles.page}>
+      <AuthLeft />
+
+      {/* RIGHT */}
+      <div className={styles.right}>
+        <div className={styles.topbar}>
+          <span className={styles.sunIcon}>
+            <Sun size={20} strokeWidth={1.8} />
+          </span>
+          <span>Already have an account?</span>
+          <Link href="/login" className={styles.signInBtn}>
+            Sign in
+          </Link>
         </div>
 
-        <form onSubmit={submit} noValidate className="card space-y-3 p-5">
-          <div>
-            <h1 className="text-lg font-semibold">Create your account</h1>
-            <p className="mt-1 text-[13px] text-text-secondary">Dashboard, New Jobs, Preferences and Billing are instant; Matches and Telegram unlock after payment or coupon.</p>
-          </div>
-
-          <div className={styles.field}>
-            <label htmlFor="display_name" className={styles.fieldLabel}>Display name</label>
-            <input
-              id="display_name"
-              autoComplete="name"
-              required
-              minLength={2}
-              maxLength={50}
-              placeholder="Alex Carter"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="search-input w-full"
-              aria-invalid={!!nameErr}
-              aria-describedby={nameErr ? "name-err" : undefined}
-            />
-            {nameErr ? <p id="name-err" className="mt-1 text-xs text-danger">{nameErr}</p> : <p className="mt-1 text-xs text-text-muted">2–50 chars, letters/numbers/space . &apos; _ @ -</p>}
-          </div>
-
-          <div className={styles.field}>
-            <label htmlFor="email" className={styles.fieldLabel}>Work email</label>
-            <input
-              id="email"
-              type="email"
-              inputMode="email"
-              autoComplete="email"
-              required
-              placeholder="you@company.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="search-input w-full"
-              aria-invalid={!!emailErr}
-              aria-describedby={emailErr ? "email-err" : undefined}
-            />
-            {emailErr ? <p id="email-err" className="mt-1 text-xs text-danger">{emailErr}</p> : <p className="mt-1 text-xs text-text-muted">We’ll never share your email. Lowercased and trimmed.</p>}
-          </div>
-
-          <div className={styles.field}>
-            <label htmlFor="password" className={styles.fieldLabel}>Password</label>
-            <div className="relative">
-              <input
-                id="password"
-                type={showPw ? "text" : "password"}
-                autoComplete="new-password"
-                required
-                placeholder="At least 12 characters"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="search-input w-full pr-10"
-                aria-describedby="pw-help"
-              />
-              <button type="button" onClick={() => setShowPw((v) => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-xs text-text-muted hover:text-text" aria-label={showPw ? "Hide password" : "Show password"}>
-                {showPw ? "Hide" : "Show"}
-              </button>
+        <div className={styles.card}>
+          <div className={styles.cardHead}>
+            <p className={styles.cardEyebrow}>Welcome to JobQuest</p>
+            <div className={styles.dots} aria-hidden>
+              <span className={styles.dot} style={{ background: "#43C596" }} />
+              <span className={styles.dot} style={{ background: "#B9E9DA" }} />
+              <span className={styles.dot} style={{ background: "#B9E9DA" }} />
             </div>
-            {/* strength meter */}
-            <div className="mt-1.5 flex gap-1">
-              {[0, 1, 2, 3].map((i) => (
-                <span key={i} className="h-1 flex-1 rounded" style={{ background: i < pwScore ? (pwScore >= 4 ? "#10b981" : pwScore >= 3 ? "#f59e0b" : "#ef4444") : "rgba(255,255,255,0.1)" }} />
-              ))}
-            </div>
-            <ul id="pw-help" className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px]">
-              <li className={password.length >= 12 ? "text-success" : "text-text-muted"}>{password.length >= 12 ? "✓" : "•"} 12+ chars (max 128)</li>
-              <li className={[/[A-Z]/, /[a-z]/, /[0-9]/, /[!@#$%^&*()\-_=+[\]{}|;:',.<>?/`~]/].filter((r) => r.test(password)).length >= 3 ? "text-success" : "text-text-muted"}>
-                {[/[A-Z]/, /[a-z]/, /[0-9]/, /[!@#$%^&*()\-_=+[\]{}|;:',.<>?/`~]/].filter((r) => r.test(password)).length >= 3 ? "✓" : "•"} upper, lower, number, special (3 of 4)
-              </li>
-              <li className={pwIssues.length === 0 && password ? "text-success" : "text-text-muted"}>
-                {pwIssues.length === 0 && password ? "✓ Strong" : pwIssues.length ? `• ${pwIssues[0]}` : "• No email/name, not common"}
-              </li>
-            </ul>
           </div>
 
-          <div className={styles.field}>
-            <label htmlFor="confirm" className={styles.fieldLabel}>Confirm password</label>
-            <div className="relative">
-              <input
-                id="confirm"
-                type={showConfirm ? "text" : "password"}
-                autoComplete="new-password"
-                required
-                placeholder="Repeat password"
-                value={confirm}
-                onChange={(e) => setConfirm(e.target.value)}
-                className="search-input w-full pr-10"
-                aria-invalid={!!confirmErr}
-              />
-              <button type="button" onClick={() => setShowConfirm((v) => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-xs text-text-muted hover:text-text" aria-label={showConfirm ? "Hide" : "Show"}>
-                {showConfirm ? "Hide" : "Show"}
-              </button>
-            </div>
-            {confirmErr ? <p className="mt-1 text-xs text-danger">{confirmErr}</p> : <p className="mt-1 text-xs text-text-muted">Re-enter to confirm.</p>}
-          </div>
-
-          <button type="submit" disabled={!canSubmit} className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed">
-            {busy ? "Creating…" : "Create account"}
-          </button>
-          {error && <p role="alert" className="rounded bg-danger/10 p-2 text-center text-sm text-danger">{error}</p>}
-          <p className="text-center text-[11px] leading-relaxed text-text-muted">
-            By creating an account you agree to our Terms. Brute-force protected and lockout on login.
+          <h2 className={styles.cardTitle}>Create your account</h2>
+          <p className={styles.cardDesc}>
+            Dashboard, New Jobs, Preferences and Billing are instant; Matches and Telegram unlock after payment or coupon.
           </p>
-        </form>
 
-        <p className="mt-3 text-center text-xs text-text-muted">
-          Already have an account? <Link href="/login" className="font-medium text-text hover:underline">Sign in</Link>
-        </p>
-      </div>
+          <form onSubmit={submit} noValidate className={styles.form}>
+            <div>
+              <label htmlFor="display_name" className={styles.fieldLabel}>
+                Display name
+              </label>
+              <div className={styles.inputWrap}>
+                <span className={styles.inputIcon}>
+                  <User size={18} strokeWidth={1.8} />
+                </span>
+                <input
+                  id="display_name"
+                  autoComplete="name"
+                  required
+                  minLength={2}
+                  maxLength={50}
+                  placeholder="e.g. Niranj CN"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className={styles.input}
+                  aria-invalid={!!nameErr}
+                />
+              </div>
+              {nameErr ? (
+                <p className={styles.fieldError}>{nameErr}</p>
+              ) : (
+                <p className={styles.helper}>2–50 chars, letters/numbers/space .. &apos; _ @ -</p>
+              )}
+            </div>
+
+            <div>
+              <label htmlFor="email" className={styles.fieldLabel}>
+                Work email
+              </label>
+              <div className={styles.inputWrap}>
+                <span className={styles.inputIcon}>
+                  <Mail size={18} strokeWidth={1.8} />
+                </span>
+                <input
+                  id="email"
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  required
+                  placeholder="you@company.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className={styles.input}
+                  aria-invalid={!!emailErr}
+                />
+              </div>
+              {emailErr ? (
+                <p className={styles.fieldError}>{emailErr}</p>
+              ) : (
+                <p className={styles.helper}>We’ll never share your email. Lowercased and trimmed.</p>
+              )}
+            </div>
+
+            <div>
+              <label htmlFor="password" className={styles.fieldLabel}>
+                Password
+              </label>
+              <div className={styles.inputWrap}>
+                <span className={styles.inputIcon}>
+                  <Lock size={18} strokeWidth={1.8} />
+                </span>
+                <input
+                  id="password"
+                  type={showPw ? "text" : "password"}
+                  autoComplete="new-password"
+                  required
+                  placeholder="Create a strong password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className={styles.input}
+                  style={{ paddingRight: 64 }}
+                />
+                <button type="button" onClick={() => setShowPw((v) => !v)} className={styles.showBtn}>
+                  {showPw ? "Hide" : "Show"}
+                </button>
+              </div>
+              <ul className={styles.rules}>
+                <li className={styles.rule}>
+                  <span className={`${styles.ruleDot} ${ruleLen ? styles.ruleMet : ""}`} />
+                  12+ chars (max 128)
+                </li>
+                <li className={styles.rule}>
+                  <span className={`${styles.ruleDot} ${ruleCats ? styles.ruleMet : ""}`} />
+                  upper, lower, number, special (3 of 4)
+                </li>
+                <li className={styles.rule}>
+                  <span className={`${styles.ruleDot} ${ruleClean ? styles.ruleMet : ""}`} />
+                  12+ characters
+                </li>
+              </ul>
+            </div>
+
+            <div>
+              <label htmlFor="confirm" className={styles.fieldLabel}>
+                Confirm password
+              </label>
+              <div className={styles.inputWrap}>
+                <span className={styles.inputIcon}>
+                  <Lock size={18} strokeWidth={1.8} />
+                </span>
+                <input
+                  id="confirm"
+                  type={showConfirm ? "text" : "password"}
+                  autoComplete="new-password"
+                  required
+                  placeholder="Re-enter your password"
+                  value={confirm}
+                  onChange={(e) => setConfirm(e.target.value)}
+                  className={styles.input}
+                  style={{ paddingRight: 64 }}
+                  aria-invalid={!!confirmErr}
+                />
+                <button type="button" onClick={() => setShowConfirm((v) => !v)} className={styles.showBtn}>
+                  {showConfirm ? "Hide" : "Show"}
+                </button>
+              </div>
+              {confirmErr ? <p className={styles.fieldError}>{confirmErr}</p> : <p className={styles.helper}>Re-enter to confirm.</p>}
+            </div>
+
+            <label className={styles.terms}>
+              <input
+                type="checkbox"
+                checked={acceptTerms}
+                onChange={(e) => setAcceptTerms(e.target.checked)}
+                className={styles.checkbox}
+              />
+              <span>
+                I agree to the{" "}
+                <Link href="/terms" target="_blank">
+                  Terms of Service
+                </Link>{" "}
+                and{" "}
+                <Link href="/privacy" target="_blank">
+                  Privacy Policy
+                </Link>
+                .
+              </span>
+            </label>
+
+            <div className={styles.secure}>
+              <ShieldCheck size={18} strokeWidth={1.8} />
+              <span>Brute-force protected and lockout on login.</span>
+            </div>
+
+            <button type="submit" disabled={!canSubmit} className={styles.submit}>
+              {busy ? "Creating…" : "Create your account"}
+              <span className={styles.submitArrow}>
+                <ArrowRight size={20} strokeWidth={2} />
+              </span>
+            </button>
+            {error && (
+              <p role="alert" className={styles.formError}>
+                {error}
+              </p>
+            )}
+          </form>
+
+          <hr className={styles.divider} />
+          <p className={styles.bottomSign}>
+            Already have an account? <Link href="/login">Sign in</Link>
+          </p>
+        </div>
       </div>
     </div>
   );

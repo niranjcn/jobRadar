@@ -139,6 +139,15 @@ def _build_scheduler() -> AsyncIOScheduler:
         coalesce=True,
         misfire_grace_time=3600,
     )
+    _scheduler.add_job(
+        _check_stall_safe,
+        IntervalTrigger(seconds=600),
+        id="stall-watch",
+        name="page owner if no poll completed in 70m",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=600,
+    )
     return _scheduler
 
 
@@ -159,6 +168,46 @@ async def _sweep_subscriptions_safe() -> None:
             print(f"subscription sweep: expired plans, relocked {locked} account(s)")
     except Exception as exc:
         print(f"subscription sweep failed: {exc}")
+
+
+# Once-per-stall guard: alert on the first stalled tick, stay silent until a
+# run completes again. In-memory is fine — worst case after a restart you get
+# one duplicate page for an ongoing stall.
+_stall_alerted = False
+
+
+async def _check_stall_safe() -> None:
+    """Every 10m: page the owner via Telegram if no poll completed in 70m."""
+    global _stall_alerted
+    try:
+        from app.ops import STALL_WINDOW_MINUTES, check_poll_stall
+
+        settings = load_settings()
+        result = await asyncio.to_thread(check_poll_stall, settings)
+        if result["ok"]:
+            _stall_alerted = False
+            return
+        if _stall_alerted:
+            return
+        chat_id = settings.admin_chat_id or settings.telegram_chat_id
+        if settings.telegram_enabled and settings.telegram_bot_token and chat_id:
+            from app.telegram.notifications import _send_message
+
+            text = (
+                "⚠️ JobQuest scheduler may be stalled: no poll run completed "
+                f"in the last {STALL_WINDOW_MINUTES} minutes. Check /admin runs."
+            )
+            try:
+                await asyncio.to_thread(
+                    _send_message, settings.telegram_bot_token, str(chat_id), text
+                )
+            except Exception as exc:
+                print(f"stall-watch: owner alert failed: {exc}")
+        else:
+            print("stall-watch: no completed poll run in window (no Telegram configured to page)")
+        _stall_alerted = True
+    except Exception as exc:
+        print(f"stall-watch failed: {exc}")
 
 
 def scheduler_next_run(ats_type: str) -> str | None:

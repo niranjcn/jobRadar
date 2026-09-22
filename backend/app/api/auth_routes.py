@@ -1,5 +1,6 @@
 """Auth endpoints: email/password registration & login with admin approval."""
 
+from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -66,6 +67,7 @@ class RegisterBody(BaseModel):
     email: str
     display_name: str = ""
     password: str
+    accept_terms: bool = False
 
 
 @router.post("/register", status_code=201)
@@ -78,6 +80,11 @@ def register(body: RegisterBody, request: Request, response: Response) -> dict:
     email = (body.email or "").strip().lower()
     if not is_valid_email(email):
         raise HTTPException(status_code=422, detail="enter a valid email address")
+    # DPDP Act 2023: explicit, unticked consent — server-enforced, never implied.
+    if not body.accept_terms:
+        raise HTTPException(
+            status_code=422, detail="you must accept the Terms of Service and Privacy Policy"
+        )
     # display_name: MNC - 2-50 chars, filtered
     try:
         display_name = (
@@ -150,6 +157,10 @@ def login_password(body: PasswordLoginBody, request: Request, response: Response
     email_norm = (body.email or "").strip().lower()
     if not is_valid_email(email_norm):
         raise HTTPException(status_code=422, detail="enter a valid email address")
+    # Coarse per-IP bucket first: bounds total PBKDF2 CPU per IP even when the
+    # attacker rotates emails (each rotation would otherwise get a fresh bucket).
+    if not rate_limit(f"pwd-ip:{ip}", max_events=30, window_seconds=300):
+        raise HTTPException(status_code=429, detail="too many attempts, try again shortly (5 min)")
     if not rate_limit(f"pwd:{ip}:{email_norm}", max_events=10, window_seconds=300):
         raise HTTPException(status_code=429, detail="too many attempts, try again shortly (5 min)")
     rows = fetch_user_by_email(settings, email_norm)
@@ -336,6 +347,132 @@ def set_password_route(
         user_agent=ua,
     )
     return {"ok": True, "message": "password saved — you can now log in with email + password"}
+
+
+@router.get("/me/export")
+def export_me(ctx: Annotated[UserCtx, Depends(get_current_user)]) -> dict:
+    """DPDP/GDPR data-portability export: everything stored about this account.
+
+    Never includes password_hash. Matches/matches-history are 24h-bounded by
+    retention, so the dump stays small.
+    """
+    if ctx.anonymous:
+        raise HTTPException(status_code=401, detail="log in first")
+    settings = load_settings()
+    rows = fetch_user(settings, ctx.id)
+    if not rows:
+        raise HTTPException(status_code=404, detail="account not found")
+    user = dict(rows[0])
+    user.pop("password_hash", None)
+    for k, v in list(user.items()):
+        if isinstance(v, datetime):
+            user[k] = v.isoformat()
+    prefs = query(settings, "select * from preferences where user_id = %s::uuid", (ctx.id,))
+    subs = query(
+        settings,
+        "select plan_code, status, provider, current_period_start, current_period_end, "
+        "created_at from subscriptions where user_id = %s::uuid order by created_at desc",
+        (ctx.id,),
+    )
+    sent = query(
+        settings,
+        "select job_id, channel, sent_at from notifications_sent "
+        "where user_id = %s::uuid order by sent_at desc",
+        (ctx.id,),
+    )
+    matches = query(
+        settings,
+        "select job_id, matched_on, match_score, created_at from job_matches "
+        "where user_id = %s::uuid order by created_at desc",
+        (ctx.id,),
+    )
+    coupons = query(
+        settings,
+        "select code, grants_role, grant_duration_days, claimed_at from coupon_codes "
+        "where claimed_by = %s::uuid",
+        (ctx.id,),
+    )
+    events = query(
+        settings,
+        "select event_type, ip, created_at from auth_events "
+        "where user_id = %s::uuid order by created_at desc limit 200",
+        (ctx.id,),
+    )
+
+    def _iso_list(items: list[dict]) -> list[dict]:
+        out = []
+        for item in items:
+            row = dict(item)
+            for k, v in list(row.items()):
+                if isinstance(v, datetime):
+                    row[k] = v.isoformat()
+            out.append(row)
+        return out
+
+    return {
+        "exported_at": datetime.now(UTC).isoformat(),
+        "user": user,
+        "preferences": _iso_list(prefs),
+        "subscriptions": _iso_list(subs),
+        "notifications_sent": _iso_list(sent),
+        "job_matches": _iso_list(matches),
+        "coupons_claimed": _iso_list(coupons),
+        "auth_events": _iso_list(events),
+    }
+
+
+class DeleteAccountBody(BaseModel):
+    password: str = ""
+
+
+@router.delete("/me")
+def delete_me(
+    body: DeleteAccountBody,
+    request: Request,
+    response: Response,
+    ctx: Annotated[UserCtx, Depends(get_current_user)],
+) -> dict:
+    """DPDP/GDPR erasure: delete this account and everything FK-cascaded to it.
+
+    - Owner account can never be deleted.
+    - Accounts with a password must confirm it (prevents session/CSRF abuse).
+    - Shared preference_presets the user created are reassigned to the owner
+      (their FK is NO ACTION); coupons stay single-use via claimed_at even when
+      claimed_by is nulled by SET NULL; auth_events keep an anonymized row.
+    """
+    if ctx.anonymous:
+        raise HTTPException(status_code=401, detail="log in first")
+    from app.config import DEFAULT_USER_ID
+
+    if str(ctx.id).lower() == DEFAULT_USER_ID.lower():
+        raise HTTPException(status_code=403, detail="the owner account cannot be deleted")
+    settings = load_settings()
+    rows = fetch_user(settings, ctx.id)
+    if not rows:
+        raise HTTPException(status_code=404, detail="account not found")
+    existing_hash = rows[0].get("password_hash")
+    if existing_hash:
+        from app.auth import verify_password
+
+        if not verify_password(existing_hash, body.password or ""):
+            raise HTTPException(status_code=403, detail="current password is incorrect")
+    ip = request.client.host if request.client else "unknown"
+    ua = request.headers.get("user-agent", "")[:256]
+    # Keep shared presets alive under the owner instead of violating NO ACTION.
+    query(
+        settings,
+        "update preference_presets set created_by = %s::uuid, updated_at = now() "
+        "where created_by = %s::uuid",
+        (DEFAULT_USER_ID, ctx.id),
+    )
+    deleted = query(settings, "delete from users where id = %s::uuid returning id", (ctx.id,))
+    if not deleted:
+        raise HTTPException(status_code=404, detail="account not found")
+    log_auth_event(
+        settings, email=None, user_id=None, event_type="account_delete", ip=ip, user_agent=ua
+    )
+    clear_session_cookie(response, settings)
+    return {"ok": True}
 
 
 @router.post("/logout")

@@ -558,6 +558,20 @@ def prune_old_jobs(supabase: Client, retention_days: int) -> int:
     sent = prune_old_sent(settings)
     if sent:
         print(f"retention: deleted {sent} sent ledger row(s) older than 24h")
+    # Auth audit trail: same unbounded-growth disease the sent ledger had.
+    # 90d keeps lockout forensics; login storms would otherwise fill the disk.
+    try:
+        r = query(
+            settings,
+            "with d as (delete from auth_events "
+            "where created_at < now() - interval '90 days' returning 1) "
+            "select count(*)::int as c from d",
+        )
+        pruned_auth = int(r[0]["c"]) if r else 0
+        if pruned_auth:
+            print(f"retention: deleted {pruned_auth} auth_events older than 90d")
+    except Exception:
+        pass
     # Rate-event hygiene: keep the last 24h for active windows, drop older.
     try:
         r = query(settings, "delete from rate_events where created_at < now() - interval '24 hours' returning 1")

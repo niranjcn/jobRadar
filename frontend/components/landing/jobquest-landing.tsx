@@ -1341,6 +1341,24 @@ export function JobQuestLanding() {
           </div>
         </aside>
       </div>
+      <footer
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: "8px 20px",
+          justifyContent: "center",
+          padding: "28px 16px 36px",
+          fontSize: 12,
+          color: "var(--ink-muted)",
+        }}
+      >
+        <span>© 2026 JobQuest</span>
+        <Link href="/terms">Terms</Link>
+        <Link href="/privacy">Privacy</Link>
+        <Link href="/refund">Refunds</Link>
+        <Link href="/contact">Contact</Link>
+        <Link href="/pricing">Pricing</Link>
+      </footer>
     </div>
   );
 }
