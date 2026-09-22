@@ -189,6 +189,7 @@ export default function RegisterPage() {
         </div>
 
         <div className={styles.cineWrap} aria-hidden>
+          <div className={styles.cineFloat}>
           <div className={styles.cine}>
             <div className={styles.cineSky} />
             <div className={styles.cineBeam} />
@@ -210,6 +211,7 @@ export default function RegisterPage() {
             </div>
             <div className={styles.cineShade} />
             <div className={styles.cineText}>Better Jobs Brighter Tomorrow</div>
+          </div>
           </div>
         </div>
       </div>
