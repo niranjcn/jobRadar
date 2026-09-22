@@ -2686,6 +2686,19 @@ def test_poll_stall_check_trips_on_zero_completed(monkeypatch):
     assert ops_module.check_poll_stall(object()) == {"ok": True, "completed": 3}
 
 
+def test_register_requires_explicit_terms_consent():
+    """DPDP: consent defaults to False — the API 422s unless accept_terms=True."""
+    from app.api.auth_routes import RegisterBody
+
+    assert RegisterBody(email="a@b.com", display_name="A B", password="x").accept_terms is False
+    assert (
+        RegisterBody(
+            email="a@b.com", display_name="A B", password="x", accept_terms=True
+        ).accept_terms
+        is True
+    )
+
+
 def test_prune_stale_matches_deletes_older_than_24h(monkeypatch):
     """Matches-today retention: DELETE keyed on match created_at, 24h bound."""
     import app.poller as poller_module

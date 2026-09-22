@@ -70,6 +70,7 @@ export default function RegisterPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [acceptTerms, setAcceptTerms] = useState(false);
 
   const emailErr = useMemo(() => (email && !isValidEmail(email) ? "Enter a valid email address" : null), [email]);
   const nameErr = useMemo(() => (name ? displayNameError(name) : null), [name]);
@@ -77,7 +78,7 @@ export default function RegisterPage() {
   const pwScore = useMemo(() => strengthScore(password), [password]);
   const confirmErr = useMemo(() => (confirm && confirm !== password ? "Passwords do not match" : null), [confirm, password]);
 
-  const canSubmit = !busy && isValidEmail(email) && !nameErr && name.trim() && pwIssues.length === 0 && !confirmErr && password === confirm && password.length > 0;
+  const canSubmit = !busy && isValidEmail(email) && !nameErr && name.trim() && pwIssues.length === 0 && !confirmErr && password === confirm && password.length > 0 && acceptTerms;
 
   async function submit(e?: React.FormEvent) {
     e?.preventDefault();
@@ -89,6 +90,7 @@ export default function RegisterPage() {
         email: email.trim().toLowerCase(),
         display_name: name.trim(),
         password: password,
+        accept_terms: acceptTerms,
       });
       await refresh();
       router.replace("/dashboard");
@@ -241,12 +243,31 @@ export default function RegisterPage() {
             {confirmErr ? <p className="mt-1 text-xs text-danger">{confirmErr}</p> : <p className="mt-1 text-xs text-text-muted">Re-enter to confirm.</p>}
           </div>
 
+          <label className="flex cursor-pointer items-start gap-2 text-xs leading-relaxed text-text-secondary">
+            <input
+              type="checkbox"
+              checked={acceptTerms}
+              onChange={(e) => setAcceptTerms(e.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0"
+            />
+            <span>
+              I agree to the{" "}
+              <Link href="/terms" target="_blank" className="text-text hover:underline">
+                Terms of Service
+              </Link>{" "}
+              and{" "}
+              <Link href="/privacy" target="_blank" className="text-text hover:underline">
+                Privacy Policy
+              </Link>
+              .
+            </span>
+          </label>
           <button type="submit" disabled={!canSubmit} className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed">
             {busy ? "Creating…" : "Create account"}
           </button>
           {error && <p role="alert" className="rounded bg-danger/10 p-2 text-center text-sm text-danger">{error}</p>}
           <p className="text-center text-[11px] leading-relaxed text-text-muted">
-            By creating an account you agree to our Terms. Brute-force protected and lockout on login.
+            Brute-force protected and lockout on login.
           </p>
         </form>
 

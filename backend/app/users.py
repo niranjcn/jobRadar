@@ -61,7 +61,8 @@ def fetch_user(settings: Settings, user_id: str) -> list[dict[str, Any]]:
         settings,
         "select id, email, telegram_chat_id, "
         "display_name, role, status, capabilities, alert_delay_minutes, access_locked, "
-        "is_owner, password_hash, last_login_at, created_at from users where id = %s::uuid",
+        "is_owner, password_hash, last_login_at, created_at, accepted_terms_at "
+        "from users where id = %s::uuid",
         (user_id,),
     )
 
@@ -197,6 +198,8 @@ def create_registered_user(
         "status": "approved",
         "access_locked": True,
         "password_hash": hash_password(password),
+        # DPDP consent timestamp — route guarantees accept_terms=True before calling.
+        "accepted_terms_at": datetime.now(UTC).isoformat(),
     }
     response = supabase.table("users").insert(payload).execute()
     row = response.data[0]
