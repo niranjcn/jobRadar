@@ -3,8 +3,15 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { RadarMark } from "@/components/radar-mark";
-import styles from "@/components/ink/ink.module.css";
+import {
+  ArrowRightIcon as ArrowRight,
+  LockIcon as Lock,
+  MailIcon as Mail,
+  ShieldCheckIcon as ShieldCheck,
+  SunIcon as Sun,
+} from "../register/icons";
+import { AuthLeft } from "../register/auth-left";
+import styles from "../register/auth.module.css";
 import { ApiError, api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { errText } from "@/lib/format";
@@ -59,84 +66,120 @@ export default function LoginPage() {
   }
 
   return (
-    <div className={styles.ink} style={{ zoom: 1 }}>
-      <div className={`${styles.shell} items-center justify-center`}>
-      <div className="w-full max-w-[400px]">
-        <div className="mb-8 flex flex-col items-center gap-3">
-          <RadarMark />
-          <span className="font-display text-lg font-bold tracking-[0.14em]">JOBQUEST</span>
-          <span className={styles.eyebrow}>Secure sign in</span>
+    <div className={styles.page}>
+      <AuthLeft />
+
+      {/* RIGHT */}
+      <div className={styles.right}>
+        <div className={styles.topbar}>
+          <span className={styles.sunIcon}>
+            <Sun size={20} strokeWidth={1.8} />
+          </span>
+          <span>New to JobQuest?</span>
+          <Link href="/register" className={styles.signInBtn}>
+            Create account
+          </Link>
         </div>
 
-        <form onSubmit={submitPassword} noValidate className="card space-y-4 p-6">
-          <div>
-            <h1 className="text-lg font-semibold">Sign in</h1>
-            <p className="mt-1 text-sm text-text-secondary">Use your email and password. New accounts require admin approval before access.</p>
-          </div>
-
-          <div className={styles.field}>
-            <label htmlFor="email" className={styles.fieldLabel}>Email</label>
-            <input
-              id="email"
-              type="email"
-              inputMode="email"
-              autoComplete="email"
-              autoFocus
-              required
-              placeholder="you@company.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="search-input w-full"
-              aria-invalid={email ? !isValidEmail(email) : undefined}
-            />
-            {email && !isValidEmail(email) && <p className="mt-1 text-xs text-danger">Enter a valid email address</p>}
-          </div>
-
-          <div className={styles.field}>
-            <div className="mb-1 flex items-center justify-between">
-              <label htmlFor="password" className={styles.fieldLabel}>Password</label>
-              <Link href="/unlock" className="text-xs text-text-muted hover:text-text">Forgot?</Link>
+        <div className={styles.card}>
+          <div className={styles.cardHead}>
+            <p className={styles.cardEyebrow}>Welcome back</p>
+            <div className={styles.dots} aria-hidden>
+              <span className={styles.dot} style={{ background: "#43C596" }} />
+              <span className={styles.dot} style={{ background: "#B9E9DA" }} />
+              <span className={styles.dot} style={{ background: "#B9E9DA" }} />
             </div>
-            <div className="relative">
-              <input
-                id="password"
-                type={showPw ? "text" : "password"}
-                autoComplete="current-password"
-                required
-                placeholder="Your password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="search-input w-full pr-10"
-              />
-              <button type="button" onClick={() => setShowPw((v) => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-xs text-text-muted hover:text-text" aria-label={showPw ? "Hide password" : "Show password"}>
-                {showPw ? "Hide" : "Show"}
-              </button>
-            </div>
-            <p className={styles.fieldHelp}>12+ characters, 3/4 categories. Lockout after 5 failures/15 min. Rate-limited 10/5 min.</p>
           </div>
 
-          <button type="submit" disabled={!canSubmit} className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed">
-            {busy ? "Signing in…" : "Sign in"}
-          </button>
-          {error && <p role="alert" className="rounded bg-danger/10 p-2 text-center text-sm leading-relaxed text-danger">{error}</p>}
-
-          <div className="flex items-center gap-2 py-1">
-            <span className="h-px flex-1 bg-border" />
-            <span className="text-xs text-text-muted">or</span>
-            <span className="h-px flex-1 bg-border" />
-          </div>
-          <p className="text-center text-xs text-text-muted">
-            Don’t have an account? <Link href="/register" className="font-medium text-text hover:underline">Create account</Link>
+          <h2 className={styles.cardTitle}>Sign in</h2>
+          <p className={styles.cardDesc}>
+            Use your email and password. New accounts require admin approval before access.
           </p>
-        </form>
 
-        <div className="mt-4 flex justify-center gap-4 text-xs text-text-muted">
-          <Link href="/pricing" className="hover:text-text">Pricing</Link>
-          <span>•</span>
-          <Link href="/unlock" className="hover:text-text">Unlock</Link>
+          <form onSubmit={submitPassword} noValidate className={styles.form}>
+            <div>
+              <label htmlFor="email" className={styles.fieldLabel}>
+                Email
+              </label>
+              <div className={styles.inputWrap}>
+                <span className={styles.inputIcon}>
+                  <Mail size={18} strokeWidth={1.8} />
+                </span>
+                <input
+                  id="email"
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  autoFocus
+                  required
+                  placeholder="you@company.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className={styles.input}
+                  aria-invalid={email ? !isValidEmail(email) : undefined}
+                />
+              </div>
+              {email && !isValidEmail(email) ? (
+                <p className={styles.fieldError}>Enter a valid email address</p>
+              ) : (
+                <p className={styles.helper}>The email you registered with.</p>
+              )}
+            </div>
+
+            <div>
+              <div className={styles.labelRow}>
+                <label htmlFor="password" className={styles.fieldLabel}>
+                  Password
+                </label>
+                <Link href="/unlock" className={styles.forgotLink}>
+                  Forgot?
+                </Link>
+              </div>
+              <div className={styles.inputWrap}>
+                <span className={styles.inputIcon}>
+                  <Lock size={18} strokeWidth={1.8} />
+                </span>
+                <input
+                  id="password"
+                  type={showPw ? "text" : "password"}
+                  autoComplete="current-password"
+                  required
+                  placeholder="Your password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className={styles.input}
+                  style={{ paddingRight: 64 }}
+                />
+                <button type="button" onClick={() => setShowPw((v) => !v)} className={styles.showBtn}>
+                  {showPw ? "Hide" : "Show"}
+                </button>
+              </div>
+              <p className={styles.helper}>Lockout after 5 failures/15 min. Rate-limited 10/5 min.</p>
+            </div>
+
+            <div className={styles.secure}>
+              <ShieldCheck size={18} strokeWidth={1.8} />
+              <span>Brute-force protected and lockout on login.</span>
+            </div>
+
+            <button type="submit" disabled={!canSubmit} className={styles.submit}>
+              {busy ? "Signing in…" : "Sign in"}
+              <span className={styles.submitArrow}>
+                <ArrowRight size={20} strokeWidth={2} />
+              </span>
+            </button>
+            {error && (
+              <p role="alert" className={styles.formError}>
+                {error}
+              </p>
+            )}
+          </form>
+
+          <hr className={styles.divider} />
+          <p className={styles.bottomSign}>
+            Don&rsquo;t have an account? <Link href="/register">Create account</Link>
+          </p>
         </div>
-        <p className="mt-3 text-center text-xs leading-relaxed text-text-muted">Protected by HttpOnly Lax cookies, 7-day TTL, HSTS, and in-memory + DB lockout. Audit logged.</p>
-      </div>
       </div>
     </div>
   );

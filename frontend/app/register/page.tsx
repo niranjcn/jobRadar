@@ -5,18 +5,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowRightIcon as ArrowRight,
-  BarChart3Icon as BarChart3,
   CheckIcon as Check,
   LockIcon as Lock,
   MailIcon as Mail,
-  SendIcon as Send,
   ShieldCheckIcon as ShieldCheck,
   SunIcon as Sun,
-  TargetIcon as Target,
   UserIcon as User,
-  ZapIcon as Zap,
 } from "./icons";
-import styles from "./register.module.css";
+import { AuthLeft } from "./auth-left";
+import styles from "./auth.module.css";
 import { ApiError, api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 
@@ -61,13 +58,6 @@ function passwordIssues(pwd: string, email?: string, name?: string): string[] {
   }
   return issues;
 }
-
-const FEATURES = [
-  { icon: Zap, title: "Real-time job alerts", desc: "Be the first to know." },
-  { icon: Target, title: "Smart matches", desc: "Jobs that fit you." },
-  { icon: BarChart3, title: "Track your progress", desc: "Stay organized, always." },
-  { icon: Send, title: "Telegram notifications", desc: "Opportunities, wherever you are." },
-];
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -147,74 +137,7 @@ export default function RegisterPage() {
 
   return (
     <div className={styles.page}>
-      {/* LEFT */}
-      <div className={styles.left}>
-        <div className={styles.leftContent}>
-          <div className={styles.brand}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo.png" alt="JobQuest" width={44} height={44} style={{ borderRadius: 12 }} />
-            <span className={styles.brandName}>JobQuest</span>
-          </div>
-
-          <p className={styles.eyebrow}>More than a job search</p>
-          <h1 className={styles.headline}>
-            Your next
-            <br />
-            <span className={styles.headlineAccent}>opportunity</span>
-            <br />
-            starts here.
-          </h1>
-          <p className={styles.sub}>
-            JobQuest helps you find, track and land your dream job with smarter alerts and personalized matches.
-          </p>
-
-          <ul className={styles.features}>
-            {FEATURES.map((f) => (
-              <li key={f.title} className={styles.feature}>
-                <span className={styles.featureIcon}>
-                  <f.icon size={26} strokeWidth={1.8} />
-                </span>
-                <span>
-                  <p className={styles.featureTitle}>{f.title}</p>
-                  <p className={styles.featureDesc}>{f.desc}</p>
-                </span>
-              </li>
-            ))}
-          </ul>
-
-          <div className={styles.bottomDeco}>
-            <div className={styles.bottomLine} />
-            <p className={styles.bottomText}>Build a brighter tomorrow</p>
-          </div>
-        </div>
-
-        <div className={styles.cineWrap} aria-hidden>
-          <div className={styles.cineFloat}>
-          <div className={styles.cine}>
-            <div className={styles.cineSky} />
-            <div className={styles.cineBeam} />
-            <svg className={styles.cineMountains} viewBox="0 0 180 750" preserveAspectRatio="xMidYMax slice">
-              <path d="M0 560 L45 500 L80 540 L120 485 L155 535 L180 510 L180 750 L0 750 Z" fill="#0e2a25" opacity="0.9" />
-              <path d="M0 610 L55 555 L100 600 L140 560 L180 595 L180 750 L0 750 Z" fill="#081b18" opacity="0.95" />
-              <path d="M0 660 L60 620 L110 650 L150 625 L180 645 L180 750 L0 750 Z" fill="#04100e" />
-              <g fill="#04100e" opacity="0.9">
-                <path d="M18 660 l7 -22 7 22 Z" />
-                <path d="M34 662 l6 -18 6 18 Z" />
-                <path d="M128 655 l8 -25 8 25 Z" />
-                <path d="M146 658 l6 -19 6 19 Z" />
-                <path d="M160 660 l5 -15 5 15 Z" />
-              </g>
-            </svg>
-            <div className={styles.cineFog} />
-            <div className={styles.cineFloor}>
-              <div className={styles.cineFloorLine} />
-            </div>
-            <div className={styles.cineShade} />
-            <div className={styles.cineText}>Better Jobs Brighter Tomorrow</div>
-          </div>
-          </div>
-        </div>
-      </div>
+      <AuthLeft />
 
       {/* RIGHT */}
       <div className={styles.right}>
