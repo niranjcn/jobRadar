@@ -150,6 +150,10 @@ def login_password(body: PasswordLoginBody, request: Request, response: Response
     email_norm = (body.email or "").strip().lower()
     if not is_valid_email(email_norm):
         raise HTTPException(status_code=422, detail="enter a valid email address")
+    # Coarse per-IP bucket first: bounds total PBKDF2 CPU per IP even when the
+    # attacker rotates emails (each rotation would otherwise get a fresh bucket).
+    if not rate_limit(f"pwd-ip:{ip}", max_events=30, window_seconds=300):
+        raise HTTPException(status_code=429, detail="too many attempts, try again shortly (5 min)")
     if not rate_limit(f"pwd:{ip}:{email_norm}", max_events=10, window_seconds=300):
         raise HTTPException(status_code=429, detail="too many attempts, try again shortly (5 min)")
     rows = fetch_user_by_email(settings, email_norm)
