@@ -4,18 +4,18 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ArrowRight,
-  BarChart3,
-  Check,
-  Lock,
-  Mail,
-  Send,
-  ShieldCheck,
-  Sun,
-  Target,
-  User,
-  Zap,
-} from "lucide-react";
+  ArrowRightIcon as ArrowRight,
+  BarChart3Icon as BarChart3,
+  CheckIcon as Check,
+  LockIcon as Lock,
+  MailIcon as Mail,
+  SendIcon as Send,
+  ShieldCheckIcon as ShieldCheck,
+  SunIcon as Sun,
+  TargetIcon as Target,
+  UserIcon as User,
+  ZapIcon as Zap,
+} from "./icons";
 import styles from "./register.module.css";
 import { ApiError, api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
