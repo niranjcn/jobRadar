@@ -2663,6 +2663,29 @@ def test_sr_pagination_arithmetic():
     assert PAGE_SIZE == 100
 
 
+def test_poll_stall_check_trips_on_zero_completed(monkeypatch):
+    """Stall tripwire: 0 completed runs in 70m → not ok (page); ≥1 → ok."""
+    import app.ops as ops_module
+
+    assert ops_module.STALL_WINDOW_MINUTES == 70
+
+    calls: list[tuple[str, tuple]] = []
+
+    def fake_query(settings, sql, params=()):
+        calls.append((sql, params))
+        return [{"c": 0}]
+
+    monkeypatch.setattr(ops_module, "query", fake_query)
+    out = ops_module.check_poll_stall(object())
+    assert out == {"ok": False, "completed": 0}
+    assert "finished_at > now()" in calls[0][0]
+    assert "status = 'completed'" in calls[0][0]
+    assert calls[0][1] == (70,)
+
+    monkeypatch.setattr(ops_module, "query", lambda settings, sql, params=(): [{"c": 3}])
+    assert ops_module.check_poll_stall(object()) == {"ok": True, "completed": 3}
+
+
 def test_prune_stale_matches_deletes_older_than_24h(monkeypatch):
     """Matches-today retention: DELETE keyed on match created_at, 24h bound."""
     import app.poller as poller_module
