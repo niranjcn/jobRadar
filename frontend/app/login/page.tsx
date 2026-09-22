@@ -81,6 +81,7 @@ export default function LoginPage() {
           </Link>
         </div>
 
+        <div className={styles.cardCenterWrap}>
         <div className={styles.card}>
           <div className={styles.cardHead}>
             <p className={styles.cardEyebrow}>Welcome back</p>
@@ -179,6 +180,7 @@ export default function LoginPage() {
           <p className={styles.bottomSign}>
             Don&rsquo;t have an account? <Link href="/register">Create account</Link>
           </p>
+        </div>
         </div>
       </div>
     </div>

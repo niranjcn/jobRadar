@@ -305,6 +305,19 @@
   background: rgba(79, 211, 164, 0.1);
 }
 
+.cardCenterWrap {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 0;
+}
+
+.cardCenterWrap .card {
+  margin-top: 0;
+}
+
 .card {
   margin-top: 12px;
   width: 600px;
