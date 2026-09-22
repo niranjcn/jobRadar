@@ -1,139 +1,209 @@
-import { LEGAL, LegalH, LegalList, LegalP, LegalShell } from "@/components/legal-shell";
+import Link from "next/link";
+import { LEGAL } from "./legal";
+import { TERMS_SECTIONS } from "./terms-content";
+import styles from "./terms.module.css";
 
 export const metadata = {
-  title: "JobQuest · Terms of Service",
-  description: "Terms of Service for JobQuest job alerts.",
+  title: "Terms of Service | JobQuest",
+  description:
+    "Read the JobQuest Terms of Service governing use of the JobQuest job discovery and alerting platform.",
 };
-
-const SECTIONS = [
-  { id: "service", title: "The service" },
-  { id: "accounts", title: "Accounts and eligibility" },
-  { id: "subscription", title: "Subscriptions and billing" },
-  { id: "coupons", title: "Coupons and referrals" },
-  { id: "acceptable-use", title: "Acceptable use" },
-  { id: "listings", title: "Job listings" },
-  { id: "ip", title: "Intellectual property" },
-  { id: "availability", title: "Availability and changes" },
-  { id: "liability", title: "Limitation of liability" },
-  { id: "termination", title: "Termination" },
-  { id: "law", title: "Governing law and grievance" },
-  { id: "changes", title: "Changes to these terms" },
-];
 
 export default function TermsPage() {
   return (
-    <LegalShell
-      eyebrow="Legal"
-      title="Terms of Service"
-      intro="These Terms form a binding agreement between you and JobQuest. By creating an account or using the service, you agree to them — if you do not agree, do not use JobQuest."
-      sections={SECTIONS}
-    >
-      <LegalH id="service" index={1}>The service</LegalH>
-      <LegalP>
-        {LEGAL.entity} (“we”, “us”, “our”) provides JobQuest, a job-discovery and alerting service
-        that monitors public company career pages and sends you alerts for jobs matching your stated
-        preferences. JobQuest is an <strong>aggregator</strong>: we surface publicly posted listings
-        and link to the employer&apos;s own application page. Applications, hiring decisions, and
-        employment relationships are solely between you and the employer.
-      </LegalP>
+    <div className={styles.page}>
+      <a href="#terms-content" className={styles.skip}>
+        Skip to content
+      </a>
 
-      <LegalH id="accounts" index={2}>Accounts and eligibility</LegalH>
-      <LegalP>
-        You must be at least 16 years old to use JobQuest. You must provide a valid email address
-        and keep your credentials confidential. One account per person. You are responsible for all
-        activity under your account, including Telegram chat IDs you choose to link.
-      </LegalP>
+      <header className={styles.nav}>
+        <div className={styles.navInner}>
+          <Link href="/" className={styles.brand}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo.png" alt="JobQuest" width={30} height={30} style={{ borderRadius: 8 }} />
+            JobQuest
+          </Link>
+          <nav aria-label="Primary" className={styles.navLinks}>
+            <Link href="/">Home</Link>
+            <Link href="/pricing">Pricing</Link>
+            <Link href="/contact">Contact</Link>
+          </nav>
+          <Link href="/login" className={styles.signIn}>
+            Sign in
+          </Link>
+          <Link href="/register" className={styles.getStarted}>
+            Get started
+          </Link>
+        </div>
+      </header>
 
-      <LegalH id="subscription" index={3}>Subscriptions and billing</LegalH>
-      <LegalP>
-        Paid plans are billed <strong>monthly in advance</strong> in INR, inclusive of GST, through
-        our payment processor Razorpay. Prices are shown at{" "}
-        <a href="/pricing" style={{ color: "var(--ink-text)" }}>
-          /pricing
-        </a>{" "}
-        before you pay. Subscriptions renew automatically until cancelled. Cancelling stops the next
-        renewal; you keep full access until the end of the paid period. See the{" "}
-        <a href="/refund" style={{ color: "var(--ink-text)" }}>
-          Refund &amp; Cancellation Policy
-        </a>{" "}
-        for details.
-      </LegalP>
+      <main id="terms-content">
+        <div className={styles.hero}>
+          <p className={styles.eyebrow}>Legal</p>
+          <h1 className={styles.heroTitle}>Terms of Service</h1>
+          <p className={styles.heroSub}>
+            The terms governing your use of JobQuest. Clear, transparent, and designed to protect
+            both you and the service.
+          </p>
+          <p className={styles.heroMeta}>Last updated: {LEGAL.lastUpdated}</p>
+        </div>
 
-      <LegalH id="coupons" index={4}>Coupons and referrals</LegalH>
-      <LegalP>
-        Coupon codes grant time-limited free access as stated on the code. Codes have no cash value,
-        cannot be transferred or combined, and we may revoke codes obtained by fraud or abuse. Your
-        personal referral link is for genuine referrals only.
-      </LegalP>
+        <div className={styles.doc}>
+          <nav aria-label="Table of contents" className={styles.toc}>
+            <p className={styles.tocTitle}>Contents</p>
+            <ol className={styles.tocList}>
+              {TERMS_SECTIONS.map((s) => (
+                <li key={s.id}>
+                  <a href={`#${s.id}`}>
+                    <span className={styles.tocNum}>{s.number}</span> {s.toc}
+                  </a>
+                </li>
+              ))}
+            </ol>
+          </nav>
 
-      <LegalH id="acceptable-use" index={5}>Acceptable use</LegalH>
-      <LegalP>You agree not to:</LegalP>
-      <LegalList>
-        <li>Share your account, resell access, or scrape the service.</li>
-        <li>Use the service for spam, harassment, or any unlawful purpose.</li>
-        <li>Attempt to bypass access controls, rate limits, or security measures.</li>
-        <li>Submit false information or impersonate another person.</li>
-      </LegalList>
-      <LegalP>
-        We may suspend or terminate accounts that violate these Terms, abuse the alert system, or
-        threaten the security of the service — typically with notice, immediately where required for
-        security or legal reasons.
-      </LegalP>
+          <article className={styles.article}>
+            <details className={styles.tocMobile}>
+              <summary>Contents</summary>
+              <ol>
+                {TERMS_SECTIONS.map((s) => (
+                  <li key={s.id}>
+                    <a href={`#${s.id}`}>{s.title}</a>
+                  </li>
+                ))}
+              </ol>
+            </details>
 
-      <LegalH id="listings" index={6}>Job listings</LegalH>
-      <LegalP>
-        Listings are collected from public employer sources and are provided <strong>as-is</strong>.
-        We do not guarantee that a listing is current, accurate, complete, or still open — always
-        verify details on the employer&apos;s own page before applying. If a listing is stale or
-        wrong, tell us at {LEGAL.email} and we will correct or remove it.
-      </LegalP>
+            <div className={styles.preamble}>
+              <p>
+                These Terms of Service (&ldquo;Terms&rdquo;) govern your access to and use of
+                JobQuest, including the JobQuest website, dashboard, job discovery services, job
+                alerts, matching features, notifications, Telegram integration, subscriptions, and
+                related services (collectively, the &ldquo;Service&rdquo;).
+              </p>
+              <div className={styles.operatorBox}>
+                <p>
+                  <strong>The Service is operated by {LEGAL.operatorShort}.</strong>
+                </p>
+                <p>{LEGAL.operatorNote}</p>
+                <p>
+                  <strong>Registered/Business Address:</strong> {LEGAL.address}
+                  <br />
+                  <strong>Email:</strong> {LEGAL.supportEmail}
+                  <br />
+                  <strong>Legal/Grievance Email:</strong> {LEGAL.grievanceEmail}
+                </p>
+              </div>
+              <p>
+                In these Terms, &ldquo;{LEGAL.operatorShort}&rdquo;, &ldquo;JobQuest&rdquo;,
+                &ldquo;we&rdquo;, &ldquo;us&rdquo;, and &ldquo;our&rdquo; refer to the operator of
+                the Service, and &ldquo;you&rdquo;, &ldquo;your&rdquo;, or &ldquo;User&rdquo; refers
+                to the person accessing or using the Service.
+              </p>
+              <p>
+                By creating an account, purchasing a subscription, clicking an acceptance checkbox,
+                or otherwise using the Service where acceptance is required, you acknowledge that you
+                have read and agree to these Terms.
+              </p>
+              <p>
+                If you do not agree to these Terms, do not create an account or use the Service.
+              </p>
+            </div>
 
-      <LegalH id="ip" index={7}>Intellectual property</LegalH>
-      <LegalP>
-        The JobQuest name, logo, interface, and software are our property. You receive a personal,
-        non-transferable licence to use the service while your account is in good standing. Job
-        listing content belongs to the respective employers.
-      </LegalP>
+            {TERMS_SECTIONS.map((s) => (
+              <section key={s.id} id={s.id} aria-labelledby={`${s.id}-heading`} className={styles.section}>
+                <div className={styles.sectionHead}>
+                  <span className={styles.sectionNum}>{s.number}</span>
+                  <h2 id={`${s.id}-heading`}>{s.title}</h2>
+                </div>
+                {s.body}
+              </section>
+            ))}
 
-      <LegalH id="availability" index={8}>Availability and changes</LegalH>
-      <LegalP>
-        We aim for continuous availability but do not guarantee uninterrupted service. We may modify,
-        suspend, or discontinue features with reasonable notice; where a paid feature is removed
-        permanently we will offer a pro-rata remedy or equivalent alternative.
-      </LegalP>
+            <div className={styles.support}>
+              <h2>Questions about these Terms?</h2>
+              <p>
+                If you have questions about JobQuest or these Terms, contact our support team.
+              </p>
+              <Link href="/contact" className={styles.cta}>
+                Contact support &rarr;
+              </Link>
+            </div>
 
-      <LegalH id="liability" index={9}>Limitation of liability</LegalH>
-      <LegalP>
-        To the maximum extent permitted by law, JobQuest is provided without warranties of any kind.
-        Our total liability for any claim arising from the service is limited to the amount you paid
-        in the 12 months before the claim. We are not liable for employment outcomes, missed
-        applications, or decisions made on the basis of alerts. Nothing here limits rights that
-        consumer-protection law does not allow us to limit.
-      </LegalP>
+            <div className={styles.related}>
+              <h2>Related policies</h2>
+              <ul>
+                <li>
+                  <Link href="/privacy">Privacy Policy</Link>
+                </li>
+                <li>
+                  <Link href="/refund">Refund &amp; Cancellation Policy</Link>
+                </li>
+                <li>
+                  <Link href="/contact">Contact</Link>
+                </li>
+              </ul>
+            </div>
 
-      <LegalH id="termination" index={10}>Termination</LegalH>
-      <LegalP>
-        You may delete your account at any time (Billing → delete account), which erases your
-        profile, preferences, matches, and history per our{" "}
-        <a href="/privacy" style={{ color: "var(--ink-text)" }}>
-          Privacy Policy
-        </a>
-        . We may terminate for Terms violations as described above.
-      </LegalP>
+            <div className={styles.docFooter}>
+              <p>
+                <strong>Product:</strong> JobQuest &nbsp;·&nbsp; <strong>Document:</strong> Terms of
+                Service &nbsp;·&nbsp; <strong>Version:</strong> {LEGAL.version} &nbsp;·&nbsp;{" "}
+                <strong>Last Updated:</strong> {LEGAL.lastUpdated}
+              </p>
+            </div>
+          </article>
+        </div>
+      </main>
 
-      <LegalH id="law" index={11}>Governing law and grievance</LegalH>
-      <LegalP>
-        These Terms are governed by the laws of India. Disputes will first be attempted to be
-        resolved informally by contacting {LEGAL.email}. Grievance Officer: {LEGAL.grievanceName} —{" "}
-        {LEGAL.grievanceEmail} (acknowledgement within 24 hours, resolution within 15 days).{" "}
-        {LEGAL.address}.
-      </LegalP>
-
-      <LegalH id="changes" index={12}>Changes to these terms</LegalH>
-      <LegalP>
-        Material changes will be announced in-app at least 7 days before taking effect. Continued
-        use after the effective date constitutes acceptance.
-      </LegalP>
-    </LegalShell>
+      <footer className={styles.footer}>
+        <div className={styles.footerInner}>
+          <div className={styles.footerBrand}>
+            <Link href="/" className={styles.brand}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo.png" alt="JobQuest" width={28} height={28} style={{ borderRadius: 8 }} />
+              JobQuest
+            </Link>
+            <p>
+              Better Opportunities.
+              <br />
+              Brighter Tomorrow.
+            </p>
+          </div>
+          <div className={styles.footerCol}>
+            <h3>Product</h3>
+            <ul>
+              <li>
+                <Link href="/">Home</Link>
+              </li>
+              <li>
+                <Link href="/pricing">Pricing</Link>
+              </li>
+              <li>
+                <Link href="/contact">Contact</Link>
+              </li>
+            </ul>
+          </div>
+          <div className={styles.footerCol}>
+            <h3>Legal</h3>
+            <ul>
+              <li>
+                <Link href="/privacy">Privacy</Link>
+              </li>
+              <li>
+                <Link href="/terms">Terms</Link>
+              </li>
+              <li>
+                <Link href="/refund">Refunds</Link>
+              </li>
+              <li>
+                <Link href="/contact">Contact</Link>
+              </li>
+            </ul>
+          </div>
+        </div>
+        <p className={styles.copyright}>© 2026 JobQuest. All rights reserved.</p>
+      </footer>
+    </div>
   );
 }
