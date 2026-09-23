@@ -1,123 +1,169 @@
-import { LEGAL, LegalH, LegalList, LegalP, LegalShell } from "@/components/legal-shell";
+import Link from "next/link";
+import { PRIVACY_SECTIONS } from "./privacy-content";
+import styles from "./privacy.module.css";
 
 export const metadata = {
-  title: "JobQuest · Privacy Policy",
-  description: "Privacy Policy for JobQuest job alerts.",
+  title: "Privacy Policy | JobQuest",
+  description:
+    "How JobQuest collects, uses, shares, retains, and deletes your information — based on what the software actually does.",
 };
-
-const SECTIONS = [
-  { id: "collection", title: "Data we collect" },
-  { id: "purpose", title: "Why we use it" },
-  { id: "sharing", title: "Sharing" },
-  { id: "retention", title: "How long we keep things" },
-  { id: "rights", title: "Your rights" },
-  { id: "children", title: "Children" },
-  { id: "security", title: "Security" },
-  { id: "grievance", title: "Grievance redressal" },
-  { id: "changes", title: "Changes to this policy" },
-];
 
 export default function PrivacyPage() {
   return (
-    <LegalShell
-      eyebrow="Legal"
-      title="Privacy Policy"
-      intro="This policy explains what personal data we collect, why, how long we keep it, and the rights you have under India's DPDP Act 2023 (and GDPR/CAN-SPAM principles for users elsewhere)."
-      sections={SECTIONS}
-    >
-      <LegalH id="collection" index={1}>Data we collect</LegalH>
-      <LegalList>
-        <li>
-          <strong>Account:</strong> email address, display name, password hash (never the password
-          itself), Telegram chat ID (only if you link it), and the timestamp of your Terms
-          acceptance.
-        </li>
-        <li>
-          <strong>Preferences:</strong> roles, keywords, locations, seniority, exclusions, and alert
-          settings — used solely for matching and alerts.
-        </li>
-        <li>
-          <strong>Service data:</strong> subscription and coupon records (via Razorpay, our payment
-          processor), login/security events (IP address, user agent, timestamps), and rate-limit
-          counters.
-        </li>
-        <li>
-          <strong>Derived data:</strong> your job matches and alert-delivery records.
-        </li>
-      </LegalList>
-      <LegalP>We collect no marketing profiles and run no ad trackers.</LegalP>
+    <div className={styles.page}>
+      <a href="#privacy-content" className={styles.skip}>
+        Skip to content
+      </a>
 
-      <LegalH id="purpose" index={2}>Why we use it</LegalH>
-      <LegalP>
-        Your data is used only to operate the service: authenticate you, match jobs to your stated
-        preferences, deliver the alerts you enabled, bill your subscription, prevent abuse, and keep
-        the service secure. Preferences are never used for marketing and never sold.
-      </LegalP>
+      <header className={styles.nav}>
+        <div className={styles.navInner}>
+          <Link href="/" className={styles.brand}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo.png" alt="JobQuest" width={30} height={30} style={{ borderRadius: 8 }} />
+            JobQuest
+          </Link>
+          <nav aria-label="Primary" className={styles.navLinks}>
+            <Link href="/">Home</Link>
+            <Link href="/pricing">Pricing</Link>
+            <Link href="/contact">Contact</Link>
+          </nav>
+          <Link href="/login" className={styles.signIn}>
+            Sign in
+          </Link>
+          <Link href="/register" className={styles.getStarted}>
+            Get started
+          </Link>
+        </div>
+      </header>
 
-      <LegalH id="sharing" index={3}>Sharing</LegalH>
-      <LegalP>
-        We share data only with processors needed to run the service: Razorpay (payments), Telegram
-        (alert delivery, message content only), and our hosting provider (database). We do not sell
-        personal data. Employer career pages receive no personal data from us.
-      </LegalP>
+      <main id="privacy-content">
+        <div className={styles.hero}>
+          <p className={styles.eyebrow}>Legal</p>
+          <h1 className={styles.heroTitle}>Privacy Policy</h1>
+          <p className={styles.heroSub}>
+            What JobQuest collects, why it collects it, who receives it, how long it is kept,
+            and what choices you have — written against what the software actually does.
+          </p>
+          <p className={styles.heroMeta}>
+            Last updated: September 2026 · Operated by the JobQuest operator, an independent
+            software service run by its individual developer. No registered company exists yet —
+            identity and contact details below are marked placeholders, not facts.
+          </p>
+        </div>
 
-      <LegalH id="retention" index={4}>How long we keep things</LegalH>
-      <LegalP>We keep each category only as long as its purpose lasts:</LegalP>
-      <LegalList>
-        <li>Job matches: 24 hours, then automatically pruned.</li>
-        <li>Alert-delivery records: 24 hours, then automatically pruned.</li>
-        <li>Login/security events: 90 days, then automatically pruned.</li>
-        <li>Job listings: 30 days after last seen (7 days once a posting disappears).</li>
-        <li>Account, preferences, subscriptions: until you delete your account.</li>
-        <li>Rate-limit counters: 24 hours.</li>
-      </LegalList>
+        <div className={styles.doc}>
+          <nav aria-label="Table of contents" className={styles.toc}>
+            <p className={styles.tocTitle}>Contents</p>
+            <ol className={styles.tocList}>
+              {PRIVACY_SECTIONS.map((s) => (
+                <li key={s.id}>
+                  <a href={`#${s.id}`}>
+                    <span className={styles.tocNum}>{s.number}</span> {s.toc}
+                  </a>
+                </li>
+              ))}
+            </ol>
+          </nav>
 
-      <LegalH id="rights" index={5}>Your rights</LegalH>
-      <LegalP>You may at any time:</LegalP>
-      <LegalList>
-        <li>
-          <strong>Access</strong> everything we store about you — Billing → export, or API{" "}
-          <code>/api/auth/me/export</code>.
-        </li>
-        <li>
-          <strong>Correct</strong> your profile and preferences.
-        </li>
-        <li>
-          <strong>Erase</strong> your account including matches and alert history — Billing → delete
-          account, or API <code>DELETE /api/auth/me</code>. Erasure is immediate except anonymized
-          security logs retained for fraud prevention.
-        </li>
-      </LegalList>
-      <LegalP>
-        To exercise any right, or to withdraw consent, write to {LEGAL.email} — we respond within 30
-        days.
-      </LegalP>
+          <article className={styles.article}>
+            <details className={styles.tocMobile}>
+              <summary>Contents</summary>
+              <ol>
+                {PRIVACY_SECTIONS.map((s) => (
+                  <li key={s.id}>
+                    <a href={`#${s.id}`}>{s.title}</a>
+                  </li>
+                ))}
+              </ol>
+            </details>
 
-      <LegalH id="children" index={6}>Children</LegalH>
-      <LegalP>
-        JobQuest is not directed at children under 16. Accounts found to belong to children are
-        removed.
-      </LegalP>
+            {PRIVACY_SECTIONS.map((s) => (
+              <section key={s.id} id={s.id} aria-labelledby={`${s.id}-heading`} className={styles.section}>
+                <div className={styles.sectionHead}>
+                  <span className={styles.sectionNum}>{s.number}</span>
+                  <h2 id={`${s.id}-heading`}>{s.title}</h2>
+                </div>
+                {s.body}
+              </section>
+            ))}
 
-      <LegalH id="security" index={7}>Security</LegalH>
-      <LegalP>
-        Passwords are stored as salted PBKDF2 hashes (600,000 iterations), never plaintext. Sessions
-        use HttpOnly, SameSite cookies; failed logins trigger progressive lockout. No method is
-        perfect — if you suspect unauthorized access, change your password and contact us
-        immediately.
-      </LegalP>
+            <div className={styles.support}>
+              <h2>Questions about your information?</h2>
+              <p>
+                If you have questions about this policy or your information, contact support. For
+                account access issues, include your account email.
+              </p>
+              <Link href="/contact" className={styles.cta}>
+                Contact support &rarr;
+              </Link>
+            </div>
 
-      <LegalH id="grievance" index={8}>Grievance redressal</LegalH>
-      <LegalP>
-        Grievance Officer: {LEGAL.grievanceName} — {LEGAL.grievanceEmail}. We acknowledge grievances
-        within 24 hours and resolve them within 15 days, per applicable law.
-      </LegalP>
+            <div className={styles.related}>
+              <h2>Related documents</h2>
+              <ul>
+                <li>
+                  <Link href="/terms">Terms of Service</Link>
+                </li>
+                <li>
+                  <Link href="/refund">Refund &amp; Cancellation Policy</Link>
+                </li>
+                <li>
+                  <Link href="/contact">Contact</Link>
+                </li>
+              </ul>
+            </div>
+          </article>
+        </div>
+      </main>
 
-      <LegalH id="changes" index={9}>Changes to this policy</LegalH>
-      <LegalP>
-        Material changes will be announced in-app at least 7 days before taking effect.{" "}
-        {LEGAL.address}.
-      </LegalP>
-    </LegalShell>
+      <footer className={styles.footer}>
+        <div className={styles.footerInner}>
+          <div className={styles.footerBrand}>
+            <Link href="/" className={styles.brand}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo.png" alt="JobQuest" width={28} height={28} style={{ borderRadius: 8 }} />
+              JobQuest
+            </Link>
+            <p>
+              Better Opportunities.
+              <br />
+              Brighter Tomorrow.
+            </p>
+          </div>
+          <div className={styles.footerCol}>
+            <h3>Product</h3>
+            <ul>
+              <li>
+                <Link href="/">Home</Link>
+              </li>
+              <li>
+                <Link href="/pricing">Pricing</Link>
+              </li>
+              <li>
+                <Link href="/contact">Contact</Link>
+              </li>
+            </ul>
+          </div>
+          <div className={styles.footerCol}>
+            <h3>Legal</h3>
+            <ul>
+              <li>
+                <Link href="/privacy">Privacy</Link>
+              </li>
+              <li>
+                <Link href="/terms">Terms</Link>
+              </li>
+              <li>
+                <Link href="/refund">Refunds</Link>
+              </li>
+              <li>
+                <Link href="/contact">Contact</Link>
+              </li>
+            </ul>
+          </div>
+        </div>
+        <p className={styles.copyright}>© 2026 JobQuest. All rights reserved.</p>
+      </footer>
+    </div>
   );
 }
