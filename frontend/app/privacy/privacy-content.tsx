@@ -461,6 +461,11 @@ export const PRIVACY_SECTIONS: PrivacySection[] = [
           </li>
         </Ul>
         <P>
+          Deleting your account does not cancel a live Razorpay autopay mandate — cancel it first
+          (see the <Link href="/refund">Refund &amp; Cancellation Policy</Link>), otherwise
+          renewals can keep charging after your account is gone.
+        </P>
+        <P>
           The application keeps no off-site backups today, so there is no backup copy that
           outlives the live database. Public job listings are unaffected by account deletion.
         </P>

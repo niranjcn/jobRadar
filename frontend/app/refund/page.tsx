@@ -1,65 +1,167 @@
-import { LEGAL, LegalH, LegalP, LegalShell } from "@/components/legal-shell";
+import Link from "next/link";
+import { REFUND_SECTIONS } from "./refund-content";
+import styles from "../terms/terms.module.css";
 
 export const metadata = {
-  title: "JobQuest · Refund & Cancellation Policy",
-  description: "Refund and cancellation terms for JobQuest subscriptions.",
+  title: "Refund & Cancellation Policy | JobQuest",
+  description:
+    "Learn how JobQuest subscriptions, cancellations, refunds, billing issues, and promotional access are handled.",
 };
-
-const SECTIONS = [
-  { id: "cancel", title: "Cancel anytime" },
-  { id: "access", title: "Access until period end" },
-  { id: "refunds", title: "Refunds" },
-  { id: "coupons", title: "Coupons" },
-  { id: "chargebacks", title: "Chargebacks" },
-  { id: "contact", title: "Contact" },
-];
 
 export default function RefundPage() {
   return (
-    <LegalShell
-      eyebrow="Legal"
-      title="Refund & Cancellation Policy"
-      intro="JobQuest subscriptions are billed monthly in advance through Razorpay (autopay where enabled). All prices are in INR and inclusive of GST."
-      sections={SECTIONS}
-    >
-      <LegalH id="cancel" index={1}>Cancel anytime</LegalH>
-      <LegalP>
-        Cancel in one click from Billing → Cancel Autopay (or write to {LEGAL.email} and we will do
-        it for you). Cancellation stops the next renewal; there is no lock-in and no cancellation
-        fee.
-      </LegalP>
+    <div className={styles.page}>
+      <a href="#refund-content" className={styles.skip}>
+        Skip to content
+      </a>
 
-      <LegalH id="access" index={2}>Access until period end</LegalH>
-      <LegalP>
-        After cancellation you keep full access until the end of the paid billing period. Matches,
-        history, and Telegram alerts continue normally during that window.
-      </LegalP>
+      <header className={styles.nav}>
+        <div className={styles.navInner}>
+          <Link href="/" className={styles.brand}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo.png" alt="JobQuest" width={30} height={30} style={{ borderRadius: 8 }} />
+            JobQuest
+          </Link>
+          <nav aria-label="Primary" className={styles.navLinks}>
+            <Link href="/">Home</Link>
+            <Link href="/pricing">Pricing</Link>
+            <Link href="/contact">Contact</Link>
+          </nav>
+          <Link href="/login" className={styles.signIn}>
+            Sign in
+          </Link>
+          <Link href="/register" className={styles.getStarted}>
+            Get started
+          </Link>
+        </div>
+      </header>
 
-      <LegalH id="refunds" index={3}>Refunds</LegalH>
-      <LegalP>
-        Because access continues to period end and plans are monthly, billed amounts are{" "}
-        <strong>non-refundable and not prorated</strong> — except where required by applicable
-        consumer-protection law, duplicate charges, or a billing error on our side. If you were
-        charged twice or charged after a confirmed cancellation, contact {LEGAL.email} within 30
-        days with your payment ID and we will reverse it within 7 business days.
-      </LegalP>
+      <main id="refund-content">
+        <div className={styles.hero}>
+          <p className={styles.eyebrow}>Legal</p>
+          <h1 className={styles.heroTitle}>Refund &amp; Cancellation Policy</h1>
+          <p className={styles.heroSub}>
+            How JobQuest subscriptions are charged, how cancellation works, when refunds apply,
+            and where to get help with billing.
+          </p>
+          <p className={styles.heroMeta}>
+            Last updated: September 2026 · Operated by the JobQuest operator, an independent
+            software service run by its individual developer.
+          </p>
+        </div>
 
-      <LegalH id="coupons" index={4}>Coupons</LegalH>
-      <LegalP>
-        Coupon codes grant free access for their stated duration and have no cash value. They cannot
-        be refunded, transferred, or combined with a paid subscription for the same period.
-      </LegalP>
+        <div className={styles.doc}>
+          <nav aria-label="Table of contents" className={styles.toc}>
+            <p className={styles.tocTitle}>Contents</p>
+            <ol className={styles.tocList}>
+              {REFUND_SECTIONS.map((s) => (
+                <li key={s.id}>
+                  <a href={`#${s.id}`}>
+                    <span className={styles.tocNum}>{s.number}</span> {s.toc}
+                  </a>
+                </li>
+              ))}
+            </ol>
+          </nav>
 
-      <LegalH id="chargebacks" index={5}>Chargebacks</LegalH>
-      <LegalP>
-        Please contact us before raising a dispute — most billing issues are resolved within 48
-        hours, and an open chargeback suspends the account until the processor resolves it.
-      </LegalP>
+          <article className={styles.article}>
+            <details className={styles.tocMobile}>
+              <summary>Contents</summary>
+              <ol>
+                {REFUND_SECTIONS.map((s) => (
+                  <li key={s.id}>
+                    <a href={`#${s.id}`}>{s.title}</a>
+                  </li>
+                ))}
+              </ol>
+            </details>
 
-      <LegalH id="contact" index={6}>Contact</LegalH>
-      <LegalP>
-        Billing questions: {LEGAL.email} · {LEGAL.address}.
-      </LegalP>
-    </LegalShell>
+            {REFUND_SECTIONS.map((s) => (
+              <section key={s.id} id={s.id} aria-labelledby={`${s.id}-heading`} className={styles.section}>
+                <div className={styles.sectionHead}>
+                  <span className={styles.sectionNum}>{s.number}</span>
+                  <h2 id={`${s.id}-heading`}>{s.title}</h2>
+                </div>
+                {s.body}
+              </section>
+            ))}
+
+            <div className={styles.support}>
+              <h2>Billing problem?</h2>
+              <p>
+                Include your account email and Razorpay payment ID so the charge can be traced.
+              </p>
+              <Link href="/contact" className={styles.cta}>
+                Contact support &rarr;
+              </Link>
+            </div>
+
+            <div className={styles.related}>
+              <h2>Related documents</h2>
+              <ul>
+                <li>
+                  <Link href="/terms">Terms of Service</Link>
+                </li>
+                <li>
+                  <Link href="/privacy">Privacy Policy</Link>
+                </li>
+                <li>
+                  <Link href="/contact">Contact</Link>
+                </li>
+              </ul>
+            </div>
+          </article>
+        </div>
+      </main>
+
+      <footer className={styles.footer}>
+        <div className={styles.footerInner}>
+          <div className={styles.footerBrand}>
+            <Link href="/" className={styles.brand}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo.png" alt="JobQuest" width={28} height={28} style={{ borderRadius: 8 }} />
+              JobQuest
+            </Link>
+            <p>
+              Better Opportunities.
+              <br />
+              Brighter Tomorrow.
+            </p>
+          </div>
+          <div className={styles.footerCol}>
+            <h3>Product</h3>
+            <ul>
+              <li>
+                <Link href="/">Home</Link>
+              </li>
+              <li>
+                <Link href="/pricing">Pricing</Link>
+              </li>
+              <li>
+                <Link href="/contact">Contact</Link>
+              </li>
+            </ul>
+          </div>
+          <div className={styles.footerCol}>
+            <h3>Legal</h3>
+            <ul>
+              <li>
+                <Link href="/privacy">Privacy</Link>
+              </li>
+              <li>
+                <Link href="/terms">Terms</Link>
+              </li>
+              <li>
+                <Link href="/refund">Refunds</Link>
+              </li>
+              <li>
+                <Link href="/contact">Contact</Link>
+              </li>
+            </ul>
+          </div>
+        </div>
+        <p className={styles.copyright}>© 2026 JobQuest. All rights reserved.</p>
+      </footer>
+    </div>
   );
 }
