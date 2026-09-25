@@ -280,10 +280,10 @@ def _get_or_create_razorpay_plan(settings: Settings, client) -> str | None:
             "select price_minor_units, currency, name from plans where code='standard' and is_active limit 1",
         )
         plan = (
-            rows[0] if rows else {"price_minor_units": 900, "currency": "INR", "name": "Standard"}
+            rows[0] if rows else {"price_minor_units": 4900, "currency": "INR", "name": "Standard"}
         )
         amount = int(plan["price_minor_units"])
-        # Razorpay expects amount in paise for INR (₹9 = 900 paise). Our DB stores cents/paise already (900 = ₹9)
+        # Razorpay expects amount in paise for INR (₹49 = 4900 paise). Our DB stores cents/paise already (4900 = ₹49)
         # Ensure at least 100 paise (₹1) minimum
         amount = max(amount, 100)
         currency = "INR"
@@ -311,7 +311,7 @@ def _create_razorpay_order(settings: Settings, client, user_id: str) -> dict[str
         settings,
         "select price_minor_units, currency from plans where code='standard' and is_active limit 1",
     )
-    plan = rows[0] if rows else {"price_minor_units": 50000, "currency": "INR"}
+    plan = rows[0] if rows else {"price_minor_units": 4900, "currency": "INR"}
     amount = int(plan["price_minor_units"])
     amount = max(amount, 100)
     # Razorpay order amount is in paise
@@ -552,7 +552,7 @@ def start_checkout(settings: Settings, user_id: str) -> dict[str, Any]:
                     settings,
                     "select price_minor_units, currency from plans where code='standard' and is_active limit 1",
                 )
-                price = rows[0] if rows else {"price_minor_units": 900, "currency": "INR"}
+                price = rows[0] if rows else {"price_minor_units": 4900, "currency": "INR"}
                 amt = f"{price['currency']} {(price['price_minor_units'] / 100):.2f}"
             except Exception:
                 amt = "plan price"
@@ -566,7 +566,7 @@ def start_checkout(settings: Settings, user_id: str) -> dict[str, Any]:
                 "order_id": None,
                 "amount": price.get("price_minor_units")
                 if "price" in locals() and isinstance(price, dict)
-                else 900,
+                else 4900,
             }
         # create subscription for autopay
         try:
@@ -575,7 +575,7 @@ def start_checkout(settings: Settings, user_id: str) -> dict[str, Any]:
                 settings,
                 "select price_minor_units, currency from plans where code='standard' and is_active limit 1",
             )
-            price = rows[0] if rows else {"price_minor_units": 900, "currency": "INR"}
+            price = rows[0] if rows else {"price_minor_units": 4900, "currency": "INR"}
             return {
                 "provider": "razorpay",
                 "subscription_id": sub["subscription_id"],
