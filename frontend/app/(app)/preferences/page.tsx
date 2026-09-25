@@ -13,7 +13,7 @@ import type { GeoCountry, Preferences } from "@/lib/types";
 const ROLES_PRESET = ["Software Engineer", "Backend Engineer", "DevOps Engineer", "SRE", "Platform Engineer", "MTS", "Full Stack Engineer", "Cloud Engineer"];
 const SKILLS_PRESET = ["Python", "Go", "Java", "AWS", "Docker", "Kubernetes", "Terraform", "PostgreSQL", "Linux"];
 const SENIORITY_PRESET = ["Internship", "New Grad", "Entry", "Junior", "Mid", "Senior", "Lead"];
-const LOCATIONS_PRESET = ["Remote", "India", "United States", "Bengaluru", "Hyderabad", "Mumbai", "Delhi", "Pune", "Chennai", "Dubai", "Singapore", "Germany"];
+const LOCATIONS_PRESET = ["Remote", "India", "UAE", "United States", "Bengaluru", "Hyderabad", "Mumbai", "Delhi", "Pune", "Chennai", "Dubai", "Abu Dhabi", "Singapore", "Germany"];
 
 export default function PreferencesPage() {
   const { me, refresh } = useAuth();

@@ -14,7 +14,7 @@ os.environ.setdefault("JOBQUEST_DISABLE_BOT", "1")
 
 from app.main import _interval_seconds_to_cron
 from app.matcher import compute_match_score, job_matches_preferences
-from app.geo import map_location, location_matches_preference, map_job_locations
+from app.geo import country_aliases, map_location, location_matches_preference, map_job_locations
 from app.telegram.messages import build_html, build_text, build_text_sections, build_text_summary
 from app.adapters.oracle import OracleAdapter, _is_fusion
 from app.adapters.icims import IcimsAdapter
@@ -311,6 +311,14 @@ def test_empty_prefs_collapse_to_one_signature():
         ("Paris, France", "FR"),
         ("Remote India", "IN"),
         ("US", "US"),
+        ("USA", "US"),
+        ("UK", "GB"),
+        ("UAE", "AE"),
+        ("AE", "AE"),
+        ("United Arab Emirates", "AE"),
+        ("Abu Dhabi", "AE"),
+        ("KSA", "SA"),
+        ("Saudi Arabia", "SA"),
         ("Remote", "IN"),  # remote_to default -> India
         ("London", "GB"),
         ("AMER", None),
@@ -338,6 +346,14 @@ def test_geo_map_location(location, expected):
 )
 def test_geo_remote_flag(loc, is_remote):
     assert map_location(loc)["is_remote"] is is_remote, loc
+
+
+def test_geo_country_aliases():
+    # Abbreviations users actually type must resolve like the full name.
+    assert country_aliases()["AE"] == sorted(country_aliases()["AE"])
+    assert "uae" in country_aliases()["AE"]
+    assert "dxb" in country_aliases()["AE"]
+    assert "usa" in country_aliases()["US"]
 
 
 def test_geo_india_short_forms():
@@ -588,6 +604,67 @@ def test_excluded_roles_require_nonempty_roles():
         "company_name": "X",
     }
     assert job_matches_preferences(job, prefs)[0] is False
+
+
+def test_keyword_ai_does_not_match_inside_words():
+    # "AI" must hit "AI Engineer" but not "Retail Associate", "Training
+    # Manager", or "Fair Chance Associate" (substring bug: "ai" in "retailer").
+    prefs = {
+        "roles": [],
+        "keywords": ["AI"],
+        "locations": [],
+        "seniority": [],
+        "excluded_companies": [],
+    }
+    for title in ("Retail Associate", "Training Manager", "Fair Chance Associate"):
+        job = {"title": title, "description": "", "location": "", "company_name": "X"}
+        assert job_matches_preferences(job, prefs)[0] is False, title
+    for title in ("AI Engineer", "AI/ML Engineer", "Senior AI Researcher"):
+        job = {"title": title, "description": "", "location": "", "company_name": "X"}
+        matched, reasons = job_matches_preferences(job, prefs)
+        assert matched is True, title
+        assert any("keyword:" in r for r in reasons)
+
+
+def test_role_and_excluded_role_are_whole_word():
+    # Role "go" must not match "Google"-style titles; excluded "ai" must not
+    # nuke "Retail ..." titles.
+    prefs = {
+        "roles": ["go"],
+        "keywords": [],
+        "locations": [],
+        "seniority": [],
+        "excluded_companies": [],
+        "excluded_roles": ["ai"],
+    }
+    assert (
+        job_matches_preferences(
+            {"title": "Golang Developer", "description": "", "location": "", "company_name": "X"},
+            prefs,
+        )[0]
+        is False
+    )
+    assert (
+        job_matches_preferences(
+            {"title": "Go Developer", "description": "", "location": "", "company_name": "X"},
+            prefs,
+        )[0]
+        is True
+    )
+    assert (
+        job_matches_preferences(
+            {"title": "Retail Associate", "description": "", "location": "", "company_name": "X"},
+            {
+                "roles": ["associate"],
+                "keywords": [],
+                "locations": [],
+                "seniority": [],
+                "excluded_companies": [],
+                "excluded_roles": ["ai"],
+            },
+        )[0]
+        is True
+    )
 
 
 # ---------- message builder ----------

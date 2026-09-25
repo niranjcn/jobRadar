@@ -222,7 +222,7 @@ Don't treat this as optional — payment processors and app stores will ask for 
 - [ ] **Data export / erasure:** `GET /api/auth/me/export` and `DELETE /api/auth/me` shipped (`2564a64`) — password-confirm delete, owner-guarded, presets reassigned, cascades verified live with a synthetic user (0 residue).
 - [x] **Legal pages live:** `/terms`, `/privacy`, `/refund`, `/contact` (Ink-themed, footer-linked). Retention table in Privacy matches actual prunes (matches 24h, sent 24h, auth 90d, jobs 30d/7d).
 - [ ] **Razorpay pages** — copy is live at the URLs above, but `[PLACEHOLDERS]` (entity, contact, address, domain, grievance officer) must be replaced with real details before live-mode review. Copy is short; the URLs must be public.
-- [ ] **Price truth:** landing CTA says ₹49/mo but the `standard` plan charges **₹299/mo**. Fix one side before charging anyone — otherwise the Refund page (written against ₹299) contradicts checkout.
+- [x] **Price truth:** landing CTA, `standard` plan, and checkout all charge **₹49/mo** (migration `063`, `access.py` fallbacks 4900 paise). Verify the live DB row and Refund page agree before charging anyone.
 
 ---
 

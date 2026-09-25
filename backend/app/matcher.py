@@ -1,5 +1,7 @@
 import json
+import re
 from datetime import UTC, datetime
+from functools import lru_cache
 from typing import Any
 
 from supabase import Client
@@ -12,6 +14,27 @@ from app.settings_store import load_location_mapping
 REMOTE_PREF_WORDS = ("remote", "work from home", "wfh", "anywhere", "worldwide", "global")
 
 IN_BATCH = 200
+
+
+@lru_cache(maxsize=1024)
+def _term_pattern(term_low: str) -> re.Pattern[str] | None:
+    """Compiled whole-word pattern for a lowercased preference term.
+
+    None for empty terms (they must never match). Cached because each poll
+    evaluates thousands of titles against the same few terms.
+    """
+    if not term_low:
+        return None
+    return re.compile(r"(?<![a-z0-9])" + re.escape(term_low) + r"(?![a-z0-9])")
+
+
+def term_matches_text(term_low: str, text_low: str) -> bool:
+    """Whole-word/phrase hit: 'ai' matches 'AI Engineer' and 'AI/ML', but
+    not 'retailer', 'training', or 'fair'. Multi-word terms ('machine
+    learning') match as a phrase; symbols ('c++', '.net') match on
+    non-alphanumeric boundaries."""
+    pattern = _term_pattern(term_low)
+    return pattern is not None and pattern.search(text_low) is not None
 
 
 def fetch_sources(supabase: Client) -> list[dict[str, Any]]:
@@ -127,16 +150,24 @@ def _match_core(
     if norm["company_l"] in lowered["excluded_companies"]:
         excluded_hit = True
     else:
-        excluded_hit = any(term in norm["title_l"] for term in lowered["excluded_roles"])
+        excluded_hit = any(
+            term_matches_text(term, norm["title_l"]) for term in lowered["excluded_roles"]
+        )
 
-    roles_hit = [orig for orig, low in zip(roles, lowered["roles"]) if low in norm["title_l"]]
+    roles_hit = [
+        orig
+        for orig, low in zip(roles, lowered["roles"])
+        if term_matches_text(low, norm["title_l"])
+    ]
     keywords_hit = [
-        orig for orig, low in zip(keywords, lowered["keywords"]) if low in norm["text_l"]
+        orig
+        for orig, low in zip(keywords, lowered["keywords"])
+        if term_matches_text(low, norm["text_l"])
     ]
     seniority_hit = [
         orig
         for orig, low in zip(seniority, lowered["seniority"])
-        if low in norm["title_l"] or low == "any"
+        if term_matches_text(low, norm["title_l"]) or low == "any"
     ]
 
     # Location is a hard filter: when any location preference is set, the job
@@ -146,7 +177,8 @@ def _match_core(
         locations_hit = [
             orig
             for orig, low in zip(locations, lowered["locations"])
-            if low in norm["location_l"] or (low == "remote" and "remote" in norm["location_l"])
+            if term_matches_text(low, norm["location_l"])
+            or (low == "remote" and term_matches_text("remote", norm["location_l"]))
         ]
         # country-aware: also accept a job whose mapped countries cover a
         # preference that resolves to a country (India, Dubai -> AE, BLR -> IN).
