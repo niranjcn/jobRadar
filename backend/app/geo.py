@@ -175,6 +175,8 @@ REMOTE_WORDS = (
 
 # Curated fixes for the raw index: city names that collide with other countries
 # or that are English aliases. Value is the ISO2 the city belongs to.
+# Also covers common country abbreviations users actually type ("USA" would
+# otherwise hit Usa, a city in Japan; "UAE" resolves to nothing at all).
 CITY_OVERRIDES: dict[str, str] = {
     "toronto": "CA",
     "paris": "FR",
@@ -182,7 +184,11 @@ CITY_OVERRIDES: dict[str, str] = {
     "dublin": "IE",
     "cairo": "EG",
     "us": "US",
+    "usa": "US",
+    "america": "US",
     "uk": "GB",
+    "uae": "AE",
+    "ksa": "SA",
     "san francisco": "US",
     "san jose": "US",
     "los angeles": "US",
@@ -341,6 +347,20 @@ def load_geo_index() -> dict[str, dict[str, str]]:
         return {"countries": {}, "states": {}, "cities": {}}
     with open(INDEX_PATH, encoding="utf-8") as f:
         return json.load(f)
+
+
+def country_aliases() -> dict[str, list[str]]:
+    """Short forms and aliases grouped by ISO2 code (for the dropdown search).
+
+    Lets the preferences country picker match "uae", "dxb", "nyc" etc. to the
+    right country. Pure derivation of the tables above.
+    """
+    grouped: dict[str, list[str]] = {}
+    for alias, code in list(SHORT_FORMS.items()) + list(CITY_OVERRIDES.items()):
+        code = code.upper()
+        if alias not in grouped.setdefault(code, []):
+            grouped[code].append(alias)
+    return {code: sorted(aliases) for code, aliases in grouped.items()}
 
 
 def country_stored_variants(values: list[str]) -> list[str]:

@@ -19,7 +19,11 @@ export function CountrySelect({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const filtered = countries
-    .filter((c) => `${c.name} ${c.code}`.toLowerCase().includes(query.trim().toLowerCase()))
+    .filter((c) =>
+      `${c.name} ${c.code} ${(c.aliases || []).join(" ")}`
+        .toLowerCase()
+        .includes(query.trim().toLowerCase()),
+    )
     .slice(0, 50);
 
   useEffect(() => {

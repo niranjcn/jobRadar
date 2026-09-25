@@ -180,6 +180,7 @@ export interface LocationMappingResult {
 export interface GeoCountry {
   name: string;
   code: string;
+  aliases?: string[];
 }
 
 export interface LocationPreview {

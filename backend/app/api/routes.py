@@ -16,7 +16,7 @@ from app.api.detect import detect_source
 from app.auth import UserCtx, get_current_admin, get_current_user, require_product_access
 from app.config import load_settings
 from app.db import get_supabase, query
-from app.geo import load_geo_index, map_location
+from app.geo import country_aliases, load_geo_index, map_location
 from app.matcher import recompute_matches
 from app.poller import create_poll_run as poller_create_run
 from app.poller import (
@@ -1015,10 +1015,18 @@ def notifications(
 
 @router.get("/geo/countries")
 def geo_countries() -> dict:
-    """Country list for the preferences dropdown (name + ISO2 code)."""
+    """Country list for the preferences dropdown (name + ISO2 code + aliases).
+
+    Aliases let the picker match short forms users actually type ("uae",
+    "dxb", "nyc") to the right country.
+    """
     idx = load_geo_index()
+    aliases = country_aliases()
     countries = sorted(
-        [{"name": name.title(), "code": code} for name, code in idx["countries"].items()],
+        [
+            {"name": name.title(), "code": code, "aliases": aliases.get(code, [])}
+            for name, code in idx["countries"].items()
+        ],
         key=lambda c: c["name"],
     )
     return {"countries": countries}
