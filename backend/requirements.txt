@@ -1,4 +1,4 @@
-fastapi>=0.115
+fastapi>=0.161.1
 uvicorn[standard]>=0.32
 apscheduler>=3.10,<4
 supabase>=2.31.0
