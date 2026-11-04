@@ -50,12 +50,18 @@ def main() -> None:
         print("telegram: skipped (not configured)")
 
     if settings.notify_enabled and settings.resend_api_key and settings.notify_to:
-        html = build_html(SAMPLE_JOBS)
+        manage_url = f"{settings.app_base_url}/preferences" if settings.app_base_url else ""
+        html = build_html(
+            SAMPLE_JOBS,
+            unsubscribe_url=manage_url or None,
+            postal_address=settings.postal_address or None,
+        )
         _send_email(
             api_key=settings.resend_api_key,
             to_addresses=settings.notify_to,
             subject="JobQuest test — 3 sample jobs",
             html=html,
+            extra_headers={"List-Unsubscribe": f"<{manage_url}>"} if manage_url else None,
         )
         print("email: sent OK")
     else:

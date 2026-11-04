@@ -93,9 +93,14 @@ def _send_email(
     subject: str,
     html: str,
     idempotency_key: str | None = None,
+    extra_headers: dict[str, str] | None = None,
 ) -> None:
     """Send via Resend. idempotency_key (when given) makes crash-retries safe:
-    Resend dedups redeliveries of the same logical send server-side."""
+    Resend dedups redeliveries of the same logical send server-side.
+
+    extra_headers sets recipient-visible headers such as List-Unsubscribe
+    (CAN-SPAM: every marketing email must offer a working opt-out).
+    """
     with httpx.Client(timeout=30.0) as client:
         headers = {
             "Authorization": f"Bearer {api_key}",
@@ -103,17 +108,18 @@ def _send_email(
         }
         if idempotency_key:
             headers["Idempotency-Key"] = idempotency_key
+        payload: dict[str, Any] = {
+            "from": TEST_MODE_FROM,
+            "to": to_addresses,
+            "subject": subject,
+            "html": html,
+        }
+        if extra_headers:
+            payload["headers"] = extra_headers
         response = client.post(
             RESEND_API_URL,
             headers=headers,
-            content=json.dumps(
-                {
-                    "from": TEST_MODE_FROM,
-                    "to": to_addresses,
-                    "subject": subject,
-                    "html": html,
-                }
-            ),
+            content=json.dumps(payload),
         )
         if response.status_code >= 400:
             raise RuntimeError(f"resend API {response.status_code}: {response.text[:200]}")
@@ -141,6 +147,8 @@ def send_email_notifications(
     candidates: list[tuple[str, str]],
     scope: str = "matched",
     jobs: list[dict[str, Any]] | None = None,
+    app_base_url: str = "",
+    postal_address: str = "",
 ) -> tuple[int, int]:
     if not enabled:
         return 0, 0
@@ -177,6 +185,12 @@ def send_email_notifications(
     if not new_matches:
         return 0, 0
 
+    # CAN-SPAM: working unsubscribe mechanism + physical postal address on
+    # every send. The manage URL lands on preferences (one click to disable
+    # email alerts via the notify_email toggle); the same URL feeds the
+    # List-Unsubscribe header so inboxes render a native unsubscribe button.
+    manage_url = f"{app_base_url}/preferences" if app_base_url else ""
+    list_unsub = f"<{manage_url}>" if manage_url else ""
     _send_email(
         api_key=api_key,
         to_addresses=to_addresses,
@@ -184,7 +198,14 @@ def send_email_notifications(
             f"📡 JobQuest: {len(jobs)} new job(s), "
             f"{len(new_matches)} new matching job(s) — {datetime.now(UTC):%b %d}"
         ),
-        html=build_html(new_matches, new_jobs=len(jobs), new_matches=len(new_matches)),
+        html=build_html(
+            new_matches,
+            new_jobs=len(jobs),
+            new_matches=len(new_matches),
+            unsubscribe_url=manage_url or None,
+            postal_address=postal_address or None,
+        ),
+        extra_headers={"List-Unsubscribe": list_unsub} if list_unsub else None,
     )
     sent = [match["job_id"] for match in new_matches]
     _mark_sent(supabase, DEFAULT_USER_ID, sent)
