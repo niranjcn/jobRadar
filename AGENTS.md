@@ -1,5 +1,9 @@
 # AGENTS.md — JobQuest
 
+> **Before any task:** read `docs/CODEBASE_MAP.md` first. It maps the actual implemented
+> state (real routes, adapters, tables, pages, pipelines, current WIP). This file describes
+> architecture intent; the map describes reality. Keep the map updated when things change.
+
 ## 1. Project Overview
 
 JobQuest is a job discovery and alerting platform that continuously monitors company career pages and job platforms, detects newly published jobs, filters them according to user preferences, deduplicates results, and delivers relevant alerts through Telegram and email.
