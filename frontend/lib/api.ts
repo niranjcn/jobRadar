@@ -218,7 +218,7 @@ export const api = {
   // ---------- auth / access ----------
 
   me: () => request<Me>("/api/auth/me"),
-  register: (payload: { email: string; display_name?: string; password: string; accept_terms: boolean }) =>
+  register: (payload: { email: string; display_name?: string; password: string; accept_terms: boolean; date_of_birth: string }) =>
     request<{ ok: boolean; access_locked: boolean; user_id: string; status: string } & Me>("/api/auth/register", {
       method: "POST",
       body: JSON.stringify(payload),

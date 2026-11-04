@@ -300,6 +300,33 @@ def sanitize_display_name(name: str) -> str:
     return raw
 
 
+def validate_date_of_birth(value: str, *, minimum_age: int = 18) -> str:
+    """Validate a YYYY-MM-DD birth date and enforce a minimum age.
+
+    COPPA/Terms age gate: signup must ask for age and refuse under-age
+    accounts. Returns the normalized ISO date string. Raises ValueError
+    with a user-facing message when missing, malformed, in the future,
+    or below the minimum age.
+    """
+    from datetime import date
+
+    raw = (value or "").strip()
+    if not raw:
+        raise ValueError("date of birth is required")
+    try:
+        year, month, day = (int(part) for part in raw.split("-"))
+        born = date(year, month, day)
+    except (ValueError, TypeError):
+        raise ValueError("date of birth must be a valid date (YYYY-MM-DD)")
+    today = datetime.now(UTC).date()
+    if born > today:
+        raise ValueError("date of birth cannot be in the future")
+    age = today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+    if age < minimum_age:
+        raise ValueError(f"you must be at least {minimum_age} years old to use JobQuest")
+    return born.isoformat()
+
+
 def log_auth_event(
     settings: Settings,
     *,

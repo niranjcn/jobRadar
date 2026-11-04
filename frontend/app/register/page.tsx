@@ -59,11 +59,32 @@ function passwordIssues(pwd: string, email?: string, name?: string): string[] {
   return issues;
 }
 
+// COPPA / Terms §03 age gate — mirrors backend/app/auth.py validate_date_of_birth
+function maxBirthDate(): string {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - 18);
+  return d.toISOString().slice(0, 10);
+}
+function dobError(v: string): string | null {
+  if (!v) return "Date of birth is required";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return "Use YYYY-MM-DD";
+  const born = new Date(v + "T00:00:00");
+  if (Number.isNaN(born.getTime())) return "Enter a valid date";
+  const today = new Date();
+  if (born > today) return "Date of birth cannot be in the future";
+  let age = today.getFullYear() - born.getFullYear();
+  const m = today.getMonth() - born.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < born.getDate())) age--;
+  if (age < 18) return "You must be at least 18 years old to use JobQuest";
+  return null;
+}
+
 export default function RegisterPage() {
   const router = useRouter();
   const { refresh } = useAuth();
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
+  const [dob, setDob] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [showPw, setShowPw] = useState(false);
@@ -75,6 +96,7 @@ export default function RegisterPage() {
 
   const emailErr = useMemo(() => (email && !isValidEmail(email) ? "Enter a valid email address" : null), [email]);
   const nameErr = useMemo(() => (name ? displayNameError(name) : null), [name]);
+  const birthErr = useMemo(() => (dob ? dobError(dob) : null), [dob]);
   const pwIssues = useMemo(() => passwordIssues(password, email, name), [password, email, name]);
   const confirmErr = useMemo(() => (confirm && confirm !== password ? "Passwords do not match" : null), [confirm, password]);
 
@@ -83,7 +105,7 @@ export default function RegisterPage() {
     [/[A-Z]/, /[a-z]/, /[0-9]/, /[!@#$%^&*()\-_=+[\]{}|;:',.<>?/`~]/].filter((r) => r.test(password)).length >= 3;
   const ruleClean = password.length > 0 && pwIssues.length === 0;
 
-  const canSubmit = !busy && isValidEmail(email) && !nameErr && name.trim() && pwIssues.length === 0 && !confirmErr && password === confirm && password.length > 0 && acceptTerms;
+  const canSubmit = !busy && isValidEmail(email) && !nameErr && name.trim() && !birthErr && dob && pwIssues.length === 0 && !confirmErr && password === confirm && password.length > 0 && acceptTerms;
 
   async function submit(e?: React.FormEvent) {
     e?.preventDefault();
@@ -96,6 +118,7 @@ export default function RegisterPage() {
         display_name: name.trim(),
         password: password,
         accept_terms: acceptTerms,
+        date_of_birth: dob,
       });
       await refresh();
       router.replace("/dashboard");
@@ -220,6 +243,33 @@ export default function RegisterPage() {
                 <p className={styles.fieldError}>{emailErr}</p>
               ) : (
                 <p className={styles.helper}>We’ll never share your email. Lowercased and trimmed.</p>
+              )}
+            </div>
+
+            <div>
+              <label htmlFor="dob" className={styles.fieldLabel}>
+                Date of birth
+              </label>
+              <div className={styles.inputWrap}>
+                <input
+                  id="dob"
+                  type="date"
+                  autoComplete="bday"
+                  required
+                  max={maxBirthDate()}
+                  value={dob}
+                  onChange={(e) => setDob(e.target.value)}
+                  className={styles.input}
+                  aria-invalid={!!birthErr}
+                  aria-describedby="dob-help"
+                />
+              </div>
+              {birthErr ? (
+                <p className={styles.fieldError}>{birthErr}</p>
+              ) : (
+                <p className={styles.helper} id="dob-help">
+                  You must be at least 18 years old to use JobQuest.
+                </p>
               )}
             </div>
 

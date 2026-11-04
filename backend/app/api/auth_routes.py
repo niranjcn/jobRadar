@@ -15,6 +15,7 @@ from app.auth import (
     rate_limit,
     sanitize_display_name,
     set_session_cookie,
+    validate_date_of_birth,
     validate_password_strength,
 )
 from app.config import load_settings
@@ -68,6 +69,7 @@ class RegisterBody(BaseModel):
     display_name: str = ""
     password: str
     accept_terms: bool = False
+    date_of_birth: str = ""
 
 
 @router.post("/register", status_code=201)
@@ -80,6 +82,11 @@ def register(body: RegisterBody, request: Request, response: Response) -> dict:
     email = (body.email or "").strip().lower()
     if not is_valid_email(email):
         raise HTTPException(status_code=422, detail="enter a valid email address")
+    # Age gate (COPPA / Terms §03: 18+). Server-enforced — never trust the client.
+    try:
+        birth_iso = validate_date_of_birth(body.date_of_birth)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     # DPDP Act 2023: explicit, unticked consent — server-enforced, never implied.
     if not body.accept_terms:
         raise HTTPException(
@@ -107,6 +114,7 @@ def register(body: RegisterBody, request: Request, response: Response) -> dict:
             email=email,
             display_name=display_name,
             password=body.password,
+            date_of_birth=birth_iso,
         )
     except ValueError as exc:
         # Use generic timing to reduce enumeration, but still 409 for UX (admin needs to know duplicate)
