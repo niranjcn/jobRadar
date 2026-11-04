@@ -4,6 +4,12 @@ import { TelegramBridge } from "@/components/telegram-bridge";
 import { AuthProvider } from "@/lib/auth-context";
 import "./globals.css";
 
+// Privacy (GDPR): next/font/google is SELF-HOSTED — font files are downloaded
+// once at build time and served from /_next/static. The browser never contacts
+// fonts.googleapis.com / fonts.gstatic.com, so no visitor IP leaks to Google.
+// Do NOT add <link> tags to Google Fonts or any CDN-hosted fonts; keep all
+// fonts served from this origin (guarded by test/legal-guards.test.ts).
+
 const fraunces = Fraunces({
   subsets: ["latin"],
   weight: ["700", "800"],

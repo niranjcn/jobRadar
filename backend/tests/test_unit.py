@@ -6,6 +6,7 @@ import re
 import sys
 from pathlib import Path
 
+import psycopg
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -3006,3 +3007,145 @@ def test_eightfold_escaped_render():
     escaped = raw.replace('"positions"', "&#34;positions&#34;").replace('"id"', "&#34;id&#34;")
     assert _extract_positions(html_module.unescape(escaped)) is not None
     assert len(_extract_positions(html_module.unescape(escaped)) or []) == 2
+
+
+def test_validate_date_of_birth_accepts_adult():
+    from app.auth import validate_date_of_birth
+
+    assert validate_date_of_birth("1990-05-17") == "1990-05-17"
+
+
+def test_validate_date_of_birth_rejects_underage():
+    from datetime import UTC, datetime
+
+    from app.auth import validate_date_of_birth
+
+    today = datetime.now(UTC).date()
+    teen = today.replace(year=today.year - 10).isoformat()
+    try:
+        validate_date_of_birth(teen)
+    except ValueError as exc:
+        assert "at least 18" in str(exc)
+    else:
+        raise AssertionError("under-18 birth date must be rejected")
+
+
+def test_validate_date_of_birth_rejects_bad_input():
+    import pytest
+
+    from app.auth import validate_date_of_birth
+
+    for bad in ["", "not-a-date", "2015-13-40", "2999-01-01"]:
+        with pytest.raises(ValueError):
+            validate_date_of_birth(bad)
+
+
+def test_register_body_requires_dob_field():
+    """Age gate: DOB defaults to empty so old clients get a clear 422, not silent pass."""
+    from app.api.auth_routes import RegisterBody
+
+    assert RegisterBody(email="a@b.com", display_name="A B", password="x").date_of_birth == ""
+
+
+def test_build_html_footer_unsubscribe_and_postal():
+    """CAN-SPAM: every email carries an unsubscribe link + postal address."""
+    jobs = [
+        {"title": "Engineer", "company": "Acme", "location": "Remote", "url": "https://a.example/x"}
+    ]
+    html = build_html(
+        jobs,
+        new_jobs=1,
+        new_matches=1,
+        unsubscribe_url="https://dash.example.com/preferences",
+        postal_address="Jane Doe, 1 Main St, Mumbai 400001, India",
+    )
+    assert "https://dash.example.com/preferences" in html
+    assert "Unsubscribe" in html
+    assert "Mumbai 400001" in html
+
+
+def test_build_html_footer_placeholders_when_unconfigured():
+    """Missing APP_BASE_URL/POSTAL_ADDRESS renders visible placeholders, never silently bare."""
+    html = build_html([{"title": "E", "company": "C", "location": "", "url": ""}])
+    assert "[UNSUBSCRIBE_URL]" in html
+    assert "[POSTAL_ADDRESS]" in html
+
+
+def test_send_email_sets_list_unsubscribe_header(monkeypatch):
+    """CAN-SPAM: List-Unsubscribe header is passed through to Resend."""
+    import json as json_module
+
+    import app.notify as notify_module
+
+    captured: dict = {}
+
+    class FakeResponse:
+        status_code = 200
+        text = "ok"
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def post(self, url, headers=None, content=None):
+            captured["headers"] = headers
+            captured["payload"] = json_module.loads(content)
+            return FakeResponse()
+
+    monkeypatch.setattr(notify_module.httpx, "Client", FakeClient)
+    notify_module._send_email(
+        api_key="re_test",
+        to_addresses=["a@example.com"],
+        subject="s",
+        html="<p>hi</p>",
+        extra_headers={"List-Unsubscribe": "<https://dash.example.com/preferences>"},
+    )
+    assert captured["payload"]["headers"] == {
+        "List-Unsubscribe": "<https://dash.example.com/preferences>"
+    }
+
+
+def test_migration_connect_retries_until_postgres_is_ready(monkeypatch):
+    """Startup survives crash/WAL recovery instead of failing the first connect."""
+    import app.migrate as migrate_module
+
+    attempts = []
+    sentinel = object()
+
+    def fake_connect(url):
+        attempts.append(url)
+        if len(attempts) < 3:
+            raise psycopg.OperationalError("the database system is not yet accepting connections")
+        return sentinel
+
+    sleeps = []
+    monkeypatch.setattr(migrate_module.psycopg, "connect", fake_connect)
+    conn = migrate_module.connect_with_retry(
+        "postgresql://example", wait_seconds=30, sleep=sleeps.append
+    )
+    assert conn is sentinel
+    assert len(attempts) == 3
+    assert sleeps == [1.0, 2.0]
+
+
+def test_migration_connect_gives_up_after_wait_window(monkeypatch):
+    import app.migrate as migrate_module
+
+    attempts = []
+
+    def fake_connect(url):
+        attempts.append(url)
+        raise psycopg.OperationalError("the database system is not yet accepting connections")
+
+    monkeypatch.setattr(migrate_module.psycopg, "connect", fake_connect)
+    with pytest.raises(psycopg.OperationalError):
+        migrate_module.connect_with_retry(
+            "postgresql://example", wait_seconds=0, sleep=lambda _: None
+        )
+    assert len(attempts) == 1
