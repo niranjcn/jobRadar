@@ -140,6 +140,9 @@ export default function TermsPage() {
                   <Link href="/refund">Refund &amp; Cancellation Policy</Link>
                 </li>
                 <li>
+                  <Link href="/dmca">Copyright &amp; DMCA Policy</Link>
+                </li>
+                <li>
                   <Link href="/contact">Contact</Link>
                 </li>
               </ul>
@@ -195,6 +198,9 @@ export default function TermsPage() {
               </li>
               <li>
                 <Link href="/refund">Refunds</Link>
+              </li>
+              <li>
+                <Link href="/dmca">DMCA</Link>
               </li>
               <li>
                 <Link href="/contact">Contact</Link>

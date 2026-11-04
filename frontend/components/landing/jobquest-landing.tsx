@@ -1356,6 +1356,7 @@ export function JobQuestLanding() {
         <Link href="/terms">Terms</Link>
         <Link href="/privacy">Privacy</Link>
         <Link href="/refund">Refunds</Link>
+        <Link href="/dmca">DMCA</Link>
         <Link href="/contact">Contact</Link>
         <Link href="/pricing">Pricing</Link>
       </footer>
