@@ -260,6 +260,12 @@ export default function BillingPage() {
                 <Link href="/pricing" className={styles.btnLine}>
                   View Pricing
                 </Link>
+                <p className="w-full text-xs text-text-muted" style={{ marginTop: 8 }}>
+                  {planPrice
+                    ? `${planPrice.currency === "INR" ? "₹" : planPrice.currency === "USD" ? "$" : `${planPrice.currency} `}${(planPrice.price_minor_units / 100).toFixed(planPrice.price_minor_units % 100 === 0 ? 0 : 2)}/${planPrice.interval} — `
+                    : ""}
+                  Auto-renews each month until cancelled. Cancel anytime (autopay off, access until period end, no further charges).
+                </p>
               </>
             ) : sub.provider === "razorpay" ? (
               <button onClick={cancelAutopay} disabled={busy} className={styles.btnLine}>
