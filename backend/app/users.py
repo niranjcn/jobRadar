@@ -61,7 +61,7 @@ def fetch_user(settings: Settings, user_id: str) -> list[dict[str, Any]]:
         settings,
         "select id, email, telegram_chat_id, "
         "display_name, role, status, capabilities, alert_delay_minutes, access_locked, "
-        "is_owner, password_hash, last_login_at, created_at, accepted_terms_at "
+        "is_owner, password_hash, last_login_at, created_at, accepted_terms_at, date_of_birth "
         "from users where id = %s::uuid",
         (user_id,),
     )
@@ -166,18 +166,22 @@ def create_registered_user(
     email: str,
     display_name: str = "",
     password: str | None = None,
+    date_of_birth: str = "",
 ) -> dict[str, Any]:
     """Register a new account. MNC flow: approved immediately but locked until payment/coupon."""
     from app.auth import (
         hash_password,
         is_valid_email,
         sanitize_display_name,
+        validate_date_of_birth,
         validate_password_strength,
     )
 
     email = (email or "").strip().lower()
     if not is_valid_email(email):
         raise ValueError("a valid email is required")
+    # Age gate (COPPA / Terms §03): DOB required, 18+ enforced server-side.
+    birth_iso = validate_date_of_birth(date_of_birth)
     # sanitize display_name via MNC rules
     if display_name and display_name.strip():
         display_name = sanitize_display_name(display_name)
@@ -200,6 +204,8 @@ def create_registered_user(
         "password_hash": hash_password(password),
         # DPDP consent timestamp — route guarantees accept_terms=True before calling.
         "accepted_terms_at": datetime.now(UTC).isoformat(),
+        # Age-gate record — route/user helper guarantees a validated 18+ date.
+        "date_of_birth": birth_iso,
     }
     response = supabase.table("users").insert(payload).execute()
     row = response.data[0]

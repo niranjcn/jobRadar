@@ -69,6 +69,11 @@ export const PRIVACY_SECTIONS: PrivacySection[] = [
             frequency, match scope, and whether the first check notifies you).
           </li>
           <li>
+            <strong>Date of birth</strong> — required at registration to enforce the 18+
+            age requirement. Only the birth date is stored; it is used solely for
+            age verification.
+          </li>
+          <li>
             <strong>Terms acceptance timestamp</strong> — the date and time you ticked the consent
             checkbox at registration. We do not currently record which policy version you accepted.
           </li>
@@ -318,7 +323,7 @@ export const PRIVACY_SECTIONS: PrivacySection[] = [
             <tr>
               <td>Resend (email)</td>
               <td>Currently dormant</td>
-              <td>No automated email is sent today; only a manual test script can send sample mail</td>
+              <td>No automated email is sent today; only a manual test script can send sample mail. When email is enabled, every message carries an unsubscribe/manage link, a List-Unsubscribe header, and the operator&rsquo;s postal address — and you can switch email alerts off any time in Preferences.</td>
             </tr>
           </tbody>
         </table>
@@ -516,9 +521,12 @@ export const PRIVACY_SECTIONS: PrivacySection[] = [
     body: (
       <>
         <P>
-          Registration does not currently verify age, and the Terms of Service require users to be
-          at least 18 years old and legally able to enter the agreement. If an account is found to
-          belong to someone ineligible, it may be disabled or removed by the operator.
+          Registration requires your date of birth, and accounts are only created
+          for users aged 18 or older — the signup form and our servers both refuse
+          under-18 registrations, and the Terms of Service require users to be at
+          least 18 years old and legally able to enter the agreement. If an account
+          is found to belong to someone ineligible, it may be disabled or removed
+          by the operator.
         </P>
       </>
     ),

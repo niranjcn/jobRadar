@@ -85,6 +85,11 @@ export default function UnlockPage() {
               <button onClick={pay} disabled={busy} className="btn-primary mt-4 w-full">
                 Subscribe
               </button>
+              <p className="mt-2 text-xs text-text-muted">
+                {formatPrice(plan.price_minor_units, plan.currency)}/{plan.interval} — auto-renews
+                each {plan.interval} until cancelled. Cancel anytime from Billing; you keep access
+                until the end of the paid period.
+              </p>
             </div>
           ))}
 

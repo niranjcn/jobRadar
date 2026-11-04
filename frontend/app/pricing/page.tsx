@@ -65,6 +65,10 @@ export default function PricingPage() {
               <Link href={ctaHref} className="btn-primary mt-6 w-full text-center">
                 {ctaLabel}
               </Link>
+              <p className="mt-2 text-xs text-text-muted">
+                {formatPrice(plan.price_minor_units, plan.currency)}/{plan.interval} — auto-renews
+                each {plan.interval} until cancelled. Cancel anytime; access runs to period end.
+              </p>
             </div>
           ))}
         </div>

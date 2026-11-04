@@ -14,6 +14,9 @@ export const LEGAL = {
   domain: "[DOMAIN]",
   grievanceName: "[GRIEVANCE_OFFICER_NAME]",
   grievanceEmail: "[GRIEVANCE_OFFICER_EMAIL]",
+  // DMCA designated agent — register at copyright.gov ($6) then replace this
+  // placeholder with the agent's real contact (see /dmca for instructions).
+  dmcaEmail: "[DMCA_AGENT_EMAIL]",
 };
 
 export type LegalSection = { id: string; title: string };
@@ -137,6 +140,9 @@ export function LegalShell({
           </Link>
           <Link href="/refund" className="hover:text-text">
             Refunds
+          </Link>
+          <Link href="/dmca" className="hover:text-text">
+            DMCA
           </Link>
           <Link href="/contact" className="hover:text-text">
             Contact

@@ -101,6 +101,8 @@ class Settings:
         razorpay_key_secret: str = "",
         razorpay_webhook_secret: str = "",
         razorpay_plan_id: str = "",
+        app_base_url: str = "",
+        postal_address: str = "",
     ) -> None:
         self.supabase_url = supabase_url
         self.supabase_key = supabase_key
@@ -130,6 +132,10 @@ class Settings:
         self.razorpay_key_secret = razorpay_key_secret
         self.razorpay_webhook_secret = razorpay_webhook_secret
         self.razorpay_plan_id = razorpay_plan_id
+        # CAN-SPAM footer: public dashboard URL (unsubscribe/manage link target)
+        # and the physical postal address printed in every marketing email.
+        self.app_base_url = app_base_url
+        self.postal_address = postal_address
 
 
 def _parse_list(value: str) -> list[str]:
@@ -200,6 +206,8 @@ def _build_settings() -> Settings:
         razorpay_key_secret=os.environ.get("RAZORPAY_KEY_SECRET", "").strip(),
         razorpay_webhook_secret=os.environ.get("RAZORPAY_WEBHOOK_SECRET", "").strip(),
         razorpay_plan_id=os.environ.get("RAZORPAY_PLAN_ID", "").strip(),
+        app_base_url=os.environ.get("APP_BASE_URL", "").strip().rstrip("/"),
+        postal_address=os.environ.get("POSTAL_ADDRESS", "").strip(),
     )
 
 

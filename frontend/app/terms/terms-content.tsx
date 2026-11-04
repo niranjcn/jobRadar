@@ -773,6 +773,10 @@ export const TERMS_SECTIONS: TermsSection[] = [
           Job Listing content remains subject to the rights of the respective Employers, publishers,
           or other rights holders.
         </P>
+        <P>
+          To report content you believe infringes your copyright, see our{" "}
+          <Link href="/dmca">Copyright &amp; DMCA Policy</Link>.
+        </P>
       </>
     ),
   },

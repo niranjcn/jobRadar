@@ -157,6 +157,9 @@ export default function PrivacyPage() {
                 <Link href="/refund">Refunds</Link>
               </li>
               <li>
+                <Link href="/dmca">DMCA</Link>
+              </li>
+              <li>
                 <Link href="/contact">Contact</Link>
               </li>
             </ul>

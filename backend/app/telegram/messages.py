@@ -92,6 +92,8 @@ def build_html(
     *,
     new_jobs: int | None = None,
     new_matches: int | None = None,
+    unsubscribe_url: str | None = None,
+    postal_address: str | None = None,
 ) -> str:
     """HTML rendering of the same structure for email.
 
@@ -100,6 +102,12 @@ def build_html(
     even when no jobs matched, so the recipient always gets a status update
     after a poll. Individual matched jobs still render in the grouped
     structure below it.
+
+    CAN-SPAM: every marketing email must carry a working unsubscribe link
+    and the sender's physical postal address. Pass ``unsubscribe_url`` (the
+    preferences/manage page) and ``postal_address``; both render in a footer
+    on every send. Placeholders render visibly so a missing configuration
+    is obvious instead of silently non-compliant.
     """
     groups = group_by_company(jobs)
 
@@ -134,4 +142,17 @@ def build_html(
                 parts.append(f"<p>{meta}</p>")
                 if url:
                     parts.append(f'<p><a href="{escape(url)}">Apply</a></p>')
+    footer_lines = []
+    if unsubscribe_url:
+        footer_lines.append(
+            f"You received this because job alerts are enabled. "
+            f'<a href="{escape(unsubscribe_url)}">Unsubscribe or manage email alerts</a>.'
+        )
+    else:
+        footer_lines.append(
+            "You received this because job alerts are enabled. "
+            "Manage email alerts in JobQuest preferences. [UNSUBSCRIBE_URL]"
+        )
+    footer_lines.append(escape(postal_address) if postal_address else "[POSTAL_ADDRESS]")
+    parts.append('<hr><p style="font-size:12px;color:#666">' + "<br>".join(footer_lines) + "</p>")
     return "<html><body>" + "\n".join(parts) + "</body></html>"

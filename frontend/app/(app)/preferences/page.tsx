@@ -352,6 +352,26 @@ export default function PreferencesPage() {
         </section>
 
         <section className="card space-y-4 p-5">
+          <h2 className="text-[15px] font-semibold">Email alerts</h2>
+          <p className="text-sm text-text-secondary">
+            Receive <strong>matched jobs</strong> by email. Every email carries an{" "}
+            <strong>unsubscribe link</strong> — or switch alerts off here at any time.
+          </p>
+          <label className="flex cursor-pointer items-center gap-2.5 text-sm">
+            <input
+              type="checkbox"
+              checked={prefs.notify_email ?? true}
+              onChange={(e) => setPrefs({ ...prefs, notify_email: e.target.checked })}
+              className="h-4 w-4 accent-teal-700"
+            />
+            Send me email alerts for new matches
+          </label>
+          <p className="text-xs text-text-muted">
+            Turn this off to unsubscribe from all JobQuest emails. Telegram alerts are controlled separately below.
+          </p>
+        </section>
+
+        <section className="card space-y-4 p-5">
           <h2 className="text-[15px] font-semibold">Telegram alerts</h2>
           <p className="text-sm text-text-secondary">
             Your <strong>matched jobs</strong> will be sent instantly to this Telegram chat ID after payment is active. Find your ID via{" "}

@@ -45,7 +45,9 @@ class RedeemBody(BaseModel):
 
 
 @router.post("/coupons/redeem")
-def redeem(body: RedeemBody, request: Request, ctx: Annotated[UserCtx, Depends(get_current_user)]) -> dict:
+def redeem(
+    body: RedeemBody, request: Request, ctx: Annotated[UserCtx, Depends(get_current_user)]
+) -> dict:
     if ctx.anonymous:
         raise HTTPException(status_code=401, detail="register or log in first")
     # Per-IP and per-domain throttling (reuses DB-backed rate_events, same API as auth).
@@ -53,12 +55,19 @@ def redeem(body: RedeemBody, request: Request, ctx: Annotated[UserCtx, Depends(g
 
     ip = request.client.host if request.client else "unknown"
     if not rate_limit(f"coupon:ip:{ip}", max_events=5, window_seconds=3600):
-        raise HTTPException(status_code=429, detail="too many redemptions from this IP, try again in an hour")
+        raise HTTPException(
+            status_code=429, detail="too many redemptions from this IP, try again in an hour"
+        )
     # Per-domain throttle on the user's email domain (50/day would be abusive)
     try:
         domain = (ctx.email or "").split("@")[-1].lower() if ctx.email and "@" in ctx.email else ""
-        if domain and not rate_limit(f"coupon:domain:{domain}", max_events=20, window_seconds=86400):
-            raise HTTPException(status_code=429, detail="too many redemptions for this email domain, try again tomorrow")
+        if domain and not rate_limit(
+            f"coupon:domain:{domain}", max_events=20, window_seconds=86400
+        ):
+            raise HTTPException(
+                status_code=429,
+                detail="too many redemptions for this email domain, try again tomorrow",
+            )
     except Exception:
         pass
     settings = load_settings()
