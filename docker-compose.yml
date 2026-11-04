@@ -15,10 +15,17 @@ services:
     # (see logs: "database system was interrupted" + "redo in progress 54s" + "invalid record length").
     stop_grace_period: 30s
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      # pg_isready reports "accepting connections" while Postgres is still
+      # replaying WAL after an unclean shutdown, so web used to start before
+      # migrations could connect. A real query only succeeds once recovery
+      # has finished and the server accepts sessions.
+      test: ["CMD-SHELL", "psql -U postgres -d postgres -tAc 'select 1' >/dev/null"]
       interval: 5s
       timeout: 5s
       retries: 10
+      # WAL replay after an unclean shutdown can take minutes; keep the
+      # container in "starting" (not "unhealthy") long enough to finish.
+      start_period: 300s
     restart: unless-stopped
 
   postgrest:
